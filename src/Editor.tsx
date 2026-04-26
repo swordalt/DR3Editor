@@ -62,6 +62,124 @@ const LANE_COUNT = 8;
 const X_POSITION_COUNT = LANE_COUNT * 2;
 const SNAP_EPSILON = 0.000001;
 
+type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'bpmTiming';
+type CurveIdSelectTarget = 'start' | 'end' | null;
+type CurveEasingFamily = 'linear' | 'sine' | 'quad' | 'cubic' | 'quart' | 'quint' | 'expo' | 'circ' | 'back' | 'elastic';
+type CurveEasingType = 'in' | 'out' | 'inOut';
+type CurveEasingId =
+  | 'linear'
+  | 'easeInSine'
+  | 'easeOutSine'
+  | 'easeInOutSine'
+  | 'easeInQuad'
+  | 'easeOutQuad'
+  | 'easeInOutQuad'
+  | 'easeInCubic'
+  | 'easeOutCubic'
+  | 'easeInOutCubic'
+  | 'easeInQuart'
+  | 'easeOutQuart'
+  | 'easeInOutQuart'
+  | 'easeInQuint'
+  | 'easeOutQuint'
+  | 'easeInOutQuint'
+  | 'easeInExpo'
+  | 'easeOutExpo'
+  | 'easeInOutExpo'
+  | 'easeInCirc'
+  | 'easeOutCirc'
+  | 'easeInOutCirc'
+  | 'easeInBack'
+  | 'easeOutBack'
+  | 'easeInOutBack'
+  | 'easeInElastic'
+  | 'easeOutElastic'
+  | 'easeInOutElastic';
+
+const EASING_PI = Math.PI;
+const EASING_BACK_C1 = 1.70158;
+const EASING_BACK_C2 = EASING_BACK_C1 * 1.525;
+const EASING_BACK_C3 = EASING_BACK_C1 + 1;
+const EASING_ELASTIC_C4 = (2 * EASING_PI) / 3;
+const EASING_ELASTIC_C5 = (2 * EASING_PI) / 4.5;
+
+const CURVE_EASING_FAMILY_OPTIONS: Array<{
+  id: CurveEasingFamily;
+  label: string;
+}> = [
+  { id: 'linear', label: 'Linear' },
+  { id: 'sine', label: 'Sine' },
+  { id: 'quad', label: 'Quad' },
+  { id: 'cubic', label: 'Cubic' },
+  { id: 'quart', label: 'Quart' },
+  { id: 'quint', label: 'Quint' },
+  { id: 'expo', label: 'Expo' },
+  { id: 'circ', label: 'Circ' },
+  { id: 'back', label: 'Back' },
+  { id: 'elastic', label: 'Elastic' },
+];
+
+const CURVE_EASING_TYPE_OPTIONS: Array<{
+  id: CurveEasingType;
+  label: string;
+}> = [
+  { id: 'in', label: 'In' },
+  { id: 'out', label: 'Out' },
+  { id: 'inOut', label: 'In/Out' },
+];
+
+const CURVE_EASING_OPTIONS: Array<{
+  id: CurveEasingId;
+  label: string;
+  ease: (progress: number) => number;
+}> = [
+  { id: 'linear', label: 'Linear', ease: (x) => x },
+  { id: 'easeInSine', label: 'Sine In', ease: (x) => 1 - Math.cos((x * EASING_PI) / 2) },
+  { id: 'easeOutSine', label: 'Sine Out', ease: (x) => Math.sin((x * EASING_PI) / 2) },
+  { id: 'easeInOutSine', label: 'Sine In/Out', ease: (x) => -(Math.cos(EASING_PI * x) - 1) / 2 },
+  { id: 'easeInQuad', label: 'Quad In', ease: (x) => x * x },
+  { id: 'easeOutQuad', label: 'Quad Out', ease: (x) => 1 - (1 - x) * (1 - x) },
+  { id: 'easeInOutQuad', label: 'Quad In/Out', ease: (x) => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2 },
+  { id: 'easeInCubic', label: 'Cubic In', ease: (x) => x * x * x },
+  { id: 'easeOutCubic', label: 'Cubic Out', ease: (x) => 1 - Math.pow(1 - x, 3) },
+  { id: 'easeInOutCubic', label: 'Cubic In/Out', ease: (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2 },
+  { id: 'easeInQuart', label: 'Quart In', ease: (x) => x * x * x * x },
+  { id: 'easeOutQuart', label: 'Quart Out', ease: (x) => 1 - Math.pow(1 - x, 4) },
+  { id: 'easeInOutQuart', label: 'Quart In/Out', ease: (x) => x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2 },
+  { id: 'easeInQuint', label: 'Quint In', ease: (x) => x * x * x * x * x },
+  { id: 'easeOutQuint', label: 'Quint Out', ease: (x) => 1 - Math.pow(1 - x, 5) },
+  { id: 'easeInOutQuint', label: 'Quint In/Out', ease: (x) => x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2 },
+  { id: 'easeInExpo', label: 'Expo In', ease: (x) => x === 0 ? 0 : Math.pow(2, 10 * x - 10) },
+  { id: 'easeOutExpo', label: 'Expo Out', ease: (x) => x === 1 ? 1 : 1 - Math.pow(2, -10 * x) },
+  { id: 'easeInOutExpo', label: 'Expo In/Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : x < 0.5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2 },
+  { id: 'easeInCirc', label: 'Circ In', ease: (x) => 1 - Math.sqrt(1 - Math.pow(x, 2)) },
+  { id: 'easeOutCirc', label: 'Circ Out', ease: (x) => Math.sqrt(1 - Math.pow(x - 1, 2)) },
+  { id: 'easeInOutCirc', label: 'Circ In/Out', ease: (x) => x < 0.5 ? (1 - Math.sqrt(1 - Math.pow(2 * x, 2))) / 2 : (Math.sqrt(1 - Math.pow(-2 * x + 2, 2)) + 1) / 2 },
+  { id: 'easeInBack', label: 'Back In', ease: (x) => EASING_BACK_C3 * x * x * x - EASING_BACK_C1 * x * x },
+  { id: 'easeOutBack', label: 'Back Out', ease: (x) => 1 + EASING_BACK_C3 * Math.pow(x - 1, 3) + EASING_BACK_C1 * Math.pow(x - 1, 2) },
+  { id: 'easeInOutBack', label: 'Back In/Out', ease: (x) => x < 0.5 ? (Math.pow(2 * x, 2) * ((EASING_BACK_C2 + 1) * 2 * x - EASING_BACK_C2)) / 2 : (Math.pow(2 * x - 2, 2) * ((EASING_BACK_C2 + 1) * (x * 2 - 2) + EASING_BACK_C2) + 2) / 2 },
+  { id: 'easeInElastic', label: 'Elastic In', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : -Math.pow(2, 10 * x - 10) * Math.sin((x * 10 - 10.75) * EASING_ELASTIC_C4) },
+  { id: 'easeOutElastic', label: 'Elastic Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * EASING_ELASTIC_C4) + 1 },
+  { id: 'easeInOutElastic', label: 'Elastic In/Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : x < 0.5 ? -(Math.pow(2, 20 * x - 10) * Math.sin((20 * x - 11.125) * EASING_ELASTIC_C5)) / 2 : (Math.pow(2, -20 * x + 10) * Math.sin((20 * x - 11.125) * EASING_ELASTIC_C5)) / 2 + 1 },
+];
+
+const CURVE_EASINGS_BY_ID = new Map(CURVE_EASING_OPTIONS.map((option) => [option.id, option]));
+
+const getCurveEasingId = (family: CurveEasingFamily, type: CurveEasingType): CurveEasingId => {
+  if (family === 'linear') {
+    return 'linear';
+  }
+
+  const direction = type === 'inOut'
+    ? 'InOut'
+    : type === 'in'
+      ? 'In'
+      : 'Out';
+  const familyName = family.charAt(0).toUpperCase() + family.slice(1);
+
+  return `ease${direction}${familyName}` as CurveEasingId;
+};
+
 const getTierBadge = (difficulty?: string) => {
   const difficultyText = difficulty?.trim() || '';
   const difficultyValue = Number.parseInt(difficultyText, 10);
@@ -166,6 +284,53 @@ const getBeatAtTimepos = (
 
 const getIndicatorKeyAtBeat = (beat: number) => beat.toFixed(6);
 
+const getCurveSnapBeatsBetween = (
+  startBeat: number,
+  endBeat: number,
+  divisionsPerMeasure: number,
+  timedBpmChanges: TimedBpmChange[],
+) => {
+  const minBeat = Math.min(startBeat, endBeat);
+  const maxBeat = Math.max(startBeat, endBeat);
+
+  if (maxBeat - minBeat <= SNAP_EPSILON || divisionsPerMeasure <= 0) {
+    return [];
+  }
+
+  const snapBeats: number[] = [];
+  const seenBeatKeys = new Set<string>();
+  let { measureStartBeat, measureEndBeat, beatsPerMeasure } = getMeasureSpanAtBeat(minBeat, timedBpmChanges);
+  let guard = 0;
+
+  while (measureStartBeat <= maxBeat + SNAP_EPSILON && guard < 10000) {
+    const step = beatsPerMeasure / divisionsPerMeasure;
+    const firstDivision = Math.max(0, Math.ceil((minBeat - measureStartBeat) / step - SNAP_EPSILON));
+    const lastDivision = Math.min(divisionsPerMeasure, Math.floor((maxBeat - measureStartBeat) / step + SNAP_EPSILON));
+
+    for (let division = firstDivision; division <= lastDivision; division += 1) {
+      const beat = measureStartBeat + division * step;
+
+      if (beat <= minBeat + SNAP_EPSILON || beat >= maxBeat - SNAP_EPSILON) {
+        continue;
+      }
+
+      const key = beat.toFixed(6);
+      if (!seenBeatKeys.has(key)) {
+        snapBeats.push(beat);
+        seenBeatKeys.add(key);
+      }
+    }
+
+    measureStartBeat = measureEndBeat;
+    beatsPerMeasure = getBeatsPerMeasureAtBeat(measureStartBeat, timedBpmChanges);
+    measureEndBeat = measureStartBeat + beatsPerMeasure;
+    guard += 1;
+  }
+
+  snapBeats.sort((a, b) => a - b);
+  return startBeat <= endBeat ? snapBeats : snapBeats.reverse();
+};
+
 interface EditorProps {
   onBack: () => void;
   mode?: EditorMode;
@@ -249,7 +414,7 @@ export default function Editor({
   const [gridZoom, setGridZoom] = useState(initialEditorSettings.gridZoom);
   const [isXPositionGridEnabled, setIsXPositionGridEnabled] = useState(initialEditorSettings.isXPositionGridEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
-  const [activeLeftPanel, setActiveLeftPanel] = useState<'main' | 'editInfo' | 'speedChanges' | 'organize' | 'history' | 'bpmTiming'>('main');
+  const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isLeftPanelCompact, setIsLeftPanelCompact] = useState(false);
   const [isRightPanelCompact, setIsRightPanelCompact] = useState(false);
@@ -258,6 +423,14 @@ export default function Editor({
   const [selectedNoteType, setSelectedNoteType] = useState<number>(1);
   const [noteWidth, setNoteWidth] = useState(4);
   const [currentParentInput, setCurrentParentInput] = useState('');
+  const [curveStartIdInput, setCurveStartIdInput] = useState('');
+  const [curveEndIdInput, setCurveEndIdInput] = useState('');
+  const [curveNoteType, setCurveNoteType] = useState<number>(1);
+  const [curveDensityInput, setCurveDensityInput] = useState('8');
+  const [curveEasingFamily, setCurveEasingFamily] = useState<CurveEasingFamily>('linear');
+  const [curveEasingType, setCurveEasingType] = useState<CurveEasingType>('in');
+  const [curveNotesMessage, setCurveNotesMessage] = useState('');
+  const [curveIdSelectTarget, setCurveIdSelectTarget] = useState<CurveIdSelectTarget>(null);
   const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null);
   const [isCtrlHeld, setIsCtrlHeld] = useState(false);
   const [isShiftHeld, setIsShiftHeld] = useState(false);
@@ -565,6 +738,24 @@ export default function Editor({
       setHoverPreview(null);
     }
   }, [isCtrlHeld, isShiftHeld]);
+
+  useEffect(() => {
+    if (!curveIdSelectTarget) {
+      return;
+    }
+
+    setHoverPreview(null);
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    pasteTargetRef.current = null;
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+
+    if (dragUpdateFrameRef.current) {
+      cancelAnimationFrame(dragUpdateFrameRef.current);
+      dragUpdateFrameRef.current = undefined;
+    }
+  }, [curveIdSelectTarget]);
 
   useEffect(() => {
     if (mode === 'new') {
@@ -1119,7 +1310,7 @@ export default function Editor({
     
     if (stateRef.current.isPlaying) {
       playRequestIdRef.current += 1;
-      const playbackTime = Math.max(0, stateRef.current.currentTime);
+      const playbackTime = Math.max(0, getPlaybackTimeFromClock(audioRef.current, offsetInSeconds));
       stopHitsounds();
       audioRef.current.pause();
       clearPlayTimeout();
@@ -1865,6 +2056,59 @@ export default function Editor({
       });
     });
 
+    const parsedPreviewStartId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
+    const parsedPreviewEndId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
+    const previewStartNote = Number.isInteger(parsedPreviewStartId)
+      ? noteRenderIndex.notesById.get(parsedPreviewStartId) ?? null
+      : null;
+    const previewEndNote = Number.isInteger(parsedPreviewEndId)
+      ? noteRenderIndex.notesById.get(parsedPreviewEndId) ?? null
+      : null;
+    const previewCurveDensity = Number(curveDensityInput);
+    const hasValidPreviewCurveDensity = Number.isInteger(previewCurveDensity) && previewCurveDensity > 0;
+    const previewCurveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(curveEasingFamily, curveEasingType));
+    const shouldDrawCurvePreview = Boolean(
+      activeLeftPanel === 'curveNotes'
+      && curveStartIdInput.trim() !== ''
+      && curveEndIdInput.trim() !== ''
+      && AVAILABLE_NOTE_TYPES.includes(curveNoteType)
+      && hasValidPreviewCurveDensity
+      && previewCurveEasingOption
+      && !curveIdSelectTarget
+      && previewStartNote
+      && previewEndNote
+      && previewStartNote.id !== previewEndNote.id
+    );
+    const curvePreviewNotes: Array<Note & { beat: number }> = [];
+
+    if (shouldDrawCurvePreview && previewStartNote && previewEndNote && previewCurveEasingOption) {
+      const startCurveBeat = getBeatAtTime(previewStartNote.time, sortedChanges);
+      const endCurveBeat = getBeatAtTime(previewEndNote.time, sortedChanges);
+      const curveSnapBeats = getCurveSnapBeatsBetween(startCurveBeat, endCurveBeat, previewCurveDensity, sortedChanges);
+      const startCenter = previewStartNote.lane + previewStartNote.width / 2;
+      const endCenter = previewEndNote.lane + previewEndNote.width / 2;
+      const beatSpan = endCurveBeat - startCurveBeat;
+
+      curveSnapBeats.forEach((beat, index) => {
+        const progress = beatSpan === 0 ? 0 : (beat - startCurveBeat) / beatSpan;
+        const easedProgress = previewCurveEasingOption.ease(progress);
+        const interpolatedWidth = previewStartNote.width + (previewEndNote.width - previewStartNote.width) * easedProgress;
+        const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
+        const center = startCenter + (endCenter - startCenter) * easedProgress;
+        const lane = Math.max(0, Math.min(X_POSITION_COUNT - width, Number((center - width / 2).toFixed(3))));
+
+        curvePreviewNotes.push({
+          id: -index - 1,
+          time: getTimeAtBeat(beat, sortedChanges),
+          lane,
+          type: curveNoteType,
+          width,
+          parentId: null,
+          beat,
+        });
+      });
+    }
+
     // Draw hold connections before note bodies so linked notes render on top.
     for (const segment of noteRenderIndex.holdConnectorSegments) {
       const noteBeat = segment.note.id === pendingDragUpdate?.noteId && pendingDragBeat !== null
@@ -1910,6 +2154,76 @@ export default function Editor({
       ctx.closePath();
       ctx.fill();
       countRenderedObject();
+    }
+
+    if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
+      const xPositionWidth = laneWidth / 2;
+      const pulse = (Math.sin(performance.now() / 260) + 1) / 2;
+      const connectorAlpha = 0.05 + pulse * 0.07;
+      let parentNote = previewStartNote;
+      let parentBeat = getBeatAtTime(previewStartNote.time, sortedChanges);
+
+      ctx.save();
+      ctx.globalAlpha = connectorAlpha;
+      ctx.shadowColor = (NOTE_TYPES[curveNoteType] || UNKNOWN_NOTE_TYPE).color;
+      ctx.shadowBlur = 12 + pulse * 10;
+      ctx.fillStyle = getConnectorFill(curveNoteType);
+
+      curvePreviewNotes.forEach((previewNote) => {
+        const noteY = hitLineY - (previewNote.beat - currentBeat) * pixelsPerBeat;
+        const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
+        const noteWidthPx = xPositionWidth * previewNote.width;
+        const parentWidthPx = xPositionWidth * parentNote.width;
+        const noteLeftX = startX + previewNote.lane * xPositionWidth + 2;
+        const noteRightX = noteLeftX + noteWidthPx - 4;
+        const parentLeftX = startX + parentNote.lane * xPositionWidth + 2;
+        const parentRightX = parentLeftX + parentWidthPx - 4;
+
+        if (
+          Math.max(previewNote.beat, parentBeat) >= visibleStartBeat
+          && Math.min(previewNote.beat, parentBeat) <= visibleEndBeat
+        ) {
+          ctx.beginPath();
+          ctx.moveTo(parentLeftX, parentY);
+          ctx.lineTo(parentRightX, parentY);
+          ctx.lineTo(noteRightX, noteY);
+          ctx.lineTo(noteLeftX, noteY);
+          ctx.closePath();
+          ctx.fill();
+          countRenderedObject();
+        }
+
+        parentNote = previewNote;
+        parentBeat = previewNote.beat;
+      });
+
+      if (canTypeHaveParent(previewEndNote?.type ?? 0)) {
+        const noteBeat = getBeatAtTime(previewEndNote!.time, sortedChanges);
+        const noteY = hitLineY - (noteBeat - currentBeat) * pixelsPerBeat;
+        const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
+        const noteWidthPx = xPositionWidth * previewEndNote!.width;
+        const parentWidthPx = xPositionWidth * parentNote.width;
+        const noteLeftX = startX + previewEndNote!.lane * xPositionWidth + 2;
+        const noteRightX = noteLeftX + noteWidthPx - 4;
+        const parentLeftX = startX + parentNote.lane * xPositionWidth + 2;
+        const parentRightX = parentLeftX + parentWidthPx - 4;
+
+        if (
+          Math.max(noteBeat, parentBeat) >= visibleStartBeat
+          && Math.min(noteBeat, parentBeat) <= visibleEndBeat
+        ) {
+          ctx.beginPath();
+          ctx.moveTo(parentLeftX, parentY);
+          ctx.lineTo(parentRightX, parentY);
+          ctx.lineTo(noteRightX, noteY);
+          ctx.lineTo(noteLeftX, noteY);
+          ctx.closePath();
+          ctx.fill();
+          countRenderedObject();
+        }
+      }
+
+      ctx.restore();
     }
 
     // Draw notes
@@ -2011,6 +2325,97 @@ export default function Editor({
       ctx.fillText(groupedIdsLabel, noteCenterX, y + 12);
       countRenderedObject();
     });
+
+    if (curvePreviewNotes.length > 0) {
+      const xPositionWidth = laneWidth / 2;
+      const previewTypeInfo = NOTE_TYPES[curveNoteType] || UNKNOWN_NOTE_TYPE;
+      const pulse = (Math.sin(performance.now() / 260) + 1) / 2;
+      const fillAlpha = 0.08 + pulse * 0.1;
+      const outlineAlpha = 0.28 + pulse * 0.28;
+
+      curvePreviewNotes.forEach((previewNote) => {
+        if (previewNote.beat < visibleStartBeat || previewNote.beat > visibleEndBeat) {
+          return;
+        }
+
+        const previewY = hitLineY - (previewNote.beat - currentBeat) * pixelsPerBeat;
+        const previewX = startX + previewNote.lane * xPositionWidth;
+        const previewPixelWidth = xPositionWidth * previewNote.width;
+        const previewCenterX = previewX + previewPixelWidth / 2;
+
+        ctx.save();
+        ctx.shadowColor = previewTypeInfo.color;
+        ctx.shadowBlur = 14 + pulse * 12;
+        ctx.globalAlpha = fillAlpha;
+        ctx.fillStyle = previewTypeInfo.color;
+        ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+
+        if (curveNoteType === 1 || curveNoteType === 2) {
+          ctx.fillStyle = '#ffffff';
+          drawInvertedTriangle(
+            previewCenterX,
+            previewY,
+            Math.min(previewPixelWidth - 12, 12),
+          );
+        }
+
+        if (curveNoteType === 9) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          drawCircleMark(
+            previewCenterX,
+            previewY,
+            Math.min((previewPixelWidth - 12) / 2, 6),
+          );
+        }
+
+        if (HOLD_START_TYPES.includes(curveNoteType)) {
+          drawNoteLetter(previewCenterX, previewY, 'S');
+        }
+
+        if (HOLD_CENTER_TYPES.includes(curveNoteType)) {
+          drawNoteLetter(previewCenterX, previewY, 'C');
+        }
+
+        if (HOLD_END_TYPES.includes(curveNoteType)) {
+          drawNoteLetter(previewCenterX, previewY, 'E');
+        }
+
+        if (!(curveNoteType in NOTE_TYPES)) {
+          drawNoteLetter(previewCenterX, previewY, '?');
+        }
+
+        if ([13, 14, 15, 16].includes(curveNoteType)) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+
+          if (curveNoteType === 13) {
+            drawArrow(previewCenterX, previewY, 'left', 10);
+          }
+
+          if (curveNoteType === 14) {
+            drawArrow(previewCenterX, previewY, 'right', 10);
+          }
+
+          if (curveNoteType === 15) {
+            drawArrow(previewCenterX, previewY, 'up', 10);
+          }
+
+          if (curveNoteType === 16) {
+            drawArrow(previewCenterX, previewY, 'down', 10);
+          }
+        }
+
+        ctx.globalAlpha = outlineAlpha;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
+        ctx.restore();
+        countRenderedObject();
+      });
+    }
 
     if (hoverPreview && !isCtrlHeld && !isShiftHeld) {
       const previewBeat = getBeatAtTime(hoverPreview.time, sortedChanges);
@@ -2121,9 +2526,19 @@ export default function Editor({
     countRenderedObject();
     renderedObjectsRef.current = objectCount;
 
-  }, [pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
 
-  const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering || (!!hoverPreview && !isCtrlHeld && !isShiftHeld);
+  const shouldAnimateCurvePreview = Boolean(
+    activeLeftPanel === 'curveNotes'
+    && curveStartIdInput.trim() !== ''
+    && curveEndIdInput.trim() !== ''
+    && AVAILABLE_NOTE_TYPES.includes(curveNoteType)
+    && Number.isInteger(Number(curveDensityInput))
+    && Number(curveDensityInput) > 0
+    && CURVE_EASINGS_BY_ID.has(getCurveEasingId(curveEasingFamily, curveEasingType))
+    && !curveIdSelectTarget
+  );
+  const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering || (!!hoverPreview && !isCtrlHeld && !isShiftHeld) || shouldAnimateCurvePreview;
 
   const updateRenderedObjectsDisplay = useCallback((force = false) => {
     if (!shouldCountRenderedObjectsRef.current) {
@@ -2201,7 +2616,7 @@ export default function Editor({
       requestRef.current = requestAnimationFrame(update);
     } else if (isPausedTimelineRendering && performance.now() < pausedTimelineRenderUntilRef.current) {
       requestRef.current = requestAnimationFrame(update);
-    } else if (hoverPreview && !isCtrlHeld && !isShiftHeld) {
+    } else if ((hoverPreview && !isCtrlHeld && !isShiftHeld) || shouldAnimateCurvePreview) {
       hoverPreviewTimeoutRef.current = window.setTimeout(() => {
         hoverPreviewTimeoutRef.current = undefined;
         requestRef.current = requestAnimationFrame(update);
@@ -2209,7 +2624,7 @@ export default function Editor({
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, playHitSound, hoverPreview, isCtrlHeld, isShiftHeld, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, playHitSound, hoverPreview, isCtrlHeld, isShiftHeld, shouldAnimateCurvePreview, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -2303,13 +2718,6 @@ export default function Editor({
     
     const snappedTime = getTimeAtBeat(snappedBeat, sortedChanges);
 
-    if (clickX >= startX && clickX < startX + gridWidth) {
-      pasteTargetRef.current = {
-        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes),
-        time: snappedTime,
-      };
-    }
-
     const noteHitPaddingBeats = 10 / pixelsPerBeat;
     const hitNotes = getNoteBeatEntriesInRange(
       noteRenderIndex.noteBeatEntries,
@@ -2327,6 +2735,38 @@ export default function Editor({
     const clickedNote = hitNotes.reduce<Note | null>((highestNote, note) => (
       !highestNote || note.id > highestNote.id ? note : highestNote
     ), null);
+
+    if (curveIdSelectTarget) {
+      pasteTargetRef.current = null;
+      setHoverPreview(null);
+
+      if (e.button !== 0) {
+        setCurveNotesMessage('Click a note to select its ID.');
+        return;
+      }
+
+      if (clickedNote) {
+        if (curveIdSelectTarget === 'start') {
+          setCurveStartIdInput(clickedNote.id.toString());
+        } else {
+          setCurveEndIdInput(clickedNote.id.toString());
+        }
+
+        setCurveNotesMessage(`${curveIdSelectTarget === 'start' ? 'Start' : 'End'} ID set to #${clickedNote.id}.`);
+        setCurveIdSelectTarget(null);
+      } else {
+        setCurveNotesMessage('Click a note to select its ID.');
+      }
+      return;
+    }
+
+    if (clickX >= startX && clickX < startX + gridWidth) {
+      pasteTargetRef.current = {
+        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes),
+        time: snappedTime,
+      };
+    }
+
     const ctrlClickedNote = hitNotes.reduce<Note | null>((selectedNote, note) => (
       selectedNoteIdSet.has(note.id) && (!selectedNote || note.id > selectedNote.id)
         ? note
@@ -2434,6 +2874,14 @@ export default function Editor({
     const canvas = canvasRef.current;
     if (!canvas || !projectData) return;
 
+    if (curveIdSelectTarget) {
+      pasteTargetRef.current = null;
+      if (hoverPreviewRef.current !== null) {
+        setHoverPreview(null);
+      }
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -2511,6 +2959,7 @@ export default function Editor({
 
   const handleCanvasMouseUp = () => {
     if (isOrganizingNotes) return;
+    if (curveIdSelectTarget) return;
 
     finishPendingDrag();
 
@@ -2772,6 +3221,118 @@ export default function Editor({
     });
   };
 
+  const handleGenerateCurveNotes = () => {
+    const startId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
+    const endId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
+    const curveDensity = Number(curveDensityInput);
+    const curveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(curveEasingFamily, curveEasingType));
+
+    if (!Number.isInteger(startId) || !Number.isInteger(endId)) {
+      setCurveNotesMessage('Start ID and End ID must be whole-number note IDs.');
+      return;
+    }
+
+    if (!Number.isInteger(curveDensity) || curveDensity <= 0) {
+      setCurveNotesMessage('Density denominator must be a positive whole number.');
+      return;
+    }
+
+    if (!curveEasingOption) {
+      setCurveNotesMessage('Select a valid easing type.');
+      return;
+    }
+
+    if (startId === endId) {
+      setCurveNotesMessage('Start ID and End ID must be different notes.');
+      return;
+    }
+
+    const pendingUpdate = pendingDragUpdateRef.current;
+    const sourceNotes = stateRef.current.notes.map(note => (
+      pendingUpdate && note.id === pendingUpdate.noteId
+        ? { ...note, time: pendingUpdate.time, lane: pendingUpdate.lane }
+        : note
+    ));
+    const sourceNotesById = new Map(sourceNotes.map(note => [note.id, note]));
+    const startNote = sourceNotesById.get(startId);
+    const endNote = sourceNotesById.get(endId);
+
+    if (!startNote || !endNote) {
+      setCurveNotesMessage('Both Start ID and End ID must match existing notes.');
+      return;
+    }
+
+    const startBeat = getBeatAtTime(startNote.time, timedBpmChanges);
+    const endBeat = getBeatAtTime(endNote.time, timedBpmChanges);
+    const snapBeats = getCurveSnapBeatsBetween(startBeat, endBeat, curveDensity, timedBpmChanges);
+
+    if (snapBeats.length === 0) {
+      setCurveNotesMessage(`No 1/${curveDensity} snap positions exist between those notes.`);
+      return;
+    }
+
+    if (dragUpdateFrameRef.current) {
+      cancelAnimationFrame(dragUpdateFrameRef.current);
+      dragUpdateFrameRef.current = undefined;
+    }
+
+    const firstGeneratedId = Math.max(nextNoteIdRef.current, sourceNotes.reduce((maxId, note) => Math.max(maxId, note.id), 0) + 1);
+    const canGeneratedNotesHaveParent = canTypeHaveParent(curveNoteType);
+    const startCenter = startNote.lane + startNote.width / 2;
+    const endCenter = endNote.lane + endNote.width / 2;
+    const beatSpan = endBeat - startBeat;
+    let previousParentId = startNote.id;
+
+    const generatedNotes = snapBeats.map((beat, index) => {
+      const progress = beatSpan === 0 ? 0 : (beat - startBeat) / beatSpan;
+      const easedProgress = curveEasingOption.ease(progress);
+      const interpolatedWidth = startNote.width + (endNote.width - startNote.width) * easedProgress;
+      const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
+      const center = startCenter + (endCenter - startCenter) * easedProgress;
+      const lane = Math.max(0, Math.min(X_POSITION_COUNT - width, Number((center - width / 2).toFixed(3))));
+      const id = firstGeneratedId + index;
+      const parentId = canGeneratedNotesHaveParent ? previousParentId : null;
+
+      previousParentId = id;
+
+      return {
+        id,
+        time: getTimeAtBeat(beat, timedBpmChanges),
+        lane,
+        type: curveNoteType,
+        width,
+        parentId,
+      };
+    });
+    const endParentId = generatedNotes[generatedNotes.length - 1]?.id ?? startNote.id;
+    const shouldAttachEndNote = canGeneratedNotesHaveParent && canTypeHaveParent(endNote.type);
+    const nextNotes = shouldAttachEndNote
+      ? sourceNotes.map(note => (
+        note.id === endNote.id ? { ...note, parentId: endParentId } : note
+      ))
+      : sourceNotes;
+    const generatedNoteIds = generatedNotes.map(note => note.id);
+
+    nextNoteIdRef.current = firstGeneratedId + generatedNotes.length;
+    setNotes([...nextNotes, ...generatedNotes]);
+    setSelectedNoteIds(generatedNoteIds);
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    setHoverPreview(null);
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+    renderPausedTimelineAtFullFps();
+    setCurveNotesMessage(
+      `Generated ${generatedNotes.length} ${NOTE_TYPES[curveNoteType]?.name || `type ${curveNoteType}`} notes from #${startNote.id} to #${endNote.id}.`,
+    );
+
+    recordOperation({
+      category: 'note',
+      title: 'Generated curve notes',
+      detail: `${generatedNotes.length} notes, ${NOTE_TYPES[curveNoteType]?.name || `type ${curveNoteType}`}, 1/${curveDensity}, ${curveEasingOption.label}, IDs ${formatGroupedIds(generatedNoteIds)}${shouldAttachEndNote ? `, end parent #${endParentId}` : ''}`,
+    });
+  };
+
   const currentId = Math.max(nextNoteIdRef.current - 1, 0);
   const currentParentId =
     currentParentInput.trim() === '' ? currentId : parseInt(currentParentInput, 10);
@@ -2779,6 +3340,31 @@ export default function Editor({
     currentParentId === 0 || Number.isNaN(currentParentId)
       ? null
       : notes.find((note) => note.id === currentParentId) || null;
+  const parsedCurveStartId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
+  const parsedCurveEndId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
+  const curveStartNote = Number.isInteger(parsedCurveStartId)
+    ? notes.find((note) => note.id === parsedCurveStartId) || null
+    : null;
+  const curveEndNote = Number.isInteger(parsedCurveEndId)
+    ? notes.find((note) => note.id === parsedCurveEndId) || null
+    : null;
+  const parsedCurveDensity = Number(curveDensityInput);
+  const hasValidCurveDensity = Number.isInteger(parsedCurveDensity) && parsedCurveDensity > 0;
+  const hasCompleteCurveNoteFields = Boolean(
+    curveStartIdInput.trim() !== ''
+    && curveEndIdInput.trim() !== ''
+    && AVAILABLE_NOTE_TYPES.includes(curveNoteType)
+    && curveDensityInput.trim() !== ''
+    && hasValidCurveDensity
+    && CURVE_EASINGS_BY_ID.has(getCurveEasingId(curveEasingFamily, curveEasingType))
+  );
+  const canGenerateCurveNotes = Boolean(
+    hasCompleteCurveNoteFields
+    && !curveIdSelectTarget
+    && curveStartNote
+    && curveEndNote
+    && curveStartNote.id !== curveEndNote.id,
+  );
   const selectedSingleNote =
     selectedNoteIds.length === 1
       ? notes.find((note) => note.id === selectedNoteIds[0]) || null
@@ -3752,6 +4338,9 @@ export default function Editor({
                 <button onClick={() => setActiveLeftPanel('speedChanges')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   Speed Changes
                 </button>
+                <button onClick={() => setActiveLeftPanel('curveNotes')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  Curve Notes
+                </button>
                 <button onClick={() => setActiveLeftPanel('organize')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   Organize Notes
                 </button>
@@ -3984,6 +4573,205 @@ export default function Editor({
                   )}
                 />
                 <button onClick={addSpeedChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">Add Speed Change</button>
+              </div>
+            </div>
+          )}
+
+          {isLeftPanelContentVisible && activeLeftPanel === 'curveNotes' && (
+            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
+              <div className="flex items-center gap-2 mb-4 shrink-0">
+                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Curve Notes</div>
+              </div>
+              <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">Start ID</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={curveStartIdInput}
+                      className={`${notePropertyInputClass} min-w-0 flex-1`}
+                      onChange={(e) => {
+                        setCurveStartIdInput(e.target.value);
+                        setCurveNotesMessage('');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={curveIdSelectTarget === 'end'}
+                      onClick={() => {
+                        const nextTarget = curveIdSelectTarget === 'start' ? null : 'start';
+                        setCurveIdSelectTarget(nextTarget);
+                        setCurveNotesMessage(nextTarget ? 'Click a note to set Start ID.' : '');
+                      }}
+                      className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
+                        curveIdSelectTarget === 'start'
+                          ? 'border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700'
+                          : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
+                      }`}
+                    >
+                      {curveIdSelectTarget === 'start' ? 'Cancel' : 'Select'}
+                    </button>
+                  </div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    {curveStartNote
+                      ? `${NOTE_TYPES[curveStartNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveStartNote.time, timedBpmChanges)}`
+                      : curveStartIdInput.trim() === ''
+                        ? 'Enter an existing note ID.'
+                        : 'No note exists with that ID.'}
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">End ID</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={curveEndIdInput}
+                      className={`${notePropertyInputClass} min-w-0 flex-1`}
+                      onChange={(e) => {
+                        setCurveEndIdInput(e.target.value);
+                        setCurveNotesMessage('');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={curveIdSelectTarget === 'start'}
+                      onClick={() => {
+                        const nextTarget = curveIdSelectTarget === 'end' ? null : 'end';
+                        setCurveIdSelectTarget(nextTarget);
+                        setCurveNotesMessage(nextTarget ? 'Click a note to set End ID.' : '');
+                      }}
+                      className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
+                        curveIdSelectTarget === 'end'
+                          ? 'border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700'
+                          : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
+                      }`}
+                    >
+                      {curveIdSelectTarget === 'end' ? 'Cancel' : 'Select'}
+                    </button>
+                  </div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    {curveEndNote
+                      ? `${NOTE_TYPES[curveEndNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveEndNote.time, timedBpmChanges)}`
+                      : curveEndIdInput.trim() === ''
+                        ? 'Enter an existing note ID.'
+                        : 'No note exists with that ID.'}
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">Type</span>
+                  <select
+                    value={curveNoteType}
+                    className={notePropertyInputClass}
+                    onChange={(e) => {
+                      setCurveNoteType(Number(e.target.value));
+                      setCurveNotesMessage('');
+                    }}
+                  >
+                    {AVAILABLE_NOTE_TYPES.map(type => (
+                      <option key={type} value={type}>
+                        {type} - {NOTE_TYPES[type]?.name || UNKNOWN_NOTE_TYPE.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">Density</span>
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-sm text-neutral-400">1/</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={curveDensityInput}
+                      className={`${notePropertyInputClass} min-w-0 flex-1`}
+                      onChange={(e) => {
+                        setCurveDensityInput(e.target.value);
+                        setCurveNotesMessage('');
+                      }}
+                    />
+                  </div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    {curveDensityInput.trim() === ''
+                      ? 'Enter a denominator.'
+                      : hasValidCurveDensity
+                        ? `Snap density 1/${parsedCurveDensity}.`
+                        : 'Density denominator must be a positive whole number.'}
+                  </div>
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block min-w-0">
+                    <span className="mb-1 block text-xs text-neutral-400">Easing</span>
+                    <select
+                      value={curveEasingFamily}
+                      className={`${notePropertyInputClass} min-w-0`}
+                      onChange={(e) => {
+                        setCurveEasingFamily(e.target.value as CurveEasingFamily);
+                        setCurveNotesMessage('');
+                      }}
+                    >
+                      {CURVE_EASING_FAMILY_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block min-w-0">
+                    <span className="mb-1 block text-xs text-neutral-400">Type</span>
+                    <select
+                      value={curveEasingType}
+                      className={`${notePropertyInputClass} min-w-0`}
+                      disabled={curveEasingFamily === 'linear'}
+                      onChange={(e) => {
+                        setCurveEasingType(e.target.value as CurveEasingType);
+                        setCurveNotesMessage('');
+                      }}
+                    >
+                      {CURVE_EASING_TYPE_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateCurveNotes}
+                  disabled={!canGenerateCurveNotes}
+                  className="mt-1 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                >
+                  Generate Curve Notes
+                </button>
+
+                <p className="text-xs leading-5 text-neutral-500">
+                  Generates intermediate notes on the selected snap grid, interpolating xpos and width with the selected easing.
+                </p>
+
+                {canTypeHaveParent(curveNoteType) && (
+                  <p className="text-xs leading-5 text-neutral-500">
+                    Generated connector notes will parent to the previous point in the curve.
+                  </p>
+                )}
+
+                {curveNotesMessage && (
+                  <div className="rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
+                    {curveNotesMessage}
+                  </div>
+                )}
               </div>
             </div>
           )}
