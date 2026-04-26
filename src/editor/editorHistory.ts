@@ -1,7 +1,15 @@
 import { NOTE_TYPES } from '../constants/editorConstants';
-import type { Note } from '../types/editorTypes';
+import type { BpmChange, Note, ProjectData, SpeedChange } from '../types/editorTypes';
 
 export type OperationCategory = 'note' | 'timing' | 'speed' | 'metadata';
+
+export interface OperationHistorySnapshot {
+  projectData: ProjectData | null;
+  notes: Note[];
+  bpmChanges: BpmChange[];
+  speedChanges: SpeedChange[];
+  offset: string | number;
+}
 
 export interface OperationHistoryEntry {
   id: number;
@@ -9,6 +17,8 @@ export interface OperationHistoryEntry {
   category: OperationCategory;
   title: string;
   detail: string;
+  before: OperationHistorySnapshot;
+  after: OperationHistorySnapshot;
 }
 
 export const MAX_OPERATION_HISTORY_ENTRIES = 500;

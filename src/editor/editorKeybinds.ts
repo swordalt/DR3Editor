@@ -29,6 +29,8 @@ export const EDITOR_KEYBIND_GROUPS = [
   {
     title: 'Canvas Editing',
     bindings: [
+      { keys: ['Ctrl', 'Z'], description: 'Undo the most recent editor operation from Operation History.' },
+      { keys: ['Ctrl', 'Y'], description: 'Redo the most recently undone editor operation from Operation History.' },
       { keys: ['Left click'], description: 'Place the selected note type on the snapped grid position.' },
       { keys: ['Right click'], description: 'Delete the clicked note, or delete the selected group when clicking a selected note.' },
       { keys: ['Middle click note'], description: 'Select the clicked note.' },

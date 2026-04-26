@@ -2,6 +2,7 @@ import type { BpmChange, TimedBpmChange } from '../types/editorTypes';
 
 const DEFAULT_BPM = 120;
 const DEFAULT_TIME_SIGNATURE = '4/4';
+const FORMAT_EPSILON = 0.000001;
 
 const getBeatsPerMeasure = (timeSignature: string) => parseInt(timeSignature.split('/')[0], 10) || 4;
 
@@ -123,9 +124,11 @@ export const getTimeAtBeat = (beat: number, changes: TimedBpmChange[]) => {
   return activeChange.time + (beat - activeChange.startBeat) / (activeChange.bpm / 60);
 };
 
-export const formatTime = (time: number, changes: TimedBpmChange[]) => {
-  if (!changes || changes.length === 0) return '0:0/4';
-  
+export const formatTime = (
+  time: number,
+  changes: TimedBpmChange[],
+  divisionsPerMeasure?: number,
+) => {
   const totalBeats = getBeatAtTime(time, changes);
   
   let currentMeasureBeat = 0;
@@ -146,11 +149,16 @@ export const formatTime = (time: number, changes: TimedBpmChange[]) => {
   }
   
   const beatInMeasure = totalBeats - currentMeasureBeat;
-  const roundedBeatInMeasure = Math.round(beatInMeasure);
+  const activeDivisionsPerMeasure = divisionsPerMeasure === undefined
+    ? currentBeatsPerMeasure
+    : Math.max(1, Math.round(divisionsPerMeasure));
+  const roundedDivisionInMeasure = Math.round(
+    (beatInMeasure / currentBeatsPerMeasure) * activeDivisionsPerMeasure,
+  );
 
-  if (roundedBeatInMeasure >= currentBeatsPerMeasure) {
-    return `${measureCount + 1}:1/${currentBeatsPerMeasure}`;
+  if (roundedDivisionInMeasure >= activeDivisionsPerMeasure - FORMAT_EPSILON) {
+    return `${measureCount + 1}:1/${activeDivisionsPerMeasure}`;
   }
 
-  return `${measureCount}:${roundedBeatInMeasure + 1}/${currentBeatsPerMeasure}`;
+  return `${measureCount}:${roundedDivisionInMeasure + 1}/${activeDivisionsPerMeasure}`;
 };

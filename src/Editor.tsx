@@ -14,6 +14,7 @@ import { EDITOR_KEYBIND_GROUPS } from './editor/editorKeybinds';
 import {
   MAX_OPERATION_HISTORY_ENTRIES,
   type OperationHistoryEntry,
+  type OperationHistorySnapshot,
   formatGroupedIds,
   formatHistoryNumber,
   formatHistoryTimestamp,
@@ -50,6 +51,7 @@ const PAUSED_TIMELINE_RENDER_DURATION_MS = 120;
 const AUDIO_CLOCK_HANDOFF_DELAY_MS = 200;
 const AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS = 0.05;
 const AUDIO_SEEK_TIMEOUT_MS = 10000;
+const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
 const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
 const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
   window: 'Window Selection',
@@ -263,8 +265,12 @@ export default function Editor({
   const [draggingNoteId, setDraggingNoteId] = useState<number | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [operationHistory, setOperationHistory] = useState<OperationHistoryEntry[]>([]);
+  const [undoneOperationIds, setUndoneOperationIds] = useState<Set<number>>(() => new Set());
+  const [redoableOperationIds, setRedoableOperationIds] = useState<number[]>([]);
+  const [shouldShowUndoneOperations, setShouldShowUndoneOperations] = useState(true);
   const nextNoteIdRef = useRef<number>(1);
   const nextOperationHistoryIdRef = useRef<number>(1);
+  const pendingOperationSnapshotIdsRef = useRef<number[]>([]);
   const lastPlayedTimeRef = useRef<number>(0);
   const [formData, setFormData] = useState<EditorFormData>({
     songId: '',
@@ -357,6 +363,7 @@ export default function Editor({
   const [duration, setDuration] = useState(0);
   const [fps, setFps] = useState(0);
   const [renderedObjects, setRenderedObjects] = useState(0);
+  const [isFpsCounterHovered, setIsFpsCounterHovered] = useState(false);
   const [isPausedTimelineRendering, setIsPausedTimelineRendering] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -379,6 +386,8 @@ export default function Editor({
   const fpsFrameCountRef = useRef(0);
   const fpsWindowStartRef = useRef(performance.now());
   const renderedObjectsRef = useRef(0);
+  const renderedObjectsDisplayLastUpdateRef = useRef(0);
+  const shouldCountRenderedObjectsRef = useRef(false);
   const liveStatsLastUpdateRef = useRef(0);
   const shouldUpdateLiveStatsRef = useRef(false);
   const timeDisplayRef = useRef<HTMLDivElement>(null);
@@ -519,6 +528,15 @@ export default function Editor({
   }, [currentTime, isPlaying, shouldShowChartStatistics]);
 
   useEffect(() => {
+    shouldCountRenderedObjectsRef.current = isFpsCounterHovered;
+
+    if (!isFpsCounterHovered) {
+      setRenderedObjects(0);
+      renderedObjectsRef.current = 0;
+    }
+  }, [isFpsCounterHovered]);
+
+  useEffect(() => {
     shouldUpdateLiveStatsRef.current = shouldShowChartStatistics;
 
     if (shouldShowChartStatistics) {
@@ -573,15 +591,46 @@ export default function Editor({
   const isExportDisabled = hasExportIncompatibleTimeSignature || !hasRequiredExportMetadata;
   const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds]);
 
-  const recordOperation = useCallback((entry: Omit<OperationHistoryEntry, 'id' | 'timestamp'>) => {
+  const cloneEditorSnapshot = useCallback((): OperationHistorySnapshot => ({
+    projectData: projectData ? { ...projectData } : null,
+    notes: stateRef.current.notes.map(note => ({ ...note })),
+    bpmChanges: stateRef.current.bpmChanges.map(change => ({ ...change })),
+    speedChanges: stateRef.current.speedChanges.map(change => ({ ...change })),
+    offset: stateRef.current.offset,
+  }), [projectData]);
+
+  useEffect(() => {
+    const pendingIds = pendingOperationSnapshotIdsRef.current;
+    if (pendingIds.length === 0) {
+      return;
+    }
+
+    pendingOperationSnapshotIdsRef.current = [];
+    const pendingIdSet = new Set(pendingIds);
+    const after = cloneEditorSnapshot();
+    setOperationHistory(prev => prev.map(entry => (
+      pendingIdSet.has(entry.id)
+        ? { ...entry, after }
+        : entry
+    )));
+  }, [cloneEditorSnapshot, projectData, notes, bpmChanges, speedChanges, offset]);
+
+  const recordOperation = useCallback((entry: Omit<OperationHistoryEntry, 'id' | 'timestamp' | 'before' | 'after'>) => {
+    const before = cloneEditorSnapshot();
     const nextEntry: OperationHistoryEntry = {
       ...entry,
       id: nextOperationHistoryIdRef.current++,
       timestamp: Date.now(),
+      before,
+      after: before,
     };
 
-    setOperationHistory(prev => [nextEntry, ...prev].slice(0, MAX_OPERATION_HISTORY_ENTRIES));
-  }, []);
+    pendingOperationSnapshotIdsRef.current.push(nextEntry.id);
+    setOperationHistory(prev => (
+      [nextEntry, ...prev].slice(0, MAX_OPERATION_HISTORY_ENTRIES)
+    ));
+    setRedoableOperationIds([]);
+  }, [cloneEditorSnapshot]);
 
   const getNoteHistoryDetail = useCallback((note: Note) => {
     return `${formatNoteName(note)} #${note.id} at ${formatTime(note.time, timedBpmChanges)}, xpos ${formatNoteLane(note.lane)}, width ${formatHistoryNumber(note.width)}`;
@@ -882,7 +931,7 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, newTime - offsetInSeconds);
     }
     if (timeDisplayRef.current && projectData) {
-      timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges);
+      timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges, gridZoom);
     }
     renderPausedTimelineAtFullFps();
   }, [projectData, offset, gridZoom, renderPausedTimelineAtFullFps, timedBpmChanges]);
@@ -1022,7 +1071,9 @@ export default function Editor({
     const sortedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
 
     setCurrentTime(loopStartTime);
-    setLiveStatsTime(loopStartTime);
+    if (shouldUpdateLiveStatsRef.current) {
+      setLiveStatsTime(loopStartTime);
+    }
     stateRef.current.currentTime = loopStartTime;
     stateRef.current.playbackStartTime = loopStartTime;
     stateRef.current.playbackStartPerformanceTime = now;
@@ -1033,7 +1084,7 @@ export default function Editor({
     scheduledHitSoundKeysRef.current.clear();
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges);
+      timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges, gridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = loopStartTime.toString();
@@ -1060,7 +1111,7 @@ export default function Editor({
       await audio.play().catch(() => {});
     }
     isLoopingPlaybackRef.current = false;
-  }, [offset, projectData]);
+  }, [gridZoom, offset, projectData]);
 
   const togglePlay = useCallback(async () => {
     if (!audioRef.current || !projectData) return;
@@ -1098,7 +1149,7 @@ export default function Editor({
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
       audioRef.current.currentTime = Math.max(0, snappedTime - offsetInSeconds);
       if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges);
+        timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges, gridZoom);
       }
       if (progressBarRef.current && !isDraggingProgress.current) {
         progressBarRef.current.value = snappedTime.toString();
@@ -1150,6 +1201,92 @@ export default function Editor({
     }
   }, [gridZoom, prepareHitSounds, projectData, offset, setupMusicGain]);
 
+  const restoreOperationSnapshot = useCallback((snapshot: OperationHistorySnapshot) => {
+    if (stateRef.current.isPlaying) {
+      playRequestIdRef.current += 1;
+      stopHitsounds();
+      audioRef.current?.pause();
+      clearPlayTimeout();
+
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+        requestRef.current = undefined;
+      }
+
+      stateRef.current.isPlaying = false;
+      setIsPlaying(false);
+    }
+
+    const restoredNotes = snapshot.notes.map(note => ({ ...note }));
+    const restoredBpmChanges = snapshot.bpmChanges.map(change => ({ ...change }));
+    const restoredSpeedChanges = snapshot.speedChanges.map(change => ({ ...change }));
+    const restoredProjectData = snapshot.projectData ? { ...snapshot.projectData } : null;
+
+    setProjectData(restoredProjectData);
+    if (restoredProjectData) {
+      setFormData({
+        songId: restoredProjectData.songId,
+        songName: restoredProjectData.songName,
+        songArtist: restoredProjectData.songArtist,
+        songBpm: restoredProjectData.songBpm,
+        difficulty: restoredProjectData.difficulty,
+        songFile: restoredProjectData.songFile,
+        songIllustration: restoredProjectData.songIllustration,
+      });
+    }
+    setNotes(restoredNotes);
+    setBpmChanges(restoredBpmChanges);
+    setSpeedChanges(restoredSpeedChanges);
+    setOffset(snapshot.offset);
+    setSelectedNoteIds(prev => {
+      const restoredNoteIds = new Set(restoredNotes.map(note => note.id));
+      return prev.filter(id => restoredNoteIds.has(id));
+    });
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    setHoverPreview(null);
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+
+    stateRef.current.notes = restoredNotes;
+    stateRef.current.bpmChanges = restoredBpmChanges;
+    stateRef.current.speedChanges = restoredSpeedChanges;
+    stateRef.current.offset = snapshot.offset;
+    stateRef.current.bpm = restoredProjectData?.bpm || 120;
+    renderPausedTimelineAtFullFps();
+  }, [renderPausedTimelineAtFullFps, setBpmChanges, setNotes, setOffset, setSpeedChanges]);
+
+  const undoLastOperation = useCallback(() => {
+    const entry = operationHistory.find(historyEntry => !undoneOperationIds.has(historyEntry.id));
+    if (!entry) {
+      return;
+    }
+
+    restoreOperationSnapshot(entry.before);
+    setUndoneOperationIds(prev => {
+      const next = new Set(prev);
+      next.add(entry.id);
+      return next;
+    });
+    setRedoableOperationIds(prev => [entry.id, ...prev]);
+  }, [operationHistory, restoreOperationSnapshot, undoneOperationIds]);
+
+  const redoLastOperation = useCallback(() => {
+    const entryId = redoableOperationIds[0];
+    const entry = operationHistory.find(historyEntry => historyEntry.id === entryId);
+    if (!entry) {
+      return;
+    }
+
+    restoreOperationSnapshot(entry.after);
+    setUndoneOperationIds(prev => {
+      const next = new Set(prev);
+      next.delete(entry.id);
+      return next;
+    });
+    setRedoableOperationIds(prev => prev.slice(1));
+  }, [operationHistory, redoableOperationIds, restoreOperationSnapshot]);
+
   useEffect(() => {
     const isOnlyKeyPressed = (e: KeyboardEvent) => (
       !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey
@@ -1164,6 +1301,22 @@ export default function Editor({
 
       if (e.key === 'Shift') {
         setIsShiftHeld(true);
+      }
+
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (!e.repeat) {
+          undoLastOperation();
+        }
+        return;
+      }
+
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        if (!e.repeat) {
+          redoLastOperation();
+        }
+        return;
       }
 
       if (!e.ctrlKey && !e.altKey && !e.metaKey && e.shiftKey && e.key.toLowerCase() === 'w') {
@@ -1339,7 +1492,7 @@ export default function Editor({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, recordOperation, selectedNoteIds, timedBpmChanges, togglePlay]);
+  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, recordOperation, redoLastOperation, selectedNoteIds, timedBpmChanges, togglePlay, undoLastOperation]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1349,7 +1502,7 @@ export default function Editor({
     const now = performance.now();
     fpsFrameCountRef.current += 1;
     const elapsed = now - fpsWindowStartRef.current;
-    if (elapsed >= 500) {
+    if (elapsed >= PERFORMANCE_STATS_UPDATE_INTERVAL_MS) {
       setFps(Math.round((fpsFrameCountRef.current * 1000) / elapsed));
       fpsFrameCountRef.current = 0;
       fpsWindowStartRef.current = now;
@@ -1377,6 +1530,12 @@ export default function Editor({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     let objectCount = 0;
+    const shouldCountRenderedObjects = shouldCountRenderedObjectsRef.current;
+    const countRenderedObject = () => {
+      if (shouldCountRenderedObjects) {
+        objectCount += 1;
+      }
+    };
 
     const drawInvertedTriangle = (
       centerX: number,
@@ -1473,7 +1632,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(time, sortedChanges);
+      timeDisplayRef.current.textContent = formatTime(time, sortedChanges, gridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = time.toString();
@@ -1501,7 +1660,7 @@ export default function Editor({
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
         ctx.stroke();
-        objectCount += 1;
+        countRenderedObject();
       }
     }
 
@@ -1594,7 +1753,7 @@ export default function Editor({
         ctx.lineWidth = 1;
       }
       ctx.stroke();
-      objectCount += 1;
+      countRenderedObject();
       
       if (gridLine.isMeasureLine) {
         ctx.fillStyle = '#888';
@@ -1602,7 +1761,7 @@ export default function Editor({
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(`${gridLine.measureNumber}`, startX - 10, y);
-        objectCount += 1;
+        countRenderedObject();
       }
     }
 
@@ -1702,7 +1861,7 @@ export default function Editor({
       stack.labels.forEach((label, index) => {
         ctx.fillStyle = label.color;
         ctx.fillText(label.text, indicatorX, stack.top + index * indicatorLineHeight + indicatorLineHeight / 2);
-        objectCount += 1;
+        countRenderedObject();
       });
     });
 
@@ -1750,7 +1909,7 @@ export default function Editor({
       ctx.lineTo(noteLeftX, noteY);
       ctx.closePath();
       ctx.fill();
-      objectCount += 1;
+      countRenderedObject();
     }
 
     // Draw notes
@@ -1850,7 +2009,7 @@ export default function Editor({
       ctx.textBaseline = 'top';
       const groupedIdsLabel = noteRenderIndex.groupedIdLabelsByNoteId.get(renderedNote.id) ?? `${renderedNote.id}`;
       ctx.fillText(groupedIdsLabel, noteCenterX, y + 12);
-      objectCount += 1;
+      countRenderedObject();
     });
 
     if (hoverPreview && !isCtrlHeld && !isShiftHeld) {
@@ -1928,7 +2087,7 @@ export default function Editor({
         ctx.strokeStyle = '#ffffff';
         ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
         ctx.restore();
-        objectCount += 1;
+        countRenderedObject();
       }
     }
 
@@ -1944,7 +2103,7 @@ export default function Editor({
         Math.abs(selectionBox.endY - selectionBox.startY)
       );
       ctx.setLineDash([]);
-      objectCount += 1;
+      countRenderedObject();
     }
 
     // Draw hit line
@@ -1959,12 +2118,26 @@ export default function Editor({
     ctx.shadowBlur = 10;
     ctx.stroke();
     ctx.shadowBlur = 0;
-    objectCount += 1;
+    countRenderedObject();
     renderedObjectsRef.current = objectCount;
 
   }, [pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering || (!!hoverPreview && !isCtrlHeld && !isShiftHeld);
+
+  const updateRenderedObjectsDisplay = useCallback((force = false) => {
+    if (!shouldCountRenderedObjectsRef.current) {
+      return;
+    }
+
+    const now = performance.now();
+    if (!force && now - renderedObjectsDisplayLastUpdateRef.current < PERFORMANCE_STATS_UPDATE_INTERVAL_MS) {
+      return;
+    }
+
+    renderedObjectsDisplayLastUpdateRef.current = now;
+    setRenderedObjects(renderedObjectsRef.current);
+  }, []);
 
   const update = useCallback(() => {
     if (stateRef.current.isPlaying && audioRef.current) {
@@ -1976,7 +2149,7 @@ export default function Editor({
       if (duration > 0 && currentTime >= duration) {
         void loopPlaybackToBeginning();
         drawGrid();
-        setRenderedObjects(renderedObjectsRef.current);
+        updateRenderedObjectsDisplay();
         requestRef.current = requestAnimationFrame(update);
         return;
       }
@@ -2023,7 +2196,7 @@ export default function Editor({
     }
 
     drawGrid();
-    setRenderedObjects(renderedObjectsRef.current);
+    updateRenderedObjectsDisplay();
     if (stateRef.current.isPlaying) {
       requestRef.current = requestAnimationFrame(update);
     } else if (isPausedTimelineRendering && performance.now() < pausedTimelineRenderUntilRef.current) {
@@ -2036,14 +2209,14 @@ export default function Editor({
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, playHitSound, hoverPreview, isCtrlHeld, isShiftHeld, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning]);
+  }, [drawGrid, offset, playHitSound, hoverPreview, isCtrlHeld, isShiftHeld, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
       fpsFrameCountRef.current = 0;
       fpsWindowStartRef.current = performance.now();
       setFps(0);
-      setRenderedObjects(renderedObjectsRef.current);
+      updateRenderedObjectsDisplay();
       drawGrid();
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
@@ -2072,7 +2245,7 @@ export default function Editor({
         hoverPreviewTimeoutRef.current = undefined;
       }
     };
-  }, [drawGrid, shouldAnimateCanvas, update]);
+  }, [drawGrid, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     return () => {
@@ -2301,7 +2474,7 @@ export default function Editor({
         dragUpdateFrameRef.current = requestAnimationFrame(() => {
           dragUpdateFrameRef.current = undefined;
           drawGrid();
-          setRenderedObjects(renderedObjectsRef.current);
+          updateRenderedObjectsDisplay();
         });
       }
     } else if (selectionBox) {
@@ -2433,7 +2606,7 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, clampedTime - offsetInSeconds);
     }
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges);
+      timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges, gridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = newTime.toString();
@@ -2851,6 +3024,13 @@ export default function Editor({
     }
   };
 
+  const visibleOperationHistory = useMemo(
+    () => shouldShowUndoneOperations
+      ? operationHistory
+      : operationHistory.filter(entry => !undoneOperationIds.has(entry.id)),
+    [operationHistory, shouldShowUndoneOperations, undoneOperationIds],
+  );
+
   const tierBadge = getTierBadge(projectData?.difficulty);
 
   const jumpToNoteTime = (time: number) => {
@@ -2877,7 +3057,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges);
+      timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges, gridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = clampedTime.toString();
@@ -3380,7 +3560,7 @@ export default function Editor({
                   className="min-w-0 flex-1 h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
                 <div ref={timeDisplayRef} className="shrink-0 text-sm font-mono text-neutral-400">
-                  {formatTime(currentTime, convertBpmChangesToTime(bpmChanges))}
+                  {formatTime(currentTime, convertBpmChangesToTime(bpmChanges), gridZoom)}
                 </div>
               </div>
             </>
@@ -3518,10 +3698,23 @@ export default function Editor({
       {projectData && (
         <div
           className="group fixed bottom-4 right-4 z-40 select-none"
+          onMouseEnter={() => {
+            shouldCountRenderedObjectsRef.current = true;
+            setIsFpsCounterHovered(true);
+            drawGrid();
+            updateRenderedObjectsDisplay(true);
+          }}
+          onMouseLeave={() => {
+            shouldCountRenderedObjectsRef.current = false;
+            setIsFpsCounterHovered(false);
+            renderedObjectsRef.current = 0;
+            renderedObjectsDisplayLastUpdateRef.current = 0;
+            setRenderedObjects(0);
+          }}
           tabIndex={0}
           aria-label={`Performance statistics: ${fps} FPS, ${renderedObjects} rendered objects`}
         >
-          <div className="pointer-events-none absolute bottom-full right-0 mb-2 min-w-40 translate-y-1 rounded-xl border border-neutral-700 bg-neutral-950/95 px-3 py-2 text-right font-mono text-xs text-neutral-300 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus:translate-y-0 group-focus:opacity-100">
+          <div className="pointer-events-none absolute bottom-full right-0 mb-2 min-w-40 translate-y-1 rounded-xl border border-neutral-700 bg-neutral-950/95 px-3 py-2 text-right font-mono text-xs text-neutral-300 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
             Rendered objects <span className="ml-2 text-white">{renderedObjects}</span>
           </div>
           <div className="rounded-xl border border-neutral-700 bg-neutral-950/90 px-3 py-2 font-mono text-sm text-neutral-300 shadow-2xl shadow-black/40 backdrop-blur">
@@ -3560,7 +3753,7 @@ export default function Editor({
                   Speed Changes
                 </button>
                 <button onClick={() => setActiveLeftPanel('organize')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Organize
+                  Organize Notes
                 </button>
                 <button onClick={() => setActiveLeftPanel('history')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   Operation History
@@ -3819,38 +4012,69 @@ export default function Editor({
                     Reassigns note IDs from earliest to latest timepos, then left to right by xpos. Notes sharing the same timepos and xpos keep their original ID order, and parent links are remapped to stay grouped with their children.
                   </p>
                 </div>
-              ) : operationHistory.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-sm text-neutral-600 border border-dashed border-neutral-800 rounded-lg p-4 text-center">
-                  No operations recorded yet
-                </div>
               ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <ol className="flex flex-col gap-2">
-                    {operationHistory.map(entry => (
-                      <li
-                        key={entry.id}
-                        className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 text-sm font-medium text-neutral-200">
-                            {entry.title}
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-neutral-400">
+                    <input
+                      type="checkbox"
+                      checked={shouldShowUndoneOperations}
+                      onChange={(event) => setShouldShowUndoneOperations(event.target.checked)}
+                      className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 accent-indigo-500"
+                    />
+                    Show Undone Operations
+                  </label>
+
+                  {operationHistory.length === 0 ? (
+                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
+                      No operations recorded yet
+                    </div>
+                  ) : visibleOperationHistory.length === 0 ? (
+                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
+                      Undone operations are hidden
+                    </div>
+                  ) : (
+                    <VirtualizedChangeList
+                      items={visibleOperationHistory}
+                      rowHeight={116}
+                      overscan={8}
+                      getKey={(entry) => entry.id}
+                      className="min-h-0 flex-1 pr-1"
+                      renderRow={(entry, _index, style) => {
+                        const isUndone = undoneOperationIds.has(entry.id);
+
+                        return (
+                          <div style={style} className="pb-2">
+                            <div className={`flex h-[108px] flex-col rounded-lg border p-3 ${isUndone ? 'border-neutral-800 bg-neutral-950/20 opacity-55' : 'border-neutral-800 bg-neutral-950/40'}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className={`min-w-0 truncate text-sm font-medium ${isUndone ? 'text-neutral-500' : 'text-neutral-200'}`}>
+                                  {entry.title}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  {isUndone && (
+                                    <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
+                                      Undone
+                                    </span>
+                                  )}
+                                  <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${isUndone ? 'border-neutral-700 bg-neutral-900 text-neutral-500' : operationCategoryStyles[entry.category]}`}>
+                                    {entry.category}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className={`mt-1 max-h-10 overflow-hidden break-words text-xs leading-5 ${isUndone ? 'text-neutral-600' : 'text-neutral-400'}`}>
+                                {entry.detail}
+                              </div>
+                              <div className="mt-auto flex items-center justify-between text-[11px] text-neutral-600">
+                                <span>#{entry.id}</span>
+                                <time dateTime={new Date(entry.timestamp).toISOString()}>
+                                  {formatHistoryTimestamp(entry.timestamp)}
+                                </time>
+                              </div>
+                            </div>
                           </div>
-                          <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${operationCategoryStyles[entry.category]}`}>
-                            {entry.category}
-                          </span>
-                        </div>
-                        <div className="mt-1 break-words text-xs leading-5 text-neutral-400">
-                          {entry.detail}
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-600">
-                          <span>#{entry.id}</span>
-                          <time dateTime={new Date(entry.timestamp).toISOString()}>
-                            {formatHistoryTimestamp(entry.timestamp)}
-                          </time>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
+                        );
+                      }}
+                    />
+                  )}
                 </div>
               )}
             </div>
