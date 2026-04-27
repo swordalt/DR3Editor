@@ -98,15 +98,23 @@ export const buildNoteRenderIndex = (
   noteBeatEntries.sort((a, b) => (a.beat - b.beat) || (a.note.id - b.note.id));
 
   groupedNoteIds.forEach((groupedIds) => {
-    const label = formatGroupedIds(groupedIds);
-    groupedIds.forEach((noteId) => {
-      groupedIdLabelsByNoteId.set(noteId, label);
+    const sortedGroupedIds = [...groupedIds].sort((a, b) => a - b);
+    const [labelNoteId] = sortedGroupedIds;
+    const label = formatGroupedIds(sortedGroupedIds);
+
+    sortedGroupedIds.forEach((noteId) => {
+      groupedIdLabelsByNoteId.set(noteId, noteId === labelNoteId ? label : '');
     });
   });
 
   const selectedParentNoteIds = new Set<number>();
   notes.forEach((note) => {
-    if (selectedNoteIdSet.has(note.id) && canTypeHaveParent(note.type) && note.parentId !== null) {
+    if (
+      selectedNoteIdSet.size === 1
+      && selectedNoteIdSet.has(note.id)
+      && canTypeHaveParent(note.type)
+      && note.parentId !== null
+    ) {
       selectedParentNoteIds.add(note.parentId);
     }
 

@@ -46,7 +46,6 @@ const SOUND_URLS: Record<string, string> = {
 };
 const HIT_SOUND_LOOKAHEAD_SECONDS = 0.12;
 const HIT_SOUND_JUMP_TOLERANCE_SECONDS = 0.25;
-const HOVER_PREVIEW_FRAME_INTERVAL_MS = 1000 / 30;
 const PAUSED_TIMELINE_RENDER_DURATION_MS = 120;
 const AUDIO_CLOCK_HANDOFF_DELAY_MS = 200;
 const AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS = 0.05;
@@ -553,7 +552,6 @@ export default function Editor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
-  const hoverPreviewTimeoutRef = useRef<number>();
   const pausedTimelineRenderTimeoutRef = useRef<number>();
   const pausedTimelineRenderUntilRef = useRef(0);
   const fpsFrameCountRef = useRef(0);
@@ -1317,10 +1315,6 @@ export default function Editor({
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
         requestRef.current = undefined;
-      }
-      if (hoverPreviewTimeoutRef.current) {
-        window.clearTimeout(hoverPreviewTimeoutRef.current);
-        hoverPreviewTimeoutRef.current = undefined;
       }
       stateRef.current.isPlaying = false;
       setIsPlaying(false);
@@ -2158,15 +2152,12 @@ export default function Editor({
 
     if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
       const xPositionWidth = laneWidth / 2;
-      const pulse = (Math.sin(performance.now() / 260) + 1) / 2;
-      const connectorAlpha = 0.05 + pulse * 0.07;
+      const connectorAlpha = 0.08;
       let parentNote = previewStartNote;
       let parentBeat = getBeatAtTime(previewStartNote.time, sortedChanges);
 
       ctx.save();
       ctx.globalAlpha = connectorAlpha;
-      ctx.shadowColor = (NOTE_TYPES[curveNoteType] || UNKNOWN_NOTE_TYPE).color;
-      ctx.shadowBlur = 12 + pulse * 10;
       ctx.fillStyle = getConnectorFill(curveNoteType);
 
       curvePreviewNotes.forEach((previewNote) => {
@@ -2322,16 +2313,17 @@ export default function Editor({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       const groupedIdsLabel = noteRenderIndex.groupedIdLabelsByNoteId.get(renderedNote.id) ?? `${renderedNote.id}`;
-      ctx.fillText(groupedIdsLabel, noteCenterX, y + 12);
-      countRenderedObject();
+      if (groupedIdsLabel) {
+        ctx.fillText(groupedIdsLabel, noteCenterX, y + 12);
+        countRenderedObject();
+      }
     });
 
     if (curvePreviewNotes.length > 0) {
       const xPositionWidth = laneWidth / 2;
       const previewTypeInfo = NOTE_TYPES[curveNoteType] || UNKNOWN_NOTE_TYPE;
-      const pulse = (Math.sin(performance.now() / 260) + 1) / 2;
-      const fillAlpha = 0.08 + pulse * 0.1;
-      const outlineAlpha = 0.28 + pulse * 0.28;
+      const fillAlpha = 0.14;
+      const outlineAlpha = 0.42;
 
       curvePreviewNotes.forEach((previewNote) => {
         if (previewNote.beat < visibleStartBeat || previewNote.beat > visibleEndBeat) {
@@ -2344,8 +2336,6 @@ export default function Editor({
         const previewCenterX = previewX + previewPixelWidth / 2;
 
         ctx.save();
-        ctx.shadowColor = previewTypeInfo.color;
-        ctx.shadowBlur = 14 + pulse * 12;
         ctx.globalAlpha = fillAlpha;
         ctx.fillStyle = previewTypeInfo.color;
         ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
@@ -2427,9 +2417,8 @@ export default function Editor({
         const previewPixelWidth = xPositionWidth * noteWidth;
         const previewCenterX = previewX + previewPixelWidth / 2;
         const previewTypeInfo = NOTE_TYPES[selectedNoteType] || UNKNOWN_NOTE_TYPE;
-        const pulse = (Math.sin(performance.now() / 220) + 1) / 2;
-        const fillAlpha = 0.12 + pulse * 0.12;
-        const outlineAlpha = 0.35 + pulse * 0.35;
+        const fillAlpha = 0.18;
+        const outlineAlpha = 0.5;
 
         ctx.save();
         ctx.globalAlpha = fillAlpha;
@@ -2498,14 +2487,20 @@ export default function Editor({
 
     // Draw selection box
     if (selectionBox) {
+      const xPositionWidth = laneWidth / 2;
+      const startSelectionX = startX + selectionBox.startXPosition * xPositionWidth;
+      const endSelectionX = startX + selectionBox.endXPosition * xPositionWidth;
+      const startSelectionY = hitLineY - (selectionBox.startBeat - currentBeat) * pixelsPerBeat;
+      const endSelectionY = hitLineY - (selectionBox.endBeat - currentBeat) * pixelsPerBeat;
+
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
       ctx.setLineDash([5, 5]);
       ctx.strokeRect(
-        Math.min(selectionBox.startX, selectionBox.endX),
-        Math.min(selectionBox.startY, selectionBox.endY),
-        Math.abs(selectionBox.endX - selectionBox.startX),
-        Math.abs(selectionBox.endY - selectionBox.startY)
+        Math.min(startSelectionX, endSelectionX),
+        Math.min(startSelectionY, endSelectionY),
+        Math.abs(endSelectionX - startSelectionX),
+        Math.abs(endSelectionY - startSelectionY)
       );
       ctx.setLineDash([]);
       countRenderedObject();
@@ -2528,17 +2523,7 @@ export default function Editor({
 
   }, [activeLeftPanel, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
 
-  const shouldAnimateCurvePreview = Boolean(
-    activeLeftPanel === 'curveNotes'
-    && curveStartIdInput.trim() !== ''
-    && curveEndIdInput.trim() !== ''
-    && AVAILABLE_NOTE_TYPES.includes(curveNoteType)
-    && Number.isInteger(Number(curveDensityInput))
-    && Number(curveDensityInput) > 0
-    && CURVE_EASINGS_BY_ID.has(getCurveEasingId(curveEasingFamily, curveEasingType))
-    && !curveIdSelectTarget
-  );
-  const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering || (!!hoverPreview && !isCtrlHeld && !isShiftHeld) || shouldAnimateCurvePreview;
+  const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
   const updateRenderedObjectsDisplay = useCallback((force = false) => {
     if (!shouldCountRenderedObjectsRef.current) {
@@ -2616,15 +2601,10 @@ export default function Editor({
       requestRef.current = requestAnimationFrame(update);
     } else if (isPausedTimelineRendering && performance.now() < pausedTimelineRenderUntilRef.current) {
       requestRef.current = requestAnimationFrame(update);
-    } else if ((hoverPreview && !isCtrlHeld && !isShiftHeld) || shouldAnimateCurvePreview) {
-      hoverPreviewTimeoutRef.current = window.setTimeout(() => {
-        hoverPreviewTimeoutRef.current = undefined;
-        requestRef.current = requestAnimationFrame(update);
-      }, HOVER_PREVIEW_FRAME_INTERVAL_MS);
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, playHitSound, hoverPreview, isCtrlHeld, isShiftHeld, shouldAnimateCurvePreview, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, playHitSound, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -2636,10 +2616,6 @@ export default function Editor({
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
         requestRef.current = undefined;
-      }
-      if (hoverPreviewTimeoutRef.current) {
-        window.clearTimeout(hoverPreviewTimeoutRef.current);
-        hoverPreviewTimeoutRef.current = undefined;
       }
       return;
     }
@@ -2654,10 +2630,6 @@ export default function Editor({
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
         requestRef.current = undefined;
-      }
-      if (hoverPreviewTimeoutRef.current) {
-        window.clearTimeout(hoverPreviewTimeoutRef.current);
-        hoverPreviewTimeoutRef.current = undefined;
       }
     };
   }, [drawGrid, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
@@ -2688,6 +2660,40 @@ export default function Editor({
     return Number(Math.max(0, Math.min(xPositionCount, rawLane)).toFixed(3));
   };
 
+  const getSelectionPointFromClient = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+    const lanes = LANE_COUNT;
+    const laneWidth = Math.min(60, rect.width / (lanes + 2));
+    const gridWidth = lanes * laneWidth;
+    const startX = (rect.width - gridWidth) / 2;
+    const xPositionWidth = laneWidth / 2;
+    const hitLineY = rect.height - 150;
+    const currentBeat = getBeatAtTime(stateRef.current.currentTime, timedBpmChanges);
+
+    return {
+      xPosition: (canvasX - startX) / xPositionWidth,
+      beat: currentBeat + (hitLineY - canvasY) / pixelsPerBeat,
+    };
+  }, [pixelsPerBeat, timedBpmChanges]);
+
+  const updateSelectionBoxEndFromClient = useCallback((clientX: number, clientY: number) => {
+    const selectionPoint = getSelectionPointFromClient(clientX, clientY);
+    if (!selectionPoint) return;
+
+    setSelectionBox(prev => prev
+      ? {
+          ...prev,
+          endXPosition: selectionPoint.xPosition,
+          endBeat: selectionPoint.beat,
+        }
+      : null);
+  }, [getSelectionPointFromClient]);
+
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isOrganizingNotes) return;
 
@@ -2698,7 +2704,7 @@ export default function Editor({
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    const { width, height } = canvas;
+    const { width, height } = rect;
     const lanes = LANE_COUNT;
     const laneWidth = Math.min(60, width / (lanes + 2));
     const gridWidth = lanes * laneWidth;
@@ -2837,6 +2843,8 @@ export default function Editor({
         }
       }
     } else if (e.button === 1) { // Middle click
+      e.preventDefault();
+
       if (e.shiftKey) {
         if (clickedNote) {
           setDraggingNoteId(clickedNote.id);
@@ -2845,7 +2853,15 @@ export default function Editor({
       } else if (clickedNote) {
         setSelectedNoteIds([clickedNote.id]);
       } else {
-        setSelectionBox({ startX: clickX, startY: clickY, endX: clickX, endY: clickY });
+        const selectionPoint = getSelectionPointFromClient(e.clientX, e.clientY);
+        if (!selectionPoint) return;
+
+        setSelectionBox({
+          startXPosition: selectionPoint.xPosition,
+          startBeat: selectionPoint.beat,
+          endXPosition: selectionPoint.xPosition,
+          endBeat: selectionPoint.beat,
+        });
         setSelectedNoteIds([]);
       }
     } else if (e.button === 2) { // Right click
@@ -2886,7 +2902,7 @@ export default function Editor({
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    const { width, height } = canvas;
+    const { width, height } = rect;
     const lanes = LANE_COUNT;
     const laneWidth = Math.min(60, width / (lanes + 2));
     const gridWidth = lanes * laneWidth;
@@ -2926,7 +2942,7 @@ export default function Editor({
         });
       }
     } else if (selectionBox) {
-      setSelectionBox(prev => prev ? { ...prev, endX: clickX, endY: clickY } : null);
+      updateSelectionBoxEndFromClient(e.clientX, e.clientY);
     } else if (e.ctrlKey || e.shiftKey || isCtrlHeld || isShiftHeld) {
       if (hoverPreviewRef.current !== null) {
         setHoverPreview(null);
@@ -2957,56 +2973,52 @@ export default function Editor({
     }
   };
 
-  const handleCanvasMouseUp = () => {
+  const handleCanvasMouseUp = (completedSelectionBox: SelectionBox | null = null) => {
     if (isOrganizingNotes) return;
     if (curveIdSelectTarget) return;
 
     finishPendingDrag();
 
-    if (selectionBox) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const { width, height } = canvas;
-        const lanes = LANE_COUNT;
-        const laneWidth = Math.min(60, width / (lanes + 2));
-        const gridWidth = lanes * laneWidth;
-        const startX = (width - gridWidth) / 2;
-        const hitLineY = height - 150;
-        const sortedChanges = timedBpmChanges;
-        const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
+    if (completedSelectionBox) {
+      const minXPosition = Math.min(completedSelectionBox.startXPosition, completedSelectionBox.endXPosition);
+      const maxXPosition = Math.max(completedSelectionBox.startXPosition, completedSelectionBox.endXPosition);
+      const selectionMinBeat = Math.min(completedSelectionBox.startBeat, completedSelectionBox.endBeat);
+      const selectionMaxBeat = Math.max(completedSelectionBox.startBeat, completedSelectionBox.endBeat);
+      const noteHalfHeightBeats = 10 / pixelsPerBeat;
+      const queryMinBeat = selectionType === 'crossing'
+        ? selectionMinBeat - noteHalfHeightBeats
+        : selectionMinBeat;
+      const queryMaxBeat = selectionType === 'crossing'
+        ? selectionMaxBeat + noteHalfHeightBeats
+        : selectionMaxBeat;
 
-        const minX = Math.min(selectionBox.startX, selectionBox.endX);
-        const maxX = Math.max(selectionBox.startX, selectionBox.endX);
-        const minY = Math.min(selectionBox.startY, selectionBox.endY);
-        const maxY = Math.max(selectionBox.startY, selectionBox.endY);
-        const verticalSelectionPaddingBeats = selectionType === 'crossing' ? 10 / pixelsPerBeat : 0;
-        const minBeat = currentBeat + (hitLineY - maxY) / pixelsPerBeat - verticalSelectionPaddingBeats;
-        const maxBeat = currentBeat + (hitLineY - minY) / pixelsPerBeat + verticalSelectionPaddingBeats;
+      const selected = getNoteBeatEntriesInRange(
+        noteRenderIndex.noteBeatEntries,
+        queryMinBeat,
+        queryMaxBeat,
+      ).map(({ note: n, beat: noteBeat }) => {
+        const noteStartXPosition = n.lane;
+        const noteEndXPosition = n.lane + n.width;
+        const noteMinBeat = noteBeat - noteHalfHeightBeats;
+        const noteMaxBeat = noteBeat + noteHalfHeightBeats;
 
-        const selected = getNoteBeatEntriesInRange(
-          noteRenderIndex.noteBeatEntries,
-          minBeat,
-          maxBeat,
-        ).map(({ note: n, beat: noteBeat }) => {
-          const noteY = hitLineY - (noteBeat - currentBeat) * pixelsPerBeat;
-          const xPositionWidth = laneWidth / 2;
-          const noteStartX = startX + n.lane * xPositionWidth;
-          const noteEndX = noteStartX + xPositionWidth * n.width;
-          const noteTopY = noteY - 10;
-          const noteBottomY = noteY + 10;
-          
-          if (selectionType === 'crossing') {
-            return noteEndX >= minX && noteStartX <= maxX && noteBottomY >= minY && noteTopY <= maxY
-              ? n
-              : null;
-          }
-
-          return noteStartX >= minX && noteEndX <= maxX && noteTopY >= minY && noteBottomY <= maxY
+        if (selectionType === 'crossing') {
+          return noteEndXPosition >= minXPosition
+            && noteStartXPosition <= maxXPosition
+            && noteMaxBeat >= selectionMinBeat
+            && noteMinBeat <= selectionMaxBeat
             ? n
             : null;
-        }).filter((note): note is Note => note !== null);
-        setSelectedNoteIds(selected.map(n => n.id));
-      }
+        }
+
+        return noteStartXPosition >= minXPosition
+          && noteEndXPosition <= maxXPosition
+          && noteMinBeat >= selectionMinBeat
+          && noteMaxBeat <= selectionMaxBeat
+          ? n
+          : null;
+      }).filter((note): note is Note => note !== null);
+      setSelectedNoteIds(selected.map(n => n.id));
     }
     setSelectionBox(null);
   };
@@ -3015,12 +3027,40 @@ export default function Editor({
     if (isOrganizingNotes) return;
 
     setHoverPreview(null);
-    handleCanvasMouseUp();
+    if (selectionBox) return;
+
+    handleCanvasMouseUp(null);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
   };
+
+  useEffect(() => {
+    if (!selectionBox) return;
+
+    const handleWindowMouseMove = (event: MouseEvent) => {
+      updateSelectionBoxEndFromClient(event.clientX, event.clientY);
+    };
+    const handleWindowMouseUp = (event: MouseEvent) => {
+      const selectionPoint = getSelectionPointFromClient(event.clientX, event.clientY);
+      handleCanvasMouseUp(selectionPoint
+        ? {
+            ...selectionBox,
+            endXPosition: selectionPoint.xPosition,
+            endBeat: selectionPoint.beat,
+          }
+        : selectionBox);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [getSelectionPointFromClient, selectionBox, updateSelectionBoxEndFromClient]);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!projectData) return;
@@ -3435,9 +3475,11 @@ export default function Editor({
   } = chartStatistics;
   const notePropertyInputClass = 'w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600';
   const bpmChangeGridClass = isOfficialChartFormat
-    ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.5rem] gap-2'
-    : 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_1.5rem] gap-2';
+    ? 'grid grid-cols-[2rem_minmax(0,1.25fr)_minmax(0,1fr)_1.25rem] gap-2'
+    : 'grid grid-cols-[2rem_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.9fr)_1.25rem] gap-2';
+  const speedChangeGridClass = 'grid grid-cols-[2rem_minmax(0,1.25fr)_minmax(0,1fr)_1.25rem] gap-2';
   const changeTableInputClass = 'w-full min-w-0 p-1 bg-neutral-800 rounded border border-neutral-700';
+  const changeTableMarkerClass = 'inline-flex h-6 w-full items-center justify-center rounded border border-neutral-700 bg-neutral-900 font-mono text-[10px] font-semibold text-neutral-400';
   const emptyCanvasMessage = mode === 'import'
     ? 'Provide the music file in Chart Metadata to start editing this imported chart.'
     : 'Fill in project details in Chart Metadata to start editing.';
@@ -4489,6 +4531,7 @@ export default function Editor({
                   )}
                   <label className="block shrink-0 text-xs text-neutral-400 mb-1">BPM Changes</label>
                   <div className={`${bpmChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
+                    <div>ID</div>
                     <div>Timepos</div>
                     <div>BPM</div>
                     {!isOfficialChartFormat && <div>Sig</div>}
@@ -4501,6 +4544,7 @@ export default function Editor({
                     className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
                     renderRow={(change, index, style) => (
                       <div style={style} className={`${bpmChangeGridClass} items-center`}>
+                        <span className={changeTableMarkerClass}>{index + 1}</span>
                         <CommitInput type="number" step="0.001" value={getBpmChangeTimepos(change)} className={changeTableInputClass} onCommit={(value) => {
                             const timepos = parseFloat(value);
                             updateBpmChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
@@ -4540,7 +4584,8 @@ export default function Editor({
                 <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Speed Changes</div>
               </div>
               <div className="flex flex-col overflow-hidden flex-1 pr-1 pb-4 min-h-0">
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.5rem] gap-2 pb-2 text-left text-sm text-neutral-500">
+                <div className={`${speedChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
+                  <div>ID</div>
                   <div>Timepos</div>
                   <div>Speed</div>
                   <div />
@@ -4551,7 +4596,8 @@ export default function Editor({
                     getKey={(_, index) => index}
                     className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
                     renderRow={(change, index, style) => (
-                    <div style={style} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.5rem] items-center gap-2">
+                    <div style={style} className={`${speedChangeGridClass} items-center`}>
+                      <span className={changeTableMarkerClass}>{index + 1}</span>
                       <CommitInput type="number" step="0.001" value={change.timepos} className={changeTableInputClass} onCommit={(value) => {
                           const timepos = parseFloat(value);
                           updateSpeedChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
@@ -4902,7 +4948,21 @@ export default function Editor({
               audioRef={audioRef}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
+              onMouseUp={(event) => {
+                if (!selectionBox) {
+                  handleCanvasMouseUp(null);
+                  return;
+                }
+
+                const selectionPoint = getSelectionPointFromClient(event.clientX, event.clientY);
+                handleCanvasMouseUp(selectionPoint
+                  ? {
+                      ...selectionBox,
+                      endXPosition: selectionPoint.xPosition,
+                      endBeat: selectionPoint.beat,
+                    }
+                  : selectionBox);
+              }}
               onMouseLeave={handleCanvasMouseLeave}
               onContextMenu={handleContextMenu}
             />

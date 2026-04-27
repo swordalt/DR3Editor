@@ -33,7 +33,7 @@ interface EditorCanvasProps {
   audioRef: React.RefObject<HTMLAudioElement | null>;
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  onMouseUp: () => void;
+  onMouseUp: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onMouseLeave: () => void;
   onContextMenu: (e: React.MouseEvent<HTMLCanvasElement>) => void;
 }

@@ -36,10 +36,10 @@ export interface SpeedChange {
 }
 
 export interface SelectionBox {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
+  startXPosition: number;
+  startBeat: number;
+  endXPosition: number;
+  endBeat: number;
 }
 
 export interface EditorFormData {
