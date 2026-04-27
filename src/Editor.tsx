@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, Settings, Play, Pause, Download, X, ChevronLeft, ChevronRight, Grid2x2, Grid2x2X, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Settings, Play, Pause, Download, X, ChevronLeft, ChevronRight, Grid2x2, Grid2x2X, HelpCircle, Copy, Trash2, FlipHorizontal } from 'lucide-react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorModal from './components/EditorModal';
 import EditorCanvas from './components/EditorCanvas';
@@ -868,6 +868,83 @@ export default function Editor({
     return getTimeAtBeat(currentMeasureBeat + measureDecimal * currentBeatsPerMeasure, timedBpmChanges);
   }, [timedBpmChanges]);
 
+  const clearActiveNoteInteraction = useCallback(() => {
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    setHoverPreview(null);
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+  }, []);
+
+  const handleCopySelectedNotes = useCallback(() => {
+    const selectedIdSet = new Set(selectedNoteIds);
+    copiedNotesRef.current = stateRef.current.notes
+      .filter(note => selectedIdSet.has(note.id))
+      .sort((a, b) => (a.time - b.time) || (a.id - b.id))
+      .map(note => ({
+        ...note,
+        copiedTimepos: getTimeposFromTime(note.time),
+      }));
+    setCopiedNotesPreviewVersion(prev => prev + 1);
+  }, [getTimeposFromTime, selectedNoteIds]);
+
+  const handleClearCopiedNotes = useCallback(() => {
+    if (copiedNotesRef.current.length === 0) return;
+
+    copiedNotesRef.current = [];
+    pasteTargetRef.current = null;
+    setCopiedNotesPreviewVersion(prev => prev + 1);
+  }, []);
+
+  const handleDeleteSelectedNotes = useCallback(() => {
+    const noteIdsToDelete = new Set(selectedNoteIds);
+    const deletedNotes = stateRef.current.notes.filter(n => noteIdsToDelete.has(n.id));
+    if (deletedNotes.length === 0) return;
+
+    recordOperation({
+      category: 'note',
+      title: deletedNotes.length === 1 ? 'Deleted note' : `Deleted ${deletedNotes.length} notes`,
+      detail: deletedNotes.length === 1
+        ? getNoteHistoryDetail(deletedNotes[0])
+        : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
+    });
+
+    setNotes(prev => prev.filter(n => !noteIdsToDelete.has(n.id)));
+    setSelectedNoteIds([]);
+    clearActiveNoteInteraction();
+  }, [clearActiveNoteInteraction, getNoteHistoryDetail, recordOperation, selectedNoteIds, setNotes]);
+
+  const handleMirrorSelectedNotes = useCallback(() => {
+    const selectedIdSet = new Set(selectedNoteIds);
+    const selectedNotes = stateRef.current.notes.filter(note => selectedIdSet.has(note.id));
+    if (selectedNotes.length === 0) return;
+
+    const mirroredLaneById = new Map<number, number>();
+    let changedCount = 0;
+
+    selectedNotes.forEach(note => {
+      const mirroredLane = Math.max(0, Math.min(X_POSITION_COUNT - note.width, X_POSITION_COUNT - note.lane - note.width));
+      mirroredLaneById.set(note.id, mirroredLane);
+      if (mirroredLane !== note.lane) {
+        changedCount += 1;
+      }
+    });
+
+    if (changedCount === 0) return;
+
+    recordOperation({
+      category: 'note',
+      title: selectedNotes.length === 1 ? 'Mirrored note' : `Mirrored ${selectedNotes.length} notes`,
+      detail: `IDs ${formatGroupedIds(selectedNotes.map(note => note.id))} around xpos 8`,
+    });
+
+    setNotes(prev => prev.map(note => {
+      const mirroredLane = mirroredLaneById.get(note.id);
+      return mirroredLane === undefined ? note : { ...note, lane: mirroredLane };
+    }));
+    clearActiveNoteInteraction();
+  }, [clearActiveNoteInteraction, recordOperation, selectedNoteIds, setNotes]);
+
   const noteRenderIndex = useMemo(
     () => buildNoteRenderIndex(notes, timedBpmChanges, selectedNoteIdSet),
     [notes, timedBpmChanges, selectedNoteIdSet],
@@ -1519,15 +1596,7 @@ export default function Editor({
         e.preventDefault();
         if (e.repeat) return;
 
-        const selectedIdSet = new Set(selectedNoteIds);
-        copiedNotesRef.current = stateRef.current.notes
-          .filter(note => selectedIdSet.has(note.id))
-          .sort((a, b) => (a.time - b.time) || (a.id - b.id))
-          .map(note => ({
-            ...note,
-            copiedTimepos: getTimeposFromTime(note.time),
-          }));
-        setCopiedNotesPreviewVersion(prev => prev + 1);
+        handleCopySelectedNotes();
         return;
       }
 
@@ -1587,24 +1656,7 @@ export default function Editor({
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        const noteIdsToDelete = new Set(selectedNoteIds);
-        const deletedNotes = stateRef.current.notes.filter(n => noteIdsToDelete.has(n.id));
-        if (deletedNotes.length > 0) {
-          recordOperation({
-            category: 'note',
-            title: deletedNotes.length === 1 ? 'Deleted note' : `Deleted ${deletedNotes.length} notes`,
-            detail: deletedNotes.length === 1
-              ? getNoteHistoryDetail(deletedNotes[0])
-              : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
-          });
-        }
-        setNotes(prev => prev.filter(n => !noteIdsToDelete.has(n.id)));
-        setSelectedNoteIds([]);
-        setDraggingNoteId(null);
-        setSelectionBox(null);
-        setHoverPreview(null);
-        pendingDragUpdateRef.current = null;
-        dragStartNoteRef.current = null;
+        handleDeleteSelectedNotes();
         return;
       }
 
@@ -1679,7 +1731,7 @@ export default function Editor({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, recordOperation, redoLastOperation, selectedNoteIds, timedBpmChanges, togglePlay, undoLastOperation]);
+  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, undoLastOperation]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -3424,6 +3476,7 @@ export default function Editor({
     currentParentId === 0 || Number.isNaN(currentParentId)
       ? null
       : notes.find((note) => note.id === currentParentId) || null;
+  const copiedNotesCount = copiedNotesRef.current.length;
   const parsedCurveStartId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
   const parsedCurveEndId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
   const curveStartNote = Number.isInteger(parsedCurveStartId)
@@ -4436,7 +4489,15 @@ export default function Editor({
               </div>
               
               <div className="mt-auto pt-4 border-t border-neutral-800">
-                <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={handleClearCopiedNotes}
+                  disabled={copiedNotesCount === 0}
+                  className="mb-4 w-full px-3 py-2 text-sm text-neutral-300 bg-neutral-800 hover:bg-neutral-700 hover:text-white disabled:bg-neutral-900 disabled:text-neutral-600 rounded-lg transition-colors"
+                >
+                  Clear Clipboard
+                </button>
+                <div className="mb-4 border-t border-neutral-800 pt-4">
                   <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Current Parent</div>
                   <input
                     type="number"
@@ -5189,6 +5250,36 @@ export default function Editor({
                       <X className="h-3.5 w-3.5" />
                       <span>Deselect All</span>
                     </button>
+
+                    <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+                      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">Multiselect Functions</div>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCopySelectedNotes}
+                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          <span>Copy</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSelectedNotes}
+                          className="flex w-full items-center justify-center gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 hover:text-white"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleMirrorSelectedNotes}
+                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
+                        >
+                          <FlipHorizontal className="h-3.5 w-3.5" />
+                          <span>Mirror</span>
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex-1 flex items-center justify-center text-sm text-neutral-600 border border-dashed border-neutral-800 rounded-lg p-4 text-center">
                       {`${selectedNoteIds.length} notes selected`}
                     </div>
