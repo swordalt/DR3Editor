@@ -31,6 +31,7 @@ interface EditorCanvasProps {
   progressBarRef: React.RefObject<HTMLInputElement | null>;
   isDraggingProgress: React.MutableRefObject<boolean>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  isPreviewMode: boolean;
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onMouseUp: (e: React.MouseEvent<HTMLCanvasElement>) => void;
@@ -40,6 +41,7 @@ interface EditorCanvasProps {
 
 export default function EditorCanvas({
   canvasRef,
+  isPreviewMode,
   onMouseDown,
   onMouseMove,
   onMouseUp,
@@ -49,7 +51,7 @@ export default function EditorCanvas({
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full cursor-crosshair"
+      className={`absolute inset-0 w-full h-full ${isPreviewMode ? 'cursor-default' : 'cursor-crosshair'}`}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}

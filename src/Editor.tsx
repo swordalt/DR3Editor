@@ -52,6 +52,12 @@ const AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS = 0.05;
 const AUDIO_SEEK_TIMEOUT_MS = 10000;
 const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
 const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
+const PINK_HOLD_CENTER_TYPE = 23;
+const APPEAR_MODE_P_NSC = '0.25:0;0.219:0.125;0.187:0.1875;0.156:0.23435;0.125:0.25;0.094:0.23435;0.062:0.1875;0.031:0.125;0:0';
+const APPEAR_MODE_ENTRY_DISTANCE = 4;
+const APPEAR_MODE_SIDE_ENTRY_MULTIPLIER = 1.75;
+const APPEAR_MODE_H_START_SCALE = 2;
+const APPEAR_MODE_P_RENDER_DISTANCE = 0.25;
 const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
   window: 'Window Selection',
   crossing: 'Crossing Selection',
@@ -281,6 +287,303 @@ const getBeatAtTimepos = (
   return currentMeasureBeat + measureDecimal * currentBeatsPerMeasure;
 };
 
+const buildSpeedDistanceIndex = (speedChanges: SpeedChange[]) => {
+  const sortedSpeedChanges = [...speedChanges].sort((a, b) => a.timepos - b.timepos);
+  const points: SpeedDistancePoint[] = [{
+    timepos: 0,
+    distance: 0,
+    speed: 1,
+  }];
+  let distance = 0;
+  let activeSpeed = 1;
+  let previousTimepos = 0;
+
+  sortedSpeedChanges.forEach((change) => {
+    const changeTimepos = Math.max(0, change.timepos);
+    const clampedChangeTimepos = Math.max(previousTimepos, changeTimepos);
+    distance += activeSpeed * (clampedChangeTimepos - previousTimepos);
+    activeSpeed = change.speedChange;
+    previousTimepos = clampedChangeTimepos;
+    points.push({
+      timepos: clampedChangeTimepos,
+      distance,
+      speed: activeSpeed,
+    });
+  });
+
+  return points;
+};
+
+const getSpeedDistanceAtTimepos = (timepos: number, speedDistanceIndex: SpeedDistancePoint[]) => {
+  const targetTimepos = Math.max(0, timepos);
+  let low = 0;
+  let high = speedDistanceIndex.length - 1;
+  let activePoint = speedDistanceIndex[0] ?? { timepos: 0, distance: 0, speed: 1 };
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const point = speedDistanceIndex[mid];
+    if (point.timepos <= targetTimepos) {
+      activePoint = point;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return activePoint.distance + activePoint.speed * (targetTimepos - activePoint.timepos);
+};
+
+const findFirstPreviewNoteDistanceIndex = (entries: PreviewNoteRenderEntry[], distance: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].distance < distance) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+const getPreviewNoteEntriesInDistanceRange = (
+  entries: PreviewNoteRenderEntry[],
+  startDistance: number,
+  endDistance: number,
+) => {
+  const minDistance = Math.min(startDistance, endDistance);
+  const maxDistance = Math.max(startDistance, endDistance);
+  const matchingEntries: PreviewNoteRenderEntry[] = [];
+  const firstEntryIndex = findFirstPreviewNoteDistanceIndex(entries, minDistance);
+
+  for (let index = firstEntryIndex; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.distance > maxDistance) {
+      break;
+    }
+
+    matchingEntries.push(entry);
+  }
+
+  return matchingEntries;
+};
+
+const findFirstPreviewConnectorDistanceIndex = (entries: PreviewHoldConnectorSegment[], distance: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].minDistance < distance) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+const getPreviewConnectorSegmentsInDistanceRange = (
+  entries: PreviewHoldConnectorSegment[],
+  startDistance: number,
+  endDistance: number,
+) => {
+  const minDistance = Math.min(startDistance, endDistance);
+  const maxDistance = Math.max(startDistance, endDistance);
+  const matchingEntries: PreviewHoldConnectorSegment[] = [];
+  let index = findFirstPreviewConnectorDistanceIndex(entries, minDistance);
+
+  while (index > 0 && entries[index - 1].maxDistance >= minDistance) {
+    index -= 1;
+  }
+
+  for (; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.minDistance > maxDistance) {
+      break;
+    }
+
+    if (entry.maxDistance >= minDistance) {
+      matchingEntries.push(entry);
+    }
+  }
+
+  return matchingEntries;
+};
+
+const parsePreviewNoteSpeed = (
+  speed: string | undefined,
+  noteTimepos: number,
+  _speedDistanceIndex: SpeedDistancePoint[],
+): PreviewNoteSpeed => {
+  const normalizedSpeed = speed?.replace(/\s+/g, '') ?? '';
+
+  if (!normalizedSpeed.includes(':')) {
+    const multiplier = Number(normalizedSpeed);
+    return {
+      kind: 'multiplier',
+      multiplier: Number.isFinite(multiplier) && multiplier !== 0 ? multiplier : 1,
+    };
+  }
+
+  const keyframes = normalizedSpeed
+    .split(';')
+    .map((entry) => {
+      const [timeOffsetText, valueOffsetText] = entry.split(':');
+      const timeOffset = Number(timeOffsetText);
+      const valueOffset = Number(valueOffsetText);
+
+      if (!Number.isFinite(timeOffset) || !Number.isFinite(valueOffset)) {
+        return null;
+      }
+
+      return {
+        time: noteTimepos - timeOffset,
+        value: noteTimepos - valueOffset,
+      };
+    })
+    .filter((keyframe): keyframe is PreviewNoteSpeedKeyframe => keyframe !== null)
+    .sort((a, b) => a.time - b.time);
+
+  return keyframes.length > 0
+    ? { kind: 'curve', keyframes }
+    : { kind: 'multiplier', multiplier: 1 };
+};
+
+const evaluatePreviewNoteSpeedCurve = (
+  keyframes: PreviewNoteSpeedKeyframe[],
+  distance: number,
+) => {
+  if (keyframes.length === 0) {
+    return distance;
+  }
+
+  if (distance <= keyframes[0].time) {
+    return keyframes[0].value;
+  }
+
+  const lastKeyframe = keyframes[keyframes.length - 1];
+  if (distance >= lastKeyframe.time) {
+    return lastKeyframe.value;
+  }
+
+  for (let index = 1; index < keyframes.length; index += 1) {
+    const previous = keyframes[index - 1];
+    const next = keyframes[index];
+
+    if (distance <= next.time) {
+      const span = next.time - previous.time;
+      const progress = Math.abs(span) <= SNAP_EPSILON
+        ? 0
+        : (distance - previous.time) / span;
+
+      return previous.value + (next.value - previous.value) * progress;
+    }
+  }
+
+  return lastKeyframe.value;
+};
+
+const getPreviewNoteVisualDistance = (
+  noteDistance: number,
+  noteTimepos: number,
+  noteSpeed: PreviewNoteSpeed,
+  currentDistance: number,
+  currentTimepos: number,
+) => (
+  noteSpeed.kind === 'curve'
+    ? noteTimepos - evaluatePreviewNoteSpeedCurve(noteSpeed.keyframes, currentTimepos)
+    : (noteDistance - currentDistance) * noteSpeed.multiplier
+);
+
+const getPreviewAppearModePosition = (
+  note: Note,
+  x: number,
+  y: number,
+  notePixelWidth: number,
+  visualDistance: number,
+  chartStartX: number,
+  gridWidth: number,
+): PreviewNotePosition => {
+  if (note.appearMode === 'L' || note.appearMode === 'R' || note.appearMode === 'H') {
+    const progress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
+
+    if (note.appearMode === 'L') {
+      const startX = chartStartX - gridWidth * APPEAR_MODE_SIDE_ENTRY_MULTIPLIER - notePixelWidth;
+      return {
+        x: startX + (x - startX) * progress,
+        y,
+        scale: 1,
+      };
+    }
+
+    if (note.appearMode === 'R') {
+      const startX = chartStartX + gridWidth * (1 + APPEAR_MODE_SIDE_ENTRY_MULTIPLIER);
+      return {
+        x: startX + (x - startX) * progress,
+        y,
+        scale: 1,
+      };
+    }
+
+    const startY = -24;
+    return {
+      x,
+      y: startY + (y - startY) * progress,
+      scale: APPEAR_MODE_H_START_SCALE + (1 - APPEAR_MODE_H_START_SCALE) * progress,
+    };
+  }
+
+  return { x, y, scale: 1 };
+};
+
+const findFirstPreviewJudgementNoteIndex = (entries: PreviewJudgementNoteEntry[], time: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].time < time) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+const getPreviewCameraXPositionOffset = (
+  segments: PreviewCameraMovementSegment[],
+  currentTime: number,
+) => {
+  let offset = 0;
+
+  for (const segment of segments) {
+    const segmentStartTime = Math.min(segment.startTime, segment.endTime);
+    const segmentEndTime = Math.max(segment.startTime, segment.endTime);
+
+    if (currentTime >= segmentEndTime) {
+      offset += segment.deltaXPosition;
+      continue;
+    }
+
+    if (currentTime <= segmentStartTime) {
+      continue;
+    }
+
+    const progress = (currentTime - segmentStartTime) / Math.max(SNAP_EPSILON, segmentEndTime - segmentStartTime);
+    offset += segment.deltaXPosition * Math.max(0, Math.min(1, progress));
+  }
+
+  return offset;
+};
+
 const getIndicatorKeyAtBeat = (beat: number) => beat.toFixed(6);
 
 const getCurveSnapBeatsBetween = (
@@ -363,6 +666,61 @@ interface HoverPreview {
   time: number;
 }
 
+interface SpeedDistancePoint {
+  timepos: number;
+  distance: number;
+  speed: number;
+}
+
+interface PreviewNoteSpeedKeyframe {
+  time: number;
+  value: number;
+}
+
+interface PreviewNotePosition {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+type PreviewNoteSpeed =
+  | { kind: 'multiplier'; multiplier: number }
+  | { kind: 'curve'; keyframes: PreviewNoteSpeedKeyframe[] };
+
+interface PreviewNoteRenderEntry {
+  note: Note;
+  beat: number;
+  timepos: number;
+  distance: number;
+  noteSpeed: PreviewNoteSpeed;
+}
+
+interface PreviewHoldConnectorSegment {
+  note: Note;
+  parentNote: Note;
+  noteBeat: number;
+  parentBeat: number;
+  noteTimepos: number;
+  parentTimepos: number;
+  noteDistance: number;
+  parentDistance: number;
+  noteSpeed: PreviewNoteSpeed;
+  parentSpeed: PreviewNoteSpeed;
+  minDistance: number;
+  maxDistance: number;
+}
+
+interface PreviewJudgementNoteEntry {
+  id: number;
+  time: number;
+}
+
+interface PreviewCameraMovementSegment {
+  startTime: number;
+  endTime: number;
+  deltaXPosition: number;
+}
+
 interface HitSoundEvent {
   time: number;
   soundUrl: string;
@@ -379,7 +737,7 @@ interface CopiedNote extends Note {
   copiedTimepos: number;
 }
 
-const APPEAR_MODE_OPTIONS = ['none', 'L', 'R', 'H', 'P'] as const;
+const APPEAR_MODE_OPTIONS = ['none', 'L', 'R', 'H', 'P', 'N'] as const;
 
 export default function Editor({ 
   onBack, 
@@ -415,6 +773,7 @@ export default function Editor({
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLeftPanelCompact, setIsLeftPanelCompact] = useState(false);
   const [isRightPanelCompact, setIsRightPanelCompact] = useState(false);
   const [isLeftPanelContentVisible, setIsLeftPanelContentVisible] = useState(true);
@@ -538,6 +897,7 @@ export default function Editor({
   const [renderedObjects, setRenderedObjects] = useState(0);
   const [isFpsCounterHovered, setIsFpsCounterHovered] = useState(false);
   const [isPausedTimelineRendering, setIsPausedTimelineRendering] = useState(false);
+  const effectiveGridZoom = isPreviewMode ? 0 : gridZoom;
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const musicAudioContextRef = useRef<AudioContext | null>(null);
@@ -574,7 +934,21 @@ export default function Editor({
   const playRequestIdRef = useRef(0);
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
+  const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
+  const previewJudgementCursorTimeRef = useRef(0);
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
+
+  const resetPreviewJudgementState = useCallback((time = stateRef.current.currentTime, hidePastNotes = false) => {
+    hiddenPreviewNoteIdsRef.current.clear();
+    if (hidePastNotes) {
+      stateRef.current.notes.forEach(note => {
+        if (note.time <= time) {
+          hiddenPreviewNoteIdsRef.current.add(note.id);
+        }
+      });
+    }
+    previewJudgementCursorTimeRef.current = time;
+  }, []);
 
   const renderPausedTimelineAtFullFps = useCallback(() => {
     pausedTimelineRenderUntilRef.current = performance.now() + PAUSED_TIMELINE_RENDER_DURATION_MS;
@@ -876,6 +1250,32 @@ export default function Editor({
     dragStartNoteRef.current = null;
   }, []);
 
+  const togglePreviewMode = useCallback(() => {
+    setIsPreviewMode(current => {
+      const nextPreviewMode = !current;
+
+      setIsExportMenuOpen(false);
+      setIsPlaybackSpeedMenuOpen(false);
+      resetPreviewJudgementState();
+
+      if (nextPreviewMode) {
+        setIsSettingsOpen(false);
+        setIsHelpOpen(false);
+        setIsStatisticsRefreshRateMenuOpen(false);
+        setIsSelectionTypeMenuOpen(false);
+        setCurveIdSelectTarget(null);
+        setCurveNotesMessage('');
+        setSelectedNoteIds([]);
+        setIsCtrlHeld(false);
+        setIsShiftHeld(false);
+        clearActiveNoteInteraction();
+        pasteTargetRef.current = null;
+      }
+
+      return nextPreviewMode;
+    });
+  }, [clearActiveNoteInteraction, resetPreviewJudgementState]);
+
   const handleCopySelectedNotes = useCallback(() => {
     const selectedIdSet = new Set(selectedNoteIds);
     copiedNotesRef.current = stateRef.current.notes
@@ -948,6 +1348,114 @@ export default function Editor({
   const noteRenderIndex = useMemo(
     () => buildNoteRenderIndex(notes, timedBpmChanges, selectedNoteIdSet),
     [notes, timedBpmChanges, selectedNoteIdSet],
+  );
+  const speedDistanceIndex = useMemo(
+    () => buildSpeedDistanceIndex(speedChanges),
+    [speedChanges],
+  );
+  const previewNoteRenderEntries = useMemo(
+    () => noteRenderIndex.noteBeatEntries
+      .map(({ note, beat }) => {
+        const timepos = getTimeposFromTime(note.time);
+        return {
+          note,
+          beat,
+          timepos,
+          distance: getSpeedDistanceAtTimepos(timepos, speedDistanceIndex),
+          noteSpeed: parsePreviewNoteSpeed(
+            note.appearMode === 'P' ? APPEAR_MODE_P_NSC : note.speed,
+            timepos,
+            speedDistanceIndex,
+          ),
+        };
+      })
+      .sort((a, b) => (
+        (a.distance - b.distance)
+        || (a.timepos - b.timepos)
+        || (a.note.id - b.note.id)
+      )),
+    [getTimeposFromTime, noteRenderIndex.noteBeatEntries, speedDistanceIndex],
+  );
+  const previewNoteRenderEntryById = useMemo(
+    () => new Map(previewNoteRenderEntries.map(entry => [entry.note.id, entry])),
+    [previewNoteRenderEntries],
+  );
+  const previewHoldConnectorSegments = useMemo(
+    () => noteRenderIndex.holdConnectorSegments
+      .map((segment) => {
+        const noteEntry = previewNoteRenderEntryById.get(segment.note.id);
+        const parentEntry = previewNoteRenderEntryById.get(segment.parentNote.id);
+        const noteTimepos = noteEntry?.timepos ?? getTimeposFromTime(segment.note.time);
+        const parentTimepos = parentEntry?.timepos ?? getTimeposFromTime(segment.parentNote.time);
+        const noteDistance = noteEntry?.distance ?? getSpeedDistanceAtTimepos(noteTimepos, speedDistanceIndex);
+        const parentDistance = parentEntry?.distance ?? getSpeedDistanceAtTimepos(parentTimepos, speedDistanceIndex);
+
+        return {
+          note: segment.note,
+          parentNote: segment.parentNote,
+          noteBeat: segment.noteBeat,
+          parentBeat: segment.parentBeat,
+          noteTimepos,
+          parentTimepos,
+          noteDistance,
+          parentDistance,
+          noteSpeed: noteEntry?.noteSpeed ?? parsePreviewNoteSpeed(
+            segment.note.appearMode === 'P' ? APPEAR_MODE_P_NSC : segment.note.speed,
+            noteTimepos,
+            speedDistanceIndex,
+          ),
+          parentSpeed: parentEntry?.noteSpeed ?? parsePreviewNoteSpeed(
+            segment.parentNote.appearMode === 'P' ? APPEAR_MODE_P_NSC : segment.parentNote.speed,
+            parentTimepos,
+            speedDistanceIndex,
+          ),
+          minDistance: Math.min(noteDistance, parentDistance),
+          maxDistance: Math.max(noteDistance, parentDistance),
+        };
+      })
+      .sort((a, b) => (
+        (a.minDistance - b.minDistance)
+        || (a.maxDistance - b.maxDistance)
+        || (a.note.id - b.note.id)
+      )),
+    [getTimeposFromTime, noteRenderIndex.holdConnectorSegments, previewNoteRenderEntryById, speedDistanceIndex],
+  );
+  const previewJudgementNoteEntries = useMemo(
+    () => notes
+      .map(note => ({ id: note.id, time: note.time }))
+      .sort((a, b) => (a.time - b.time) || (a.id - b.id)),
+    [notes],
+  );
+  const previewCameraMovementSegments = useMemo(
+    () => noteRenderIndex.holdConnectorSegments
+      .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE)
+      .map((segment) => {
+        const startTime = segment.parentNote.time;
+        const endTime = segment.note.time;
+        const parentCenter = segment.parentNote.lane + segment.parentNote.width / 2;
+        const noteCenter = segment.note.lane + segment.note.width / 2;
+
+        return {
+          startTime,
+          endTime,
+          deltaXPosition: noteCenter - parentCenter,
+        };
+      })
+      .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
+      .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime)),
+    [noteRenderIndex.holdConnectorSegments],
+  );
+  const previewMinimumNoteSpeedMagnitude = useMemo(
+    () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
+      entry.noteSpeed.kind === 'multiplier'
+        ? Math.min(minimumMagnitude, Math.max(0.05, Math.abs(entry.noteSpeed.multiplier)))
+        : minimumMagnitude
+    ), 1),
+    [previewNoteRenderEntries],
+  );
+  const hasPreviewNoteSpeedCurves = useMemo(
+    () => previewNoteRenderEntries.some(entry => entry.noteSpeed.kind === 'curve'),
+    [previewNoteRenderEntries],
   );
 
   const finishPendingDrag = useCallback(() => {
@@ -1179,11 +1687,15 @@ export default function Editor({
     stopHitsounds();
     const targetTime = parseFloat(e.target.value);
 
-    // Snap to grid
     const sortedChanges = timedBpmChanges;
-    const targetBeat = getBeatAtTime(targetTime, sortedChanges);
-    const snappedBeat = snapBeatToMeasureDivision(targetBeat, gridZoom, sortedChanges);
-    const newTime = getTimeAtBeat(snappedBeat, sortedChanges);
+    const newTime = isPreviewMode
+      ? targetTime
+      : getTimeAtBeat(
+          snapBeatToMeasureDivision(getBeatAtTime(targetTime, sortedChanges), effectiveGridZoom, sortedChanges),
+          sortedChanges,
+        );
+    const shouldHidePastPreviewNotes = isPreviewMode && newTime > stateRef.current.currentTime;
+    resetPreviewJudgementState(newTime, shouldHidePastPreviewNotes);
     
     setCurrentTime(newTime);
     stateRef.current.currentTime = newTime;
@@ -1198,10 +1710,10 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, newTime - offsetInSeconds);
     }
     if (timeDisplayRef.current && projectData) {
-      timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges, gridZoom);
+      timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges, effectiveGridZoom);
     }
     renderPausedTimelineAtFullFps();
-  }, [projectData, offset, gridZoom, renderPausedTimelineAtFullFps, timedBpmChanges]);
+  }, [projectData, offset, effectiveGridZoom, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges]);
 
   const stopHitsounds = () => {
     activeHitSounds.current.forEach(source => {
@@ -1332,6 +1844,7 @@ export default function Editor({
     stopHitsounds();
 
     const loopStartTime = 0;
+    resetPreviewJudgementState(loopStartTime);
     const now = performance.now();
     const offsetInSeconds = parseFloat(offset.toString()) / 1000;
     const activePlaybackSpeed = stateRef.current.playbackSpeed;
@@ -1351,7 +1864,7 @@ export default function Editor({
     scheduledHitSoundKeysRef.current.clear();
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges, gridZoom);
+      timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges, effectiveGridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = loopStartTime.toString();
@@ -1378,7 +1891,7 @@ export default function Editor({
       await audio.play().catch(() => {});
     }
     isLoopingPlaybackRef.current = false;
-  }, [gridZoom, offset, projectData]);
+  }, [effectiveGridZoom, offset, projectData, resetPreviewJudgementState]);
 
   const togglePlay = useCallback(async () => {
     if (!audioRef.current || !projectData) return;
@@ -1397,11 +1910,14 @@ export default function Editor({
       stateRef.current.isPlaying = false;
       setIsPlaying(false);
 
-      // Snap to the nearest active timeline division.
       const sortedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
-      const currentBeat = getBeatAtTime(playbackTime, sortedChanges);
-      const snappedBeat = snapBeatToMeasureDivision(currentBeat, gridZoom, sortedChanges);
-      const snappedTime = getTimeAtBeat(snappedBeat, sortedChanges);
+      const snappedTime = isPreviewMode
+        ? playbackTime
+        : getTimeAtBeat(
+            snapBeatToMeasureDivision(getBeatAtTime(playbackTime, sortedChanges), effectiveGridZoom, sortedChanges),
+            sortedChanges,
+          );
+      resetPreviewJudgementState(snappedTime);
       
       setCurrentTime(snappedTime);
       stateRef.current.currentTime = snappedTime;
@@ -1412,7 +1928,7 @@ export default function Editor({
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
       audioRef.current.currentTime = Math.max(0, snappedTime - offsetInSeconds);
       if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges, gridZoom);
+        timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges, effectiveGridZoom);
       }
       if (progressBarRef.current && !isDraggingProgress.current) {
         progressBarRef.current.value = snappedTime.toString();
@@ -1421,6 +1937,7 @@ export default function Editor({
       const playRequestId = playRequestIdRef.current + 1;
       playRequestIdRef.current = playRequestId;
       const playbackStartTime = Math.max(0, stateRef.current.currentTime);
+      resetPreviewJudgementState(playbackStartTime, isPreviewMode);
       const musicContext = setupMusicGain();
       if (musicContext?.state === 'suspended') {
         musicContext.resume().catch(() => {});
@@ -1462,7 +1979,7 @@ export default function Editor({
       
       setIsPlaying(true);
     }
-  }, [gridZoom, prepareHitSounds, projectData, offset, setupMusicGain]);
+  }, [effectiveGridZoom, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
 
   const restoreOperationSnapshot = useCallback((snapshot: OperationHistorySnapshot) => {
     if (stateRef.current.isPlaying) {
@@ -1557,6 +2074,14 @@ export default function Editor({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+
+      if (isPreviewMode) {
+        if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === 'Space') {
+          e.preventDefault();
+          togglePlay();
+        }
+        return;
+      }
 
       if (e.key === 'Control') {
         setIsCtrlHeld(true);
@@ -1731,7 +2256,7 @@ export default function Editor({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, undoLastOperation]);
+  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, isPreviewMode, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, undoLastOperation]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1850,9 +2375,10 @@ export default function Editor({
       centerX: number,
       centerY: number,
       letter: 'S' | 'C' | 'E' | '?',
+      scale = 1,
     ) => {
       ctx.fillStyle = letter === '?' ? '#000000' : '#ffffff';
-      ctx.font = 'bold 12px Inter, sans-serif';
+      ctx.font = `bold ${12 * scale}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(letter, centerX, centerY);
@@ -1871,7 +2397,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(time, sortedChanges, gridZoom);
+      timeDisplayRef.current.textContent = formatTime(time, sortedChanges, effectiveGridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = time.toString();
@@ -1879,18 +2405,81 @@ export default function Editor({
 
     const currentBeat = getBeatAtTime(time, sortedChanges);
     const hitLineY = height - 150;
+    const isPreviewPlaybackCanvas = isPreviewMode;
+    const currentPreviewTimepos = isPreviewPlaybackCanvas ? getTimeposFromTime(time) : 0;
+    const currentPreviewDistance = isPreviewPlaybackCanvas
+      ? getSpeedDistanceAtTimepos(currentPreviewTimepos, speedDistanceIndex)
+      : 0;
+    const previewDistanceScale = 4 * pixelsPerBeat;
+    const previewCameraXOffset = isPreviewPlaybackCanvas
+      ? getPreviewCameraXPositionOffset(previewCameraMovementSegments, time)
+      : 0;
+    const previewVisibleMinVisualDistance = -(height - hitLineY + 40) / previewDistanceScale;
+    const previewVisibleMaxVisualDistance = (hitLineY + 40) / previewDistanceScale;
+    const previewVisibleDistanceRadius = Math.max(
+      Math.abs(previewVisibleMinVisualDistance),
+      Math.abs(previewVisibleMaxVisualDistance),
+    ) / previewMinimumNoteSpeedMagnitude;
+    const previewVisibleMinDistance = currentPreviewDistance - previewVisibleDistanceRadius;
+    const previewVisibleMaxDistance = currentPreviewDistance + previewVisibleDistanceRadius;
+
+    const getPreviewYFromTimepos = (timepos: number) => (
+      hitLineY - (getSpeedDistanceAtTimepos(timepos, speedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
+    );
+
+    const getCanvasYFromBeat = (beat: number) => (
+      isPreviewPlaybackCanvas
+        ? getPreviewYFromTimepos(getTimeposFromTime(getTimeAtBeat(beat, sortedChanges)))
+        : hitLineY - (beat - currentBeat) * pixelsPerBeat
+    );
+
+    const getCanvasYFromTime = (targetTime: number, fallbackBeat?: number) => (
+      isPreviewPlaybackCanvas
+        ? getPreviewYFromTimepos(getTimeposFromTime(targetTime))
+        : hitLineY - ((fallbackBeat ?? getBeatAtTime(targetTime, sortedChanges)) - currentBeat) * pixelsPerBeat
+    );
+
+    const getPreviewYFromNoteDistance = (
+      noteDistance: number,
+      noteTimepos: number,
+      noteSpeed: PreviewNoteSpeed,
+    ) => (
+      hitLineY - getPreviewNoteVisualDistance(
+        noteDistance,
+        noteTimepos,
+        noteSpeed,
+        currentPreviewDistance,
+        currentPreviewTimepos,
+      ) * previewDistanceScale
+    );
 
     const lanes = LANE_COUNT;
     const laneWidth = Math.min(60, width / (lanes + 2));
     const gridWidth = lanes * laneWidth;
     const startX = (width - gridWidth) / 2;
+    const xPositionWidth = laneWidth / 2;
+    const cameraOffsetX = -previewCameraXOffset * xPositionWidth;
+    const chartStartX = startX + cameraOffsetX;
 
     // Draw background for the grid area
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.fillRect(startX, 0, gridWidth, height);
+    ctx.fillRect(isPreviewPlaybackCanvas ? chartStartX : startX, 0, gridWidth, height);
+
+    if (isPreviewMode) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(chartStartX, 0);
+      ctx.lineTo(chartStartX, height);
+      ctx.moveTo(chartStartX + gridWidth, 0);
+      ctx.lineTo(chartStartX + gridWidth, height);
+      ctx.stroke();
+      countRenderedObject();
+      countRenderedObject();
+    }
 
     // Draw x-position lanes when snap is enabled.
-    if (isXPositionGridEnabled) {
+    if (isXPositionGridEnabled && !isPreviewMode) {
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 1;
       for (let i = 0; i <= lanes; i++) {
@@ -1898,9 +2487,9 @@ export default function Editor({
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
-        ctx.stroke();
-        countRenderedObject();
-      }
+      ctx.stroke();
+      countRenderedObject();
+    }
     }
 
     // Draw beats
@@ -1916,13 +2505,24 @@ export default function Editor({
     const pendingDragBeat = pendingDragUpdate
       ? getBeatAtTime(pendingDragUpdate.time, sortedChanges)
       : null;
-    const visibleNoteEntries = getNoteBeatEntriesInRange(
-      noteRenderIndex.noteBeatEntries,
-      visibleStartBeat,
-      visibleEndBeat,
-    );
+    const visibleNoteEntries = isPreviewPlaybackCanvas
+      ? (
+          hasPreviewNoteSpeedCurves
+            ? previewNoteRenderEntries
+            : getPreviewNoteEntriesInDistanceRange(
+                previewNoteRenderEntries,
+                previewVisibleMinDistance,
+                previewVisibleMaxDistance,
+              )
+        )
+      : getNoteBeatEntriesInRange(
+          noteRenderIndex.noteBeatEntries,
+          visibleStartBeat,
+          visibleEndBeat,
+        );
 
     if (
+      !isPreviewPlaybackCanvas &&
       pendingDragUpdate &&
       pendingDragBeat !== null &&
       pendingDragBeat >= visibleStartBeat &&
@@ -1937,48 +2537,58 @@ export default function Editor({
 
     const gridLines: Array<{
       beat: number;
+      timepos: number | null;
       isMeasureLine: boolean;
       measureNumber: number | null;
     }> = [];
-    let currentMeasureBeat = 0;
-    let measureCount = 0;
-    
-    while (currentMeasureBeat <= endBeat) {
-      const beatsPerMeasure = getBeatsPerMeasureAtBeat(currentMeasureBeat, sortedChanges);
-      const nextMeasureBeat = currentMeasureBeat + beatsPerMeasure;
 
-      if (currentMeasureBeat >= startBeat) {
-        gridLines.push({
-          beat: currentMeasureBeat,
-          isMeasureLine: true,
-          measureNumber: measureCount,
-        });
-      }
+    if (!isPreviewPlaybackCanvas) {
+      let currentMeasureBeat = 0;
+      let measureCount = 0;
 
-      if (gridZoom > 0) {
-        const step = beatsPerMeasure / gridZoom;
+      while (currentMeasureBeat <= endBeat) {
+        const beatsPerMeasure = getBeatsPerMeasureAtBeat(currentMeasureBeat, sortedChanges);
+        const nextMeasureBeat = currentMeasureBeat + beatsPerMeasure;
 
-        for (let division = 1; division < gridZoom; division += 1) {
-          const divisionBeat = currentMeasureBeat + division * step;
-          if (divisionBeat < startBeat || divisionBeat > endBeat) continue;
-
+        if (currentMeasureBeat >= startBeat) {
           gridLines.push({
-            beat: divisionBeat,
-            isMeasureLine: false,
-            measureNumber: null,
+            beat: currentMeasureBeat,
+            timepos: null,
+            isMeasureLine: true,
+            measureNumber: measureCount,
           });
         }
+
+        if (effectiveGridZoom > 0) {
+          const step = beatsPerMeasure / effectiveGridZoom;
+
+          for (let division = 1; division < effectiveGridZoom; division += 1) {
+            const divisionBeat = currentMeasureBeat + division * step;
+            if (divisionBeat < startBeat || divisionBeat > endBeat) continue;
+
+            gridLines.push({
+              beat: divisionBeat,
+              timepos: null,
+              isMeasureLine: false,
+              measureNumber: null,
+            });
+          }
+        }
+
+        currentMeasureBeat = nextMeasureBeat;
+        measureCount++;
       }
-      
-      currentMeasureBeat = nextMeasureBeat;
-      measureCount++;
     }
 
     gridLines.sort((a, b) => a.beat - b.beat);
 
     for (const gridLine of gridLines) {
       if (gridLine.beat < 0) continue;
-      const y = hitLineY - (gridLine.beat - currentBeat) * pixelsPerBeat;
+      const y = gridLine.timepos === null
+        ? getCanvasYFromBeat(gridLine.beat)
+        : getPreviewYFromTimepos(gridLine.timepos);
+
+      if (y < 0 || y > height) continue;
 
       ctx.beginPath();
       ctx.moveTo(startX, y);
@@ -1994,7 +2604,7 @@ export default function Editor({
       ctx.stroke();
       countRenderedObject();
       
-      if (gridLine.isMeasureLine) {
+      if (gridLine.isMeasureLine && !isPreviewMode) {
         ctx.fillStyle = '#888';
         ctx.font = '12px Inter, sans-serif';
         ctx.textAlign = 'right';
@@ -2004,105 +2614,107 @@ export default function Editor({
       }
     }
 
-    const indicatorX = startX + gridWidth + 10;
-    const indicatorLineHeight = 13;
-    const indicatorGroups = new Map<string, {
-      anchorY: number;
-      speedLabels: string[];
-      bpmLabels: string[];
-    }>();
+    if (!isPreviewMode) {
+      const indicatorX = startX + gridWidth + 10;
+      const indicatorLineHeight = 13;
+      const indicatorGroups = new Map<string, {
+        anchorY: number;
+        speedLabels: string[];
+        bpmLabels: string[];
+      }>();
 
-    const getIndicatorGroup = (indicatorKey: string, anchorY: number) => {
-      const existingGroup = indicatorGroups.get(indicatorKey);
-      if (existingGroup) {
-        return existingGroup;
-      }
+      const getIndicatorGroup = (indicatorKey: string, anchorY: number) => {
+        const existingGroup = indicatorGroups.get(indicatorKey);
+        if (existingGroup) {
+          return existingGroup;
+        }
 
-      const nextGroup = {
-        anchorY,
-        speedLabels: [],
-        bpmLabels: [],
+        const nextGroup = {
+          anchorY,
+          speedLabels: [],
+          bpmLabels: [],
+        };
+        indicatorGroups.set(indicatorKey, nextGroup);
+        return nextGroup;
       };
-      indicatorGroups.set(indicatorKey, nextGroup);
-      return nextGroup;
-    };
 
-    // Queue BPM/Time Signature change indicators on the right side.
-    sortedChanges.forEach(change => {
-      const changeBeat = change.startBeat;
-      const y = hitLineY - (changeBeat - currentBeat) * pixelsPerBeat;
-      
-      // Only draw indicators that are not at time 0 (as they are implied)
-      if (change.time > 0 && y > 0 && y < height) {
-        const indicatorKey = getIndicatorKeyAtBeat(changeBeat);
-        getIndicatorGroup(indicatorKey, y).bpmLabels.push(`BPM: ${change.bpm} | ${change.timeSignature}`);
-      }
-    });
+      // Queue BPM/Time Signature change indicators on the right side.
+      sortedChanges.forEach(change => {
+        const changeBeat = change.startBeat;
+        const y = hitLineY - (changeBeat - currentBeat) * pixelsPerBeat;
 
-    // Queue speed change indicators above BPM changes at the same time position.
-    stateRef.current.speedChanges.forEach(sc => {
-      const scBeat = getBeatAtTimepos(sc.timepos, sortedChanges);
-      const y = hitLineY - (scBeat - currentBeat) * pixelsPerBeat;
-      
-      if (y > 0 && y < height) {
-        const indicatorKey = getIndicatorKeyAtBeat(scBeat);
-        getIndicatorGroup(indicatorKey, y).speedLabels.push(`SC: ${sc.speedChange}x`);
-      }
-    });
-
-    ctx.font = '10px Inter, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-
-    const indicatorStacks = Array.from(indicatorGroups.values()).map(group => {
-      const labels = [
-        ...group.speedLabels.map(text => ({ text, color: '#06b6d4' })),
-        ...group.bpmLabels.map(text => ({ text, color: '#f59e0b' })),
-      ];
-
-      const stackHeight = labels.length * indicatorLineHeight;
-      const minTop = 2;
-      const maxTop = Math.max(minTop, height - stackHeight - 2);
-      const centeredTop = group.anchorY - stackHeight / 2;
-
-      return {
-        labels,
-        height: stackHeight,
-        top: Math.min(Math.max(centeredTop, minTop), maxTop),
-      };
-    }).filter(stack => stack.labels.length > 0)
-      .sort((a, b) => a.top - b.top);
-
-    const indicatorGap = 2;
-    const minIndicatorTop = 2;
-    const maxIndicatorBottom = height - 2;
-    let previousBottom = minIndicatorTop - indicatorGap;
-
-    indicatorStacks.forEach(stack => {
-      stack.top = Math.max(stack.top, previousBottom + indicatorGap);
-      previousBottom = stack.top + stack.height;
-    });
-
-    const overflow = previousBottom - maxIndicatorBottom;
-    if (overflow > 0) {
-      indicatorStacks.forEach(stack => {
-        stack.top -= overflow;
+        // Only draw indicators that are not at time 0 (as they are implied)
+        if (change.time > 0 && y > 0 && y < height) {
+          const indicatorKey = getIndicatorKeyAtBeat(changeBeat);
+          getIndicatorGroup(indicatorKey, y).bpmLabels.push(`BPM: ${change.bpm} | ${change.timeSignature}`);
+        }
       });
 
-      previousBottom = minIndicatorTop - indicatorGap;
+      // Queue speed change indicators above BPM changes at the same time position.
+      stateRef.current.speedChanges.forEach(sc => {
+        const scBeat = getBeatAtTimepos(sc.timepos, sortedChanges);
+        const y = hitLineY - (scBeat - currentBeat) * pixelsPerBeat;
+
+        if (y > 0 && y < height) {
+          const indicatorKey = getIndicatorKeyAtBeat(scBeat);
+          getIndicatorGroup(indicatorKey, y).speedLabels.push(`SC: ${sc.speedChange}x`);
+        }
+      });
+
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+
+      const indicatorStacks = Array.from(indicatorGroups.values()).map(group => {
+        const labels = [
+          ...group.speedLabels.map(text => ({ text, color: '#06b6d4' })),
+          ...group.bpmLabels.map(text => ({ text, color: '#f59e0b' })),
+        ];
+
+        const stackHeight = labels.length * indicatorLineHeight;
+        const minTop = 2;
+        const maxTop = Math.max(minTop, height - stackHeight - 2);
+        const centeredTop = group.anchorY - stackHeight / 2;
+
+        return {
+          labels,
+          height: stackHeight,
+          top: Math.min(Math.max(centeredTop, minTop), maxTop),
+        };
+      }).filter(stack => stack.labels.length > 0)
+        .sort((a, b) => a.top - b.top);
+
+      const indicatorGap = 2;
+      const minIndicatorTop = 2;
+      const maxIndicatorBottom = height - 2;
+      let previousBottom = minIndicatorTop - indicatorGap;
+
       indicatorStacks.forEach(stack => {
         stack.top = Math.max(stack.top, previousBottom + indicatorGap);
         previousBottom = stack.top + stack.height;
       });
-    }
 
-    indicatorStacks.forEach(stack => {
-      stack.labels.forEach((label, index) => {
-        ctx.fillStyle = label.color;
-        ctx.fillText(label.text, indicatorX, stack.top + index * indicatorLineHeight + indicatorLineHeight / 2);
-        countRenderedObject();
+      const overflow = previousBottom - maxIndicatorBottom;
+      if (overflow > 0) {
+        indicatorStacks.forEach(stack => {
+          stack.top -= overflow;
+        });
+
+        previousBottom = minIndicatorTop - indicatorGap;
+        indicatorStacks.forEach(stack => {
+          stack.top = Math.max(stack.top, previousBottom + indicatorGap);
+          previousBottom = stack.top + stack.height;
+        });
+      }
+
+      indicatorStacks.forEach(stack => {
+        stack.labels.forEach((label, index) => {
+          ctx.fillStyle = label.color;
+          ctx.fillText(label.text, indicatorX, stack.top + index * indicatorLineHeight + indicatorLineHeight / 2);
+          countRenderedObject();
+        });
       });
-    });
+    }
 
     const parsedPreviewStartId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
     const parsedPreviewEndId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
@@ -2157,24 +2769,29 @@ export default function Editor({
       });
     }
 
+    const hiddenPreviewNoteIds = isPreviewMode && stateRef.current.isPlaying
+      ? hiddenPreviewNoteIdsRef.current
+      : null;
+    const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
+      ? getPreviewConnectorSegmentsInDistanceRange(
+          previewHoldConnectorSegments,
+          previewVisibleMinDistance,
+          previewVisibleMaxDistance,
+        )
+      : noteRenderIndex.holdConnectorSegments;
+
     // Draw hold connections before note bodies so linked notes render on top.
-    for (const segment of noteRenderIndex.holdConnectorSegments) {
+    for (const segment of visibleHoldConnectorSegments) {
+      if (hiddenPreviewNoteIds?.has(segment.note.id)) {
+        continue;
+      }
+
       const noteBeat = segment.note.id === pendingDragUpdate?.noteId && pendingDragBeat !== null
         ? pendingDragBeat
         : segment.noteBeat;
       const parentBeat = segment.parentNote.id === pendingDragUpdate?.noteId && pendingDragBeat !== null
         ? pendingDragBeat
         : segment.parentBeat;
-      const minSegmentBeat = Math.min(noteBeat, parentBeat);
-      const maxSegmentBeat = Math.max(noteBeat, parentBeat);
-
-      if (!pendingDragUpdate && minSegmentBeat > visibleEndBeat) {
-        break;
-      }
-
-      if (minSegmentBeat > visibleEndBeat || maxSegmentBeat < visibleStartBeat) {
-        continue;
-      }
 
       const note = segment.note.id === pendingDragUpdate?.noteId
         ? { ...segment.note, lane: pendingDragUpdate.lane, time: pendingDragUpdate.time }
@@ -2182,15 +2799,45 @@ export default function Editor({
       const parentNote = segment.parentNote.id === pendingDragUpdate?.noteId
         ? { ...segment.parentNote, lane: pendingDragUpdate.lane, time: pendingDragUpdate.time }
         : segment.parentNote;
-      const noteY = hitLineY - (noteBeat - currentBeat) * pixelsPerBeat;
-      const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
+      const noteY = isPreviewPlaybackCanvas
+        ? getPreviewYFromNoteDistance(
+            (segment as PreviewHoldConnectorSegment).noteDistance,
+            (segment as PreviewHoldConnectorSegment).noteTimepos,
+            (segment as PreviewHoldConnectorSegment).noteSpeed,
+          )
+        : getCanvasYFromTime(note.time, noteBeat);
+      const parentY = isPreviewPlaybackCanvas
+        ? getPreviewYFromNoteDistance(
+            (segment as PreviewHoldConnectorSegment).parentDistance,
+            (segment as PreviewHoldConnectorSegment).parentTimepos,
+            (segment as PreviewHoldConnectorSegment).parentSpeed,
+          )
+        : getCanvasYFromTime(parentNote.time, parentBeat);
+
+      if (isPreviewPlaybackCanvas) {
+        if (Math.min(noteY, parentY) > height + 40 || Math.max(noteY, parentY) < -40) {
+          continue;
+        }
+      } else {
+        const minSegmentBeat = Math.min(noteBeat, parentBeat);
+        const maxSegmentBeat = Math.max(noteBeat, parentBeat);
+        const editorSegment = segment as typeof noteRenderIndex.holdConnectorSegments[number];
+
+        if (!pendingDragUpdate && editorSegment.minBeat > visibleEndBeat) {
+          break;
+        }
+
+        if (maxSegmentBeat < visibleStartBeat || minSegmentBeat > visibleEndBeat) {
+          continue;
+        }
+      }
 
       const xPositionWidth = laneWidth / 2;
       const noteWidthPx = xPositionWidth * note.width;
       const parentWidthPx = xPositionWidth * parentNote.width;
-      const noteLeftX = startX + note.lane * xPositionWidth + 2;
+      const noteLeftX = chartStartX + note.lane * xPositionWidth + 2;
       const noteRightX = noteLeftX + noteWidthPx - 4;
-      const parentLeftX = startX + parentNote.lane * xPositionWidth + 2;
+      const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
       const parentRightX = parentLeftX + parentWidthPx - 4;
 
       ctx.fillStyle = getConnectorFill(note.type);
@@ -2219,9 +2866,9 @@ export default function Editor({
         const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
         const noteWidthPx = xPositionWidth * previewNote.width;
         const parentWidthPx = xPositionWidth * parentNote.width;
-        const noteLeftX = startX + previewNote.lane * xPositionWidth + 2;
+        const noteLeftX = chartStartX + previewNote.lane * xPositionWidth + 2;
         const noteRightX = noteLeftX + noteWidthPx - 4;
-        const parentLeftX = startX + parentNote.lane * xPositionWidth + 2;
+        const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
         const parentRightX = parentLeftX + parentWidthPx - 4;
 
         if (
@@ -2248,9 +2895,9 @@ export default function Editor({
         const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
         const noteWidthPx = xPositionWidth * previewEndNote!.width;
         const parentWidthPx = xPositionWidth * parentNote.width;
-        const noteLeftX = startX + previewEndNote!.lane * xPositionWidth + 2;
+        const noteLeftX = chartStartX + previewEndNote!.lane * xPositionWidth + 2;
         const noteRightX = noteLeftX + noteWidthPx - 4;
-        const parentLeftX = startX + parentNote.lane * xPositionWidth + 2;
+        const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
         const parentRightX = parentLeftX + parentWidthPx - 4;
 
         if (
@@ -2272,78 +2919,132 @@ export default function Editor({
     }
 
     // Draw notes
-    visibleNoteEntries.forEach(({ note, beat: noteBeat }) => {
+    visibleNoteEntries.forEach((entry) => {
+      const { note, beat: noteBeat } = entry;
+      if (hiddenPreviewNoteIds?.has(note.id)) {
+        return;
+      }
+
       const renderedNote = note.id === pendingDragUpdate?.noteId
         ? { ...note, lane: pendingDragUpdate.lane, time: pendingDragUpdate.time }
         : note;
+      if (isPreviewMode && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
+        return;
+      }
+
       const renderedNoteBeat = note.id === pendingDragUpdate?.noteId && pendingDragBeat !== null
         ? pendingDragBeat
         : noteBeat;
 
-      if (renderedNoteBeat < visibleStartBeat || renderedNoteBeat > visibleEndBeat) {
+      const previewEntry = entry as PreviewNoteRenderEntry;
+      const previewVisualDistance = isPreviewPlaybackCanvas
+        ? getPreviewNoteVisualDistance(
+            previewEntry.distance,
+            previewEntry.timepos,
+            previewEntry.noteSpeed,
+            currentPreviewDistance,
+            currentPreviewTimepos,
+          )
+        : 0;
+      const y = isPreviewPlaybackCanvas
+        ? hitLineY - previewVisualDistance * previewDistanceScale
+        : getCanvasYFromTime(renderedNote.time, renderedNoteBeat);
+
+      if (
+        isPreviewPlaybackCanvas
+        && renderedNote.appearMode === 'P'
+        && previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE
+      ) {
         return;
       }
 
-      const y = hitLineY - (renderedNoteBeat - currentBeat) * pixelsPerBeat;
+      if (!isPreviewPlaybackCanvas && (renderedNoteBeat < visibleStartBeat || renderedNoteBeat > visibleEndBeat)) {
+        return;
+      }
 
       const xPositionWidth = laneWidth / 2;
-      const x = startX + renderedNote.lane * xPositionWidth;
+      const x = chartStartX + renderedNote.lane * xPositionWidth;
       const notePixelWidth = xPositionWidth * renderedNote.width;
-      const noteCenterX = x + notePixelWidth / 2;
+      const appearedPosition = isPreviewPlaybackCanvas
+        ? getPreviewAppearModePosition(
+            renderedNote,
+            x,
+            y,
+            notePixelWidth,
+            previewVisualDistance,
+            chartStartX,
+            gridWidth,
+          )
+        : { x, y, scale: 1 };
+      const appearedX = appearedPosition.x;
+      const appearedY = appearedPosition.y;
+      if (isPreviewPlaybackCanvas && (appearedY < -40 || appearedY > height + 40)) {
+        return;
+      }
+
+      const appearedScale = appearedPosition.scale;
+      const scaledNotePixelWidth = notePixelWidth * appearedScale;
+      const scaledNoteHeight = 20 * appearedScale;
+      const scaledX = appearedX + (notePixelWidth - scaledNotePixelWidth) / 2;
+      const noteCenterX = appearedX + notePixelWidth / 2;
+      const noteBodyInset = 2 * appearedScale;
+      const noteBodyWidth = Math.max(1, scaledNotePixelWidth - noteBodyInset * 2);
+      const noteBodyX = scaledX + noteBodyInset;
+      const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * appearedScale);
         
       const noteTypeInfo = NOTE_TYPES[renderedNote.type] || UNKNOWN_NOTE_TYPE;
       ctx.fillStyle = noteTypeInfo.color;
-      ctx.fillRect(x + 2, y - 10, notePixelWidth - 4, 20);
+      ctx.fillRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
         
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 2, y - 10, notePixelWidth - 4, 20);
+      ctx.lineWidth = 2 * appearedScale;
+      ctx.strokeRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
 
       if (renderedNote.type === 1 || renderedNote.type === 2) {
         ctx.fillStyle = '#ffffff';
-        drawInvertedTriangle(x + notePixelWidth / 2, y, Math.min(notePixelWidth - 12, 12));
+        drawInvertedTriangle(noteCenterX, appearedY, Math.min(markAvailableWidth, 12 * appearedScale));
       }
 
       if (renderedNote.type === 9) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        drawCircleMark(noteCenterX, y, Math.min((notePixelWidth - 12) / 2, 6));
+        ctx.lineWidth = 2 * appearedScale;
+        drawCircleMark(noteCenterX, appearedY, Math.min(markAvailableWidth / 2, 6 * appearedScale));
       }
 
       if (HOLD_START_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, y, 'S');
+        drawNoteLetter(noteCenterX, appearedY, 'S', appearedScale);
       }
 
       if (HOLD_CENTER_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, y, 'C');
+        drawNoteLetter(noteCenterX, appearedY, 'C', appearedScale);
       }
 
       if (HOLD_END_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, y, 'E');
+        drawNoteLetter(noteCenterX, appearedY, 'E', appearedScale);
       }
 
       if (!(renderedNote.type in NOTE_TYPES)) {
-        drawNoteLetter(noteCenterX, y, '?');
+        drawNoteLetter(noteCenterX, appearedY, '?', appearedScale);
       }
 
       if ([13, 14, 15, 16].includes(renderedNote.type)) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 * appearedScale;
 
         if (renderedNote.type === 13) {
-          drawArrow(noteCenterX, y, 'left', 10);
+          drawArrow(noteCenterX, appearedY, 'left', 10 * appearedScale);
         }
 
         if (renderedNote.type === 14) {
-          drawArrow(noteCenterX, y, 'right', 10);
+          drawArrow(noteCenterX, appearedY, 'right', 10 * appearedScale);
         }
 
         if (renderedNote.type === 15) {
-          drawArrow(noteCenterX, y, 'up', 10);
+          drawArrow(noteCenterX, appearedY, 'up', 10 * appearedScale);
         }
 
         if (renderedNote.type === 16) {
-          drawArrow(noteCenterX, y, 'down', 10);
+          drawArrow(noteCenterX, appearedY, 'down', 10 * appearedScale);
         }
       }
 
@@ -2352,24 +3053,26 @@ export default function Editor({
         ctx.setLineDash([]);
         ctx.strokeStyle = '#ff00ff';
         ctx.lineWidth = 4;
-        ctx.strokeRect(x, y - 12, notePixelWidth, 24);
+        ctx.strokeRect(scaledX, appearedY - scaledNoteHeight / 2 - 2, scaledNotePixelWidth, scaledNoteHeight + 4);
       } else if (noteRenderIndex.selectedParentNoteIds.has(renderedNote.id)) {
         ctx.setLineDash([6, 4]);
         ctx.strokeStyle = '#ff00ff';
         ctx.lineWidth = 3;
-        ctx.strokeRect(x, y - 12, notePixelWidth, 24);
+        ctx.strokeRect(scaledX, appearedY - scaledNoteHeight / 2 - 2, scaledNotePixelWidth, scaledNoteHeight + 4);
         ctx.setLineDash([]);
       }
 
-      // Draw note ID
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '10px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      const groupedIdsLabel = noteRenderIndex.groupedIdLabelsByNoteId.get(renderedNote.id) ?? `${renderedNote.id}`;
-      if (groupedIdsLabel) {
-        ctx.fillText(groupedIdsLabel, noteCenterX, y + 12);
-        countRenderedObject();
+      if (!isPreviewMode) {
+        // Draw note ID
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const groupedIdsLabel = noteRenderIndex.groupedIdLabelsByNoteId.get(renderedNote.id) ?? `${renderedNote.id}`;
+        if (groupedIdsLabel) {
+          ctx.fillText(groupedIdsLabel, noteCenterX, appearedY + 12);
+          countRenderedObject();
+        }
       }
     });
 
@@ -2385,7 +3088,7 @@ export default function Editor({
         }
 
         const previewY = hitLineY - (previewNote.beat - currentBeat) * pixelsPerBeat;
-        const previewX = startX + previewNote.lane * xPositionWidth;
+        const previewX = chartStartX + previewNote.lane * xPositionWidth;
         const previewPixelWidth = xPositionWidth * previewNote.width;
         const previewCenterX = previewX + previewPixelWidth / 2;
 
@@ -2556,7 +3259,7 @@ export default function Editor({
           }
 
           drawPreviewNote(
-            startX + note.lane * xPositionWidth,
+            chartStartX + note.lane * xPositionWidth,
             previewY,
             xPositionWidth * note.width,
             note.type,
@@ -2570,7 +3273,7 @@ export default function Editor({
 
         if (previewY > -50 && previewY < height + 50) {
           drawPreviewNote(
-            startX + hoverPreview.lane * xPositionWidth,
+            chartStartX + hoverPreview.lane * xPositionWidth,
             previewY,
             xPositionWidth * noteWidth,
             selectedNoteType,
@@ -2584,8 +3287,8 @@ export default function Editor({
     // Draw selection box
     if (selectionBox) {
       const xPositionWidth = laneWidth / 2;
-      const startSelectionX = startX + selectionBox.startXPosition * xPositionWidth;
-      const endSelectionX = startX + selectionBox.endXPosition * xPositionWidth;
+      const startSelectionX = chartStartX + selectionBox.startXPosition * xPositionWidth;
+      const endSelectionX = chartStartX + selectionBox.endXPosition * xPositionWidth;
       const startSelectionY = hitLineY - (selectionBox.startBeat - currentBeat) * pixelsPerBeat;
       const endSelectionY = hitLineY - (selectionBox.endBeat - currentBeat) * pixelsPerBeat;
 
@@ -2606,8 +3309,8 @@ export default function Editor({
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(startX, hitLineY);
-    ctx.lineTo(startX + gridWidth, hitLineY);
+    ctx.moveTo(isPreviewPlaybackCanvas ? chartStartX : startX, hitLineY);
+    ctx.lineTo((isPreviewPlaybackCanvas ? chartStartX : startX) + gridWidth, hitLineY);
     ctx.stroke();
     
     ctx.shadowColor = '#fff';
@@ -2617,7 +3320,7 @@ export default function Editor({
     countRenderedObject();
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPreviewNoteSpeedCurves, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -2652,6 +3355,31 @@ export default function Editor({
 
       const scheduleUntil = currentTime + HIT_SOUND_LOOKAHEAD_SECONDS * activePlaybackSpeed;
       const lastTime = lastPlayedTimeRef.current;
+
+      if (isPreviewMode) {
+        const previousJudgementTime = previewJudgementCursorTimeRef.current;
+
+        if (
+          currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < previousJudgementTime
+          || currentTime - previousJudgementTime > HIT_SOUND_JUMP_TOLERANCE_SECONDS
+        ) {
+          resetPreviewJudgementState(currentTime);
+        } else if (currentTime > previousJudgementTime) {
+          const firstJudgedIndex = findFirstPreviewJudgementNoteIndex(
+            previewJudgementNoteEntries,
+            previousJudgementTime + SNAP_EPSILON,
+          );
+          for (let noteIndex = firstJudgedIndex; noteIndex < previewJudgementNoteEntries.length; noteIndex += 1) {
+            const note = previewJudgementNoteEntries[noteIndex];
+            if (note.time > currentTime) {
+              break;
+            }
+
+            hiddenPreviewNoteIdsRef.current.add(note.id);
+          }
+          previewJudgementCursorTimeRef.current = currentTime;
+        }
+      }
 
       if (currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < lastTime) {
         hitSoundCursorRef.current = findHitSoundCursor(currentTime);
@@ -2700,7 +3428,7 @@ export default function Editor({
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, playHitSound, isPausedTimelineRendering, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, playHitSound, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -2791,6 +3519,7 @@ export default function Editor({
   }, [getSelectionPointFromClient]);
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isPreviewMode) return;
     if (isOrganizingNotes) return;
 
     const canvas = canvasRef.current;
@@ -2981,6 +3710,7 @@ export default function Editor({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isPreviewMode) return;
     if (isOrganizingNotes) return;
 
     const canvas = canvasRef.current;
@@ -3070,6 +3800,7 @@ export default function Editor({
   };
 
   const handleCanvasMouseUp = (completedSelectionBox: SelectionBox | null = null) => {
+    if (isPreviewMode) return;
     if (isOrganizingNotes) return;
     if (curveIdSelectTarget) return;
 
@@ -3120,6 +3851,7 @@ export default function Editor({
   };
 
   const handleCanvasMouseLeave = () => {
+    if (isPreviewMode) return;
     if (isOrganizingNotes) return;
 
     setHoverPreview(null);
@@ -3169,16 +3901,17 @@ export default function Editor({
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
     const scrollDelta = isScrollDirectionInverted ? -e.deltaY : e.deltaY;
     const targetBeat = currentBeat + (scrollDelta / pixelsPerBeat);
-    
-    // Snap to grid
-    const snappedBeat = snapBeatToMeasureDivision(targetBeat, gridZoom, sortedChanges);
-    const newTime = getTimeAtBeat(snappedBeat, sortedChanges);
+    const newTime = isPreviewMode
+      ? getTimeAtBeat(targetBeat, sortedChanges)
+      : getTimeAtBeat(snapBeatToMeasureDivision(targetBeat, gridZoom, sortedChanges), sortedChanges);
     
     let clampedTime = Math.max(0, newTime);
     if (audioRef.current && audioRef.current.duration && clampedTime > audioRef.current.duration) {
       clampedTime = audioRef.current.duration;
     }
-    
+
+    const shouldHidePastPreviewNotes = isPreviewMode && clampedTime > stateRef.current.currentTime;
+    resetPreviewJudgementState(clampedTime, shouldHidePastPreviewNotes);
     setCurrentTime(clampedTime);
     stateRef.current.currentTime = clampedTime;
     stateRef.current.playbackStartTime = clampedTime;
@@ -3191,10 +3924,10 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, clampedTime - offsetInSeconds);
     }
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges, gridZoom);
+      timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges, effectiveGridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
-      progressBarRef.current.value = newTime.toString();
+      progressBarRef.current.value = clampedTime.toString();
     }
     renderPausedTimelineAtFullFps();
   };
@@ -3782,7 +4515,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges, gridZoom);
+      timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges, effectiveGridZoom);
     }
     if (progressBarRef.current && !isDraggingProgress.current) {
       progressBarRef.current.value = clampedTime.toString();
@@ -4285,7 +5018,7 @@ export default function Editor({
                   className="min-w-0 flex-1 h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
                 <div ref={timeDisplayRef} className="shrink-0 text-sm font-mono text-neutral-400">
-                  {formatTime(currentTime, convertBpmChangesToTime(bpmChanges), gridZoom)}
+                  {formatTime(currentTime, convertBpmChangesToTime(bpmChanges), effectiveGridZoom)}
                 </div>
               </div>
             </>
@@ -4296,7 +5029,7 @@ export default function Editor({
           {projectData && (
             <>
               <div className="text-sm font-mono text-neutral-400 w-20 text-left">
-                Snap <span className="inline-block w-8 text-center">{gridZoom === 0 ? '0' : `1/${gridZoom}`}</span>
+                Snap <span className="inline-block w-8 text-center">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
               </div>
               <div className="text-sm font-mono text-neutral-400 w-24 text-left">
                 Zoom <span className="inline-block w-10 text-center">{pixelsPerBeat}px</span>
@@ -4366,6 +5099,20 @@ export default function Editor({
             aria-expanded={isSettingsOpen}
           >
             <Settings className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            disabled={!projectData}
+            onClick={togglePreviewMode}
+            className={`ml-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500 ${
+              isPreviewMode
+                ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white'
+            }`}
+            title={isPreviewMode ? 'Return to editor mode' : 'Preview chart playback'}
+            aria-pressed={isPreviewMode}
+          >
+            {isPreviewMode ? 'Return' : 'Preview'}
           </button>
           <div className="relative ml-2">
             <button
@@ -4451,6 +5198,7 @@ export default function Editor({
       {/* Main Editor Area */}
       <main className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Sidebar - General Functions */}
+        {!isPreviewMode && (
         <aside className={`${isLeftPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
           <div className={`p-2 border-b border-neutral-800 flex ${isLeftPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
             <button
@@ -5019,6 +5767,7 @@ export default function Editor({
             </div>
           )}
         </aside>
+        )}
 
         {/* Center - Canvas */}
         <section 
@@ -5051,6 +5800,7 @@ export default function Editor({
               progressBarRef={progressBarRef}
               isDraggingProgress={isDraggingProgress}
               audioRef={audioRef}
+              isPreviewMode={isPreviewMode}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={(event) => {
@@ -5075,6 +5825,7 @@ export default function Editor({
         </section>
 
         {/* Right Sidebar - Properties */}
+        {!isPreviewMode && (
         <aside className={`${isRightPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-l border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
           <div className={`p-2 border-b border-neutral-800 flex ${isRightPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
             <button
@@ -5327,6 +6078,7 @@ export default function Editor({
             </div>
           )}
         </aside>
+        )}
       </main>
     </motion.div>
   );

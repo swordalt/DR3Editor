@@ -15,7 +15,7 @@ const DEFAULT_BPM_CHANGE: BpmChange = {
   timeSignature: '4/4',
 };
 
-const APPEAR_MODES = new Set(['L', 'R', 'H', 'P']);
+const APPEAR_MODES = new Set(['L', 'R', 'H', 'P', 'N']);
 
 const parseIndexedNumericValue = (line: string, prefix: string) => {
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

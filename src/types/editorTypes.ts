@@ -14,7 +14,7 @@ export interface Note {
   width: number;
   parentId: number | null;
   speed?: string;
-  appearMode?: 'L' | 'R' | 'H' | 'P';
+  appearMode?: 'L' | 'R' | 'H' | 'P' | 'N';
 }
 
 export interface BpmChange {
