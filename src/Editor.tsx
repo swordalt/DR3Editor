@@ -53,10 +53,12 @@ const AUDIO_SEEK_TIMEOUT_MS = 10000;
 const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
 const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
 const PINK_HOLD_CENTER_TYPE = 23;
+const PINK_HOLD_END_TYPE = 24;
 const APPEAR_MODE_P_NSC = '0.25:0;0.219:0.125;0.187:0.1875;0.156:0.23435;0.125:0.25;0.094:0.23435;0.062:0.1875;0.031:0.125;0:0';
 const APPEAR_MODE_ENTRY_DISTANCE = 4;
 const APPEAR_MODE_SIDE_ENTRY_MULTIPLIER = 1.75;
-const APPEAR_MODE_H_START_SCALE = 2;
+const APPEAR_MODE_H_START_SCALE = 3;
+const APPEAR_MODE_H_FLY_DOWN_PIXELS = 180;
 const APPEAR_MODE_P_RENDER_DISTANCE = 0.25;
 const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
   window: 'Window Selection',
@@ -501,6 +503,10 @@ const getPreviewNoteVisualDistance = (
     : (noteDistance - currentDistance) * noteSpeed.multiplier
 );
 
+const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
+
+const easeInCubic = (value: number) => value ** 3;
+
 const getPreviewAppearModePosition = (
   note: Note,
   x: number,
@@ -511,12 +517,12 @@ const getPreviewAppearModePosition = (
   gridWidth: number,
 ): PreviewNotePosition => {
   if (note.appearMode === 'L' || note.appearMode === 'R' || note.appearMode === 'H') {
-    const progress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
+    const linearProgress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
 
     if (note.appearMode === 'L') {
       const startX = chartStartX - gridWidth * APPEAR_MODE_SIDE_ENTRY_MULTIPLIER - notePixelWidth;
       return {
-        x: startX + (x - startX) * progress,
+        x: startX + (x - startX) * linearProgress,
         y,
         scale: 1,
       };
@@ -525,17 +531,19 @@ const getPreviewAppearModePosition = (
     if (note.appearMode === 'R') {
       const startX = chartStartX + gridWidth * (1 + APPEAR_MODE_SIDE_ENTRY_MULTIPLIER);
       return {
-        x: startX + (x - startX) * progress,
+        x: startX + (x - startX) * linearProgress,
         y,
         scale: 1,
       };
     }
 
-    const startY = -24;
+    const yProgress = easeOutCubic(linearProgress);
+    const scaleProgress = easeInCubic(linearProgress);
+    const startY = y - APPEAR_MODE_H_FLY_DOWN_PIXELS;
     return {
       x,
-      y: startY + (y - startY) * progress,
-      scale: APPEAR_MODE_H_START_SCALE + (1 - APPEAR_MODE_H_START_SCALE) * progress,
+      y: startY + (y - startY) * yProgress,
+      scale: APPEAR_MODE_H_START_SCALE + (1 - APPEAR_MODE_H_START_SCALE) * scaleProgress,
     };
   }
 
@@ -1428,7 +1436,7 @@ export default function Editor({
   );
   const previewCameraMovementSegments = useMemo(
     () => noteRenderIndex.holdConnectorSegments
-      .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE)
+      .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE || segment.note.type === PINK_HOLD_END_TYPE)
       .map((segment) => {
         const startTime = segment.parentNote.time;
         const endTime = segment.note.time;
@@ -2769,7 +2777,7 @@ export default function Editor({
       });
     }
 
-    const hiddenPreviewNoteIds = isPreviewMode && stateRef.current.isPlaying
+    const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
       : null;
     const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
@@ -2950,12 +2958,21 @@ export default function Editor({
         ? hitLineY - previewVisualDistance * previewDistanceScale
         : getCanvasYFromTime(renderedNote.time, renderedNoteBeat);
 
-      if (
-        isPreviewPlaybackCanvas
-        && renderedNote.appearMode === 'P'
-        && previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE
-      ) {
-        return;
+      if (isPreviewPlaybackCanvas && renderedNote.appearMode === 'P') {
+        const pAnimationStartTimepos = previewEntry.noteSpeed.kind === 'curve'
+          ? previewEntry.noteSpeed.keyframes[0]?.time
+          : undefined;
+
+        if (
+          currentPreviewTimepos >= previewEntry.timepos - SNAP_EPSILON
+          || (
+            pAnimationStartTimepos !== undefined
+            && currentPreviewTimepos < pAnimationStartTimepos - SNAP_EPSILON
+          )
+          || previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE
+        ) {
+          return;
+        }
       }
 
       if (!isPreviewPlaybackCanvas && (renderedNoteBeat < visibleStartBeat || renderedNoteBeat > visibleEndBeat)) {
