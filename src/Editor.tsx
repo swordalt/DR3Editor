@@ -431,6 +431,7 @@ export default function Editor({
   const [curveNotesMessage, setCurveNotesMessage] = useState('');
   const [curveIdSelectTarget, setCurveIdSelectTarget] = useState<CurveIdSelectTarget>(null);
   const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null);
+  const [copiedNotesPreviewVersion, setCopiedNotesPreviewVersion] = useState(0);
   const [isCtrlHeld, setIsCtrlHeld] = useState(false);
   const [isShiftHeld, setIsShiftHeld] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<number[]>([]);
@@ -1526,6 +1527,7 @@ export default function Editor({
             ...note,
             copiedTimepos: getTimeposFromTime(note.time),
           }));
+        setCopiedNotesPreviewVersion(prev => prev + 1);
         return;
       }
 
@@ -2407,81 +2409,123 @@ export default function Editor({
       });
     }
 
-    if (hoverPreview && !isCtrlHeld && !isShiftHeld) {
-      const previewBeat = getBeatAtTime(hoverPreview.time, sortedChanges);
-      const previewY = hitLineY - (previewBeat - currentBeat) * pixelsPerBeat;
+    const drawPreviewNote = (
+      previewX: number,
+      previewY: number,
+      previewPixelWidth: number,
+      previewType: number,
+      fillAlpha: number,
+      outlineAlpha: number,
+    ) => {
+      const previewCenterX = previewX + previewPixelWidth / 2;
+      const previewTypeInfo = NOTE_TYPES[previewType] || UNKNOWN_NOTE_TYPE;
 
-      if (previewY > -50 && previewY < height + 50) {
-        const xPositionWidth = laneWidth / 2;
-        const previewX = startX + hoverPreview.lane * xPositionWidth;
-        const previewPixelWidth = xPositionWidth * noteWidth;
-        const previewCenterX = previewX + previewPixelWidth / 2;
-        const previewTypeInfo = NOTE_TYPES[selectedNoteType] || UNKNOWN_NOTE_TYPE;
-        const fillAlpha = 0.18;
-        const outlineAlpha = 0.5;
-
-        ctx.save();
-        ctx.globalAlpha = fillAlpha;
-        ctx.fillStyle = previewTypeInfo.color;
-        ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
-        if (selectedNoteType === 1 || selectedNoteType === 2) {
-          ctx.fillStyle = '#ffffff';
-          drawInvertedTriangle(
-            previewCenterX,
-            previewY,
-            Math.min(previewPixelWidth - 12, 12),
-          );
-        }
-        if (selectedNoteType === 9) {
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2;
-          drawCircleMark(
-            previewCenterX,
-            previewY,
-            Math.min((previewPixelWidth - 12) / 2, 6),
-          );
-        }
-        if (HOLD_START_TYPES.includes(selectedNoteType)) {
-          drawNoteLetter(previewCenterX, previewY, 'S');
-        }
-        if (HOLD_CENTER_TYPES.includes(selectedNoteType)) {
-          drawNoteLetter(previewCenterX, previewY, 'C');
-        }
-        if (HOLD_END_TYPES.includes(selectedNoteType)) {
-          drawNoteLetter(previewCenterX, previewY, 'E');
-        }
-        if (!(selectedNoteType in NOTE_TYPES)) {
-          drawNoteLetter(previewCenterX, previewY, '?');
-        }
-        if ([13, 14, 15, 16].includes(selectedNoteType)) {
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2;
-
-          if (selectedNoteType === 13) {
-            drawArrow(previewCenterX, previewY, 'left', 10);
-          }
-
-          if (selectedNoteType === 14) {
-            drawArrow(previewCenterX, previewY, 'right', 10);
-          }
-
-          if (selectedNoteType === 15) {
-            drawArrow(previewCenterX, previewY, 'up', 10);
-          }
-
-          if (selectedNoteType === 16) {
-            drawArrow(previewCenterX, previewY, 'down', 10);
-          }
-        }
-        ctx.globalAlpha = outlineAlpha;
+      ctx.save();
+      ctx.globalAlpha = fillAlpha;
+      ctx.fillStyle = previewTypeInfo.color;
+      ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+      if (previewType === 1 || previewType === 2) {
+        ctx.fillStyle = '#ffffff';
+        drawInvertedTriangle(
+          previewCenterX,
+          previewY,
+          Math.min(previewPixelWidth - 12, 12),
+        );
+      }
+      if (previewType === 9) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
-        ctx.strokeRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
-        ctx.setLineDash([6, 4]);
+        drawCircleMark(
+          previewCenterX,
+          previewY,
+          Math.min((previewPixelWidth - 12) / 2, 6),
+        );
+      }
+      if (HOLD_START_TYPES.includes(previewType)) {
+        drawNoteLetter(previewCenterX, previewY, 'S');
+      }
+      if (HOLD_CENTER_TYPES.includes(previewType)) {
+        drawNoteLetter(previewCenterX, previewY, 'C');
+      }
+      if (HOLD_END_TYPES.includes(previewType)) {
+        drawNoteLetter(previewCenterX, previewY, 'E');
+      }
+      if (!(previewType in NOTE_TYPES)) {
+        drawNoteLetter(previewCenterX, previewY, '?');
+      }
+      if ([13, 14, 15, 16].includes(previewType)) {
         ctx.strokeStyle = '#ffffff';
-        ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
-        ctx.restore();
-        countRenderedObject();
+        ctx.lineWidth = 2;
+
+        if (previewType === 13) {
+          drawArrow(previewCenterX, previewY, 'left', 10);
+        }
+
+        if (previewType === 14) {
+          drawArrow(previewCenterX, previewY, 'right', 10);
+        }
+
+        if (previewType === 15) {
+          drawArrow(previewCenterX, previewY, 'up', 10);
+        }
+
+        if (previewType === 16) {
+          drawArrow(previewCenterX, previewY, 'down', 10);
+        }
+      }
+      ctx.globalAlpha = outlineAlpha;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
+      ctx.restore();
+      countRenderedObject();
+    };
+
+    if (hoverPreview && !isCtrlHeld && !isShiftHeld) {
+      const xPositionWidth = laneWidth / 2;
+      const copiedNotes = copiedNotesRef.current;
+
+      if (copiedNotes.length > 0) {
+        const baseTimepos = Math.min(...copiedNotes.map(note => note.copiedTimepos));
+        const previewTimepos = getTimeposFromTime(hoverPreview.time);
+
+        copiedNotes.forEach((note) => {
+          const previewBeat = getBeatAtTime(
+            getTimeFromTimepos(previewTimepos + note.copiedTimepos - baseTimepos),
+            sortedChanges,
+          );
+          const previewY = hitLineY - (previewBeat - currentBeat) * pixelsPerBeat;
+
+          if (previewY <= -50 || previewY >= height + 50) {
+            return;
+          }
+
+          drawPreviewNote(
+            startX + note.lane * xPositionWidth,
+            previewY,
+            xPositionWidth * note.width,
+            note.type,
+            0.18,
+            0.5,
+          );
+        });
+      } else {
+        const previewBeat = getBeatAtTime(hoverPreview.time, sortedChanges);
+        const previewY = hitLineY - (previewBeat - currentBeat) * pixelsPerBeat;
+
+        if (previewY > -50 && previewY < height + 50) {
+          drawPreviewNote(
+            startX + hoverPreview.lane * xPositionWidth,
+            previewY,
+            xPositionWidth * noteWidth,
+            selectedNoteType,
+            0.18,
+            0.5,
+          );
+        }
       }
     }
 
@@ -2521,7 +2565,7 @@ export default function Editor({
     countRenderedObject();
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, gridZoom, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, selectedNoteIdSet, selectedNoteType, selectionBox, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
