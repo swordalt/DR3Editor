@@ -22,6 +22,20 @@ const EXAMPLES = [
     fileName: 'galaxycollapse.zip',
     difficulty: '20',
   },
+  {
+    id: 'hellowind',
+    label: "Ghost-O'-Note - Tier15 [Official]",
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/hellowind.zip',
+    fileName: 'hellowind.zip',
+    difficulty: '15',
+  },
+  {
+    id: 'raidboss',
+    label: 'カタストロフィック・ラヴ - Tier17 [Official]',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/raidboss.zip',
+    fileName: 'raidboss.zip',
+    difficulty: '17',
+  },
 ] as const;
 const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'webm']);
 const IMAGE_EXTENSIONS = new Set(['avif', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);

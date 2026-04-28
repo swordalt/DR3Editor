@@ -54,12 +54,14 @@ const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
 const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
 const PINK_HOLD_CENTER_TYPE = 23;
 const PINK_HOLD_END_TYPE = 24;
-const APPEAR_MODE_P_NSC = '0.25:0;0.219:0.125;0.187:0.1875;0.156:0.23435;0.125:0.25;0.094:0.23435;0.062:0.1875;0.031:0.125;0:0';
+const APPEAR_MODE_P_NSC = '0.5:0;0.438:0.25;0.374:0.375;0.312:0.4687;0.25:0.5;0.188:0.4687;0.124:0.375;0.062:0.25;0:0';
 const APPEAR_MODE_ENTRY_DISTANCE = 4;
 const APPEAR_MODE_SIDE_ENTRY_MULTIPLIER = 1.75;
 const APPEAR_MODE_H_START_SCALE = 3;
 const APPEAR_MODE_H_FLY_DOWN_PIXELS = 180;
-const APPEAR_MODE_P_RENDER_DISTANCE = 0.25;
+const APPEAR_MODE_P_RENDER_DISTANCE = 0.5;
+const PREVIEW_CONNECTOR_TILT_DIVISOR = 4;
+const PREVIEW_CONNECTOR_TILT_EASING_MS = 120;
 const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
   window: 'Window Selection',
   crossing: 'Crossing Selection',
@@ -729,6 +731,12 @@ interface PreviewCameraMovementSegment {
   deltaXPosition: number;
 }
 
+interface PreviewCameraTiltSegment {
+  startTimepos: number;
+  endTimepos: number;
+  connectorCenterXPosition: number;
+}
+
 interface HitSoundEvent {
   time: number;
   soundUrl: string;
@@ -944,6 +952,8 @@ export default function Editor({
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
   const previewJudgementCursorTimeRef = useRef(0);
+  const previewTiltAngleRef = useRef(0);
+  const previewTiltTimestampRef = useRef(0);
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   const resetPreviewJudgementState = useCallback((time = stateRef.current.currentTime, hidePastNotes = false) => {
@@ -1452,6 +1462,22 @@ export default function Editor({
       .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
       .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime)),
     [noteRenderIndex.holdConnectorSegments],
+  );
+  const previewCameraTiltSegments = useMemo(
+    () => previewHoldConnectorSegments
+      .map((segment) => {
+        const noteCenterXPosition = segment.note.lane + segment.note.width / 2;
+        const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
+
+        return {
+          startTimepos: Math.min(segment.parentTimepos, segment.noteTimepos),
+          endTimepos: Math.max(segment.parentTimepos, segment.noteTimepos),
+          connectorCenterXPosition: (noteCenterXPosition + parentCenterXPosition) / 2,
+        };
+      })
+      .filter(segment => segment.endTimepos - segment.startTimepos > SNAP_EPSILON)
+      .sort((a, b) => (a.startTimepos - b.startTimepos) || (a.endTimepos - b.endTimepos)),
+    [previewHoldConnectorSegments],
   );
   const previewMinimumNoteSpeedMagnitude = useMemo(
     () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
@@ -2468,6 +2494,48 @@ export default function Editor({
     const xPositionWidth = laneWidth / 2;
     const cameraOffsetX = -previewCameraXOffset * xPositionWidth;
     const chartStartX = startX + cameraOffsetX;
+    const hiddenPreviewNoteIds = isPreviewMode
+      ? hiddenPreviewNoteIdsRef.current
+      : null;
+    const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
+      ? getPreviewConnectorSegmentsInDistanceRange(
+          previewHoldConnectorSegments,
+          previewVisibleMinDistance,
+          previewVisibleMaxDistance,
+        )
+      : noteRenderIndex.holdConnectorSegments;
+    const activePreviewTiltSegments = isPreviewPlaybackCanvas
+      ? previewCameraTiltSegments.filter(segment => (
+          currentPreviewTimepos >= segment.startTimepos - SNAP_EPSILON
+          && currentPreviewTimepos < segment.endTimepos - SNAP_EPSILON
+        ))
+      : [];
+    const targetPreviewTiltDegrees = activePreviewTiltSegments.length > 0
+      ? activePreviewTiltSegments.reduce((tiltTotal, segment) => {
+          const connectorScreenXPosition = segment.connectorCenterXPosition - previewCameraXOffset;
+
+          return tiltTotal + ((connectorScreenXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR);
+        }, 0) / activePreviewTiltSegments.length
+      : 0;
+    const tiltNow = performance.now();
+    const previousTiltTimestamp = previewTiltTimestampRef.current || tiltNow;
+    const tiltElapsedMs = Math.max(0, tiltNow - previousTiltTimestamp);
+    const previewTiltEase = isPreviewPlaybackCanvas
+      ? 1 - Math.exp(-tiltElapsedMs / PREVIEW_CONNECTOR_TILT_EASING_MS)
+      : 1;
+    previewTiltAngleRef.current += (targetPreviewTiltDegrees - previewTiltAngleRef.current) * previewTiltEase;
+    if (!isPreviewPlaybackCanvas || Math.abs(previewTiltAngleRef.current) < SNAP_EPSILON) {
+      previewTiltAngleRef.current = isPreviewPlaybackCanvas ? 0 : targetPreviewTiltDegrees;
+    }
+    previewTiltTimestampRef.current = tiltNow;
+    const previewTiltDegrees = previewTiltAngleRef.current;
+
+    ctx.save();
+    if (isPreviewPlaybackCanvas && Math.abs(previewTiltDegrees) > SNAP_EPSILON) {
+      ctx.translate(width / 2, height / 2);
+      ctx.rotate((previewTiltDegrees * Math.PI) / 180);
+      ctx.translate(-width / 2, -height / 2);
+    }
 
     // Draw background for the grid area
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
@@ -2777,17 +2845,6 @@ export default function Editor({
       });
     }
 
-    const hiddenPreviewNoteIds = isPreviewMode
-      ? hiddenPreviewNoteIdsRef.current
-      : null;
-    const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
-      ? getPreviewConnectorSegmentsInDistanceRange(
-          previewHoldConnectorSegments,
-          previewVisibleMinDistance,
-          previewVisibleMaxDistance,
-        )
-      : noteRenderIndex.holdConnectorSegments;
-
     // Draw hold connections before note bodies so linked notes render on top.
     for (const segment of visibleHoldConnectorSegments) {
       if (hiddenPreviewNoteIds?.has(segment.note.id)) {
@@ -2848,6 +2905,18 @@ export default function Editor({
       const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
       const parentRightX = parentLeftX + parentWidthPx - 4;
 
+      const shouldClipPreviewConnectorAtJudgementLine = isPreviewPlaybackCanvas && Math.max(noteY, parentY) > hitLineY;
+      if (isPreviewPlaybackCanvas && Math.min(noteY, parentY) >= hitLineY) {
+        continue;
+      }
+
+      if (shouldClipPreviewConnectorAtJudgementLine) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-width, -height, width * 3, hitLineY + height);
+        ctx.clip();
+      }
+
       ctx.fillStyle = getConnectorFill(note.type);
       ctx.beginPath();
       ctx.moveTo(parentLeftX, parentY);
@@ -2856,6 +2925,9 @@ export default function Editor({
       ctx.lineTo(noteLeftX, noteY);
       ctx.closePath();
       ctx.fill();
+      if (shouldClipPreviewConnectorAtJudgementLine) {
+        ctx.restore();
+      }
       countRenderedObject();
     }
 
@@ -2926,8 +2998,25 @@ export default function Editor({
       ctx.restore();
     }
 
+    const orderedVisibleNoteEntries = isPreviewPlaybackCanvas
+      ? [...visibleNoteEntries].sort((a, b) => {
+          const aIsH = a.note.appearMode === 'H';
+          const bIsH = b.note.appearMode === 'H';
+
+          if (aIsH !== bIsH) {
+            return aIsH ? 1 : -1;
+          }
+
+          if (aIsH && bIsH) {
+            return a.note.id - b.note.id;
+          }
+
+          return 0;
+        })
+      : visibleNoteEntries;
+
     // Draw notes
-    visibleNoteEntries.forEach((entry) => {
+    orderedVisibleNoteEntries.forEach((entry) => {
       const { note, beat: noteBeat } = entry;
       if (hiddenPreviewNoteIds?.has(note.id)) {
         return;
@@ -3335,9 +3424,28 @@ export default function Editor({
     ctx.stroke();
     ctx.shadowBlur = 0;
     countRenderedObject();
+    ctx.restore();
+
+    if (isPreviewMode) {
+      const previewCanvasCombo = notes.reduce((combo, note) => (
+        note.time <= time ? combo + 1 : combo
+      ), 0);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.font = '700 32px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+      ctx.shadowBlur = 8;
+      ctx.fillText(`${previewCanvasCombo}`, chartStartX + gridWidth / 2, 80);
+      ctx.restore();
+      countRenderedObject();
+    }
+
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPreviewNoteSpeedCurves, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPreviewNoteSpeedCurves, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCameraTiltSegments, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
