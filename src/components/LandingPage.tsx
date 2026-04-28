@@ -122,11 +122,11 @@ export default function LandingPage({
               {isExampleMenuOpen && (
                 <motion.div
                   role="menu"
-                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  initial={{ opacity: 0, y: 6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.98 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
-                  className="absolute left-0 right-0 top-14 z-20 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 text-left shadow-2xl shadow-black/40"
+                  className="absolute bottom-14 left-0 right-0 z-20 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 text-left shadow-2xl shadow-black/40"
                 >
                   {examples.map((example) => (
                     <button
