@@ -38,722 +38,71 @@ import {
 } from './editor/editorSettings';
 import { buildNoteRenderIndex, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
 
+import {
+  APPEAR_MODE_OPTIONS,
+  APPEAR_MODE_P_NSC,
+  APPEAR_MODE_P_RENDER_DISTANCE,
+  AUDIO_CLOCK_HANDOFF_DELAY_MS,
+  AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS,
+  AUDIO_SEEK_TIMEOUT_MS,
+  CURVE_EASINGS_BY_ID,
+  CURVE_EASING_FAMILY_OPTIONS,
+  CURVE_EASING_TYPE_OPTIONS,
+  HIT_SOUND_JUMP_TOLERANCE_SECONDS,
+  HIT_SOUND_LOOKAHEAD_SECONDS,
+  PAUSED_TIMELINE_RENDER_DURATION_MS,
+  PERFORMANCE_STATS_UPDATE_INTERVAL_MS,
+  PINK_HOLD_CENTER_TYPE,
+  PINK_HOLD_END_TYPE,
+  PLAYBACK_SPEED_OPTIONS,
+  PREVIEW_CONNECTOR_TILT_EASING_MS,
+  SELECTION_TYPE_LABELS,
+  SIDE_PANEL_TRANSITION_MS,
+  SNAP_EPSILON,
+  X_POSITION_COUNT,
+  getCurveEasingId,
+} from './editor/editorViewConstants';
+import type {
+  ActiveLeftPanel,
+  CopiedNote,
+  CurveEasingFamily,
+  CurveEasingType,
+  CurveIdSelectTarget,
+  EditorProps,
+  EditorRuntimeState,
+  HitSoundEvent,
+  HoverPreview,
+  PendingDragUpdate,
+  PreviewCameraTiltInterval,
+  PreviewCameraTiltSegment,
+  PreviewHoldConnectorSegment,
+  PreviewNoteRenderEntry,
+} from './editor/editorLocalTypes';
+import { getTierBadge } from './editor/editorMetadata';
+import { getBeatAtTimepos, getCurveSnapBeatsBetween, getIndicatorKeyAtBeat, snapBeatToMeasureDivision } from './editor/editorTiming';
+import {
+  buildPreviewCameraTiltIntervals,
+  buildPreviewComboTimes,
+  buildSpeedDistanceIndex,
+  comparePreviewNoteRenderEntries,
+  findFirstPreviewJudgementNoteIndex,
+  getPreviewCameraTiltDegrees,
+  getPreviewCameraXPositionOffset,
+  getPreviewComboAtTime,
+  getPreviewConnectorSegmentsInDistanceRange,
+  getPreviewNoteEntriesInDistanceRange,
+  getPreviewNoteVisualDistance,
+  getPreviewAppearModePosition,
+  getSpeedDistanceAtTimepos,
+  parsePreviewNoteSpeed,
+} from './editor/previewPlayback';
+
 const HIT_SOUND_URL = new URL('../hit.ogg', import.meta.url).href;
 const FLICK_SOUND_URL = new URL('../flick.ogg', import.meta.url).href;
 const SOUND_URLS: Record<string, string> = {
   'hit.ogg': HIT_SOUND_URL,
   'flick.ogg': FLICK_SOUND_URL,
 };
-const HIT_SOUND_LOOKAHEAD_SECONDS = 0.12;
-const HIT_SOUND_JUMP_TOLERANCE_SECONDS = 0.25;
-const PAUSED_TIMELINE_RENDER_DURATION_MS = 120;
-const AUDIO_CLOCK_HANDOFF_DELAY_MS = 200;
-const AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS = 0.05;
-const AUDIO_SEEK_TIMEOUT_MS = 10000;
-const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
-const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
-const PINK_HOLD_CENTER_TYPE = 23;
-const PINK_HOLD_END_TYPE = 24;
-const APPEAR_MODE_P_NSC = '0.5:0;0.438:0.25;0.374:0.375;0.312:0.4687;0.25:0.5;0.188:0.4687;0.124:0.375;0.062:0.25;0:0';
-const APPEAR_MODE_ENTRY_DISTANCE = 4;
-const APPEAR_MODE_SIDE_ENTRY_MULTIPLIER = 1.75;
-const APPEAR_MODE_H_START_SCALE = 3;
-const APPEAR_MODE_H_FLY_DOWN_PIXELS = 180;
-const APPEAR_MODE_P_RENDER_DISTANCE = 0.5;
-const PREVIEW_CONNECTOR_TILT_DIVISOR = 4;
-const PREVIEW_CONNECTOR_TILT_EASING_MS = 120;
-const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
-  window: 'Window Selection',
-  crossing: 'Crossing Selection',
-};
-const SIDE_PANEL_TRANSITION_MS = 300;
-const LANE_COUNT = 8;
-const X_POSITION_COUNT = LANE_COUNT * 2;
-const SNAP_EPSILON = 0.000001;
-
-type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'bpmTiming';
-type CurveIdSelectTarget = 'start' | 'end' | null;
-type CurveEasingFamily = 'linear' | 'sine' | 'quad' | 'cubic' | 'quart' | 'quint' | 'expo' | 'circ' | 'back' | 'elastic';
-type CurveEasingType = 'in' | 'out' | 'inOut';
-type CurveEasingId =
-  | 'linear'
-  | 'easeInSine'
-  | 'easeOutSine'
-  | 'easeInOutSine'
-  | 'easeInQuad'
-  | 'easeOutQuad'
-  | 'easeInOutQuad'
-  | 'easeInCubic'
-  | 'easeOutCubic'
-  | 'easeInOutCubic'
-  | 'easeInQuart'
-  | 'easeOutQuart'
-  | 'easeInOutQuart'
-  | 'easeInQuint'
-  | 'easeOutQuint'
-  | 'easeInOutQuint'
-  | 'easeInExpo'
-  | 'easeOutExpo'
-  | 'easeInOutExpo'
-  | 'easeInCirc'
-  | 'easeOutCirc'
-  | 'easeInOutCirc'
-  | 'easeInBack'
-  | 'easeOutBack'
-  | 'easeInOutBack'
-  | 'easeInElastic'
-  | 'easeOutElastic'
-  | 'easeInOutElastic';
-
-const EASING_PI = Math.PI;
-const EASING_BACK_C1 = 1.70158;
-const EASING_BACK_C2 = EASING_BACK_C1 * 1.525;
-const EASING_BACK_C3 = EASING_BACK_C1 + 1;
-const EASING_ELASTIC_C4 = (2 * EASING_PI) / 3;
-const EASING_ELASTIC_C5 = (2 * EASING_PI) / 4.5;
-
-const CURVE_EASING_FAMILY_OPTIONS: Array<{
-  id: CurveEasingFamily;
-  label: string;
-}> = [
-  { id: 'linear', label: 'Linear' },
-  { id: 'sine', label: 'Sine' },
-  { id: 'quad', label: 'Quad' },
-  { id: 'cubic', label: 'Cubic' },
-  { id: 'quart', label: 'Quart' },
-  { id: 'quint', label: 'Quint' },
-  { id: 'expo', label: 'Expo' },
-  { id: 'circ', label: 'Circ' },
-  { id: 'back', label: 'Back' },
-  { id: 'elastic', label: 'Elastic' },
-];
-
-const CURVE_EASING_TYPE_OPTIONS: Array<{
-  id: CurveEasingType;
-  label: string;
-}> = [
-  { id: 'in', label: 'In' },
-  { id: 'out', label: 'Out' },
-  { id: 'inOut', label: 'In/Out' },
-];
-
-const CURVE_EASING_OPTIONS: Array<{
-  id: CurveEasingId;
-  label: string;
-  ease: (progress: number) => number;
-}> = [
-  { id: 'linear', label: 'Linear', ease: (x) => x },
-  { id: 'easeInSine', label: 'Sine In', ease: (x) => 1 - Math.cos((x * EASING_PI) / 2) },
-  { id: 'easeOutSine', label: 'Sine Out', ease: (x) => Math.sin((x * EASING_PI) / 2) },
-  { id: 'easeInOutSine', label: 'Sine In/Out', ease: (x) => -(Math.cos(EASING_PI * x) - 1) / 2 },
-  { id: 'easeInQuad', label: 'Quad In', ease: (x) => x * x },
-  { id: 'easeOutQuad', label: 'Quad Out', ease: (x) => 1 - (1 - x) * (1 - x) },
-  { id: 'easeInOutQuad', label: 'Quad In/Out', ease: (x) => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2 },
-  { id: 'easeInCubic', label: 'Cubic In', ease: (x) => x * x * x },
-  { id: 'easeOutCubic', label: 'Cubic Out', ease: (x) => 1 - Math.pow(1 - x, 3) },
-  { id: 'easeInOutCubic', label: 'Cubic In/Out', ease: (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2 },
-  { id: 'easeInQuart', label: 'Quart In', ease: (x) => x * x * x * x },
-  { id: 'easeOutQuart', label: 'Quart Out', ease: (x) => 1 - Math.pow(1 - x, 4) },
-  { id: 'easeInOutQuart', label: 'Quart In/Out', ease: (x) => x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2 },
-  { id: 'easeInQuint', label: 'Quint In', ease: (x) => x * x * x * x * x },
-  { id: 'easeOutQuint', label: 'Quint Out', ease: (x) => 1 - Math.pow(1 - x, 5) },
-  { id: 'easeInOutQuint', label: 'Quint In/Out', ease: (x) => x < 0.5 ? 16 * x * x * x * x * x : 1 - Math.pow(-2 * x + 2, 5) / 2 },
-  { id: 'easeInExpo', label: 'Expo In', ease: (x) => x === 0 ? 0 : Math.pow(2, 10 * x - 10) },
-  { id: 'easeOutExpo', label: 'Expo Out', ease: (x) => x === 1 ? 1 : 1 - Math.pow(2, -10 * x) },
-  { id: 'easeInOutExpo', label: 'Expo In/Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : x < 0.5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2 },
-  { id: 'easeInCirc', label: 'Circ In', ease: (x) => 1 - Math.sqrt(1 - Math.pow(x, 2)) },
-  { id: 'easeOutCirc', label: 'Circ Out', ease: (x) => Math.sqrt(1 - Math.pow(x - 1, 2)) },
-  { id: 'easeInOutCirc', label: 'Circ In/Out', ease: (x) => x < 0.5 ? (1 - Math.sqrt(1 - Math.pow(2 * x, 2))) / 2 : (Math.sqrt(1 - Math.pow(-2 * x + 2, 2)) + 1) / 2 },
-  { id: 'easeInBack', label: 'Back In', ease: (x) => EASING_BACK_C3 * x * x * x - EASING_BACK_C1 * x * x },
-  { id: 'easeOutBack', label: 'Back Out', ease: (x) => 1 + EASING_BACK_C3 * Math.pow(x - 1, 3) + EASING_BACK_C1 * Math.pow(x - 1, 2) },
-  { id: 'easeInOutBack', label: 'Back In/Out', ease: (x) => x < 0.5 ? (Math.pow(2 * x, 2) * ((EASING_BACK_C2 + 1) * 2 * x - EASING_BACK_C2)) / 2 : (Math.pow(2 * x - 2, 2) * ((EASING_BACK_C2 + 1) * (x * 2 - 2) + EASING_BACK_C2) + 2) / 2 },
-  { id: 'easeInElastic', label: 'Elastic In', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : -Math.pow(2, 10 * x - 10) * Math.sin((x * 10 - 10.75) * EASING_ELASTIC_C4) },
-  { id: 'easeOutElastic', label: 'Elastic Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * EASING_ELASTIC_C4) + 1 },
-  { id: 'easeInOutElastic', label: 'Elastic In/Out', ease: (x) => x === 0 ? 0 : x === 1 ? 1 : x < 0.5 ? -(Math.pow(2, 20 * x - 10) * Math.sin((20 * x - 11.125) * EASING_ELASTIC_C5)) / 2 : (Math.pow(2, -20 * x + 10) * Math.sin((20 * x - 11.125) * EASING_ELASTIC_C5)) / 2 + 1 },
-];
-
-const CURVE_EASINGS_BY_ID = new Map(CURVE_EASING_OPTIONS.map((option) => [option.id, option]));
-
-const getCurveEasingId = (family: CurveEasingFamily, type: CurveEasingType): CurveEasingId => {
-  if (family === 'linear') {
-    return 'linear';
-  }
-
-  const direction = type === 'inOut'
-    ? 'InOut'
-    : type === 'in'
-      ? 'In'
-      : 'Out';
-  const familyName = family.charAt(0).toUpperCase() + family.slice(1);
-
-  return `ease${direction}${familyName}` as CurveEasingId;
-};
-
-const getTierBadge = (difficulty?: string) => {
-  const difficultyText = difficulty?.trim() || '';
-  const difficultyValue = Number.parseInt(difficultyText, 10);
-  const tier = Number.isFinite(difficultyValue) ? Math.max(0, difficultyValue) : 0;
-  const label = tier === 0 ? 'Tier ?' : `Tier ${difficultyText || tier}`;
-
-  if (tier >= 21) {
-    return {
-      label,
-      className: 'border-neutral-500/70 bg-black text-white',
-    };
-  }
-  if (tier >= 16) {
-    return {
-      label,
-      className: 'border-purple-400/50 bg-purple-600 text-white',
-    };
-  }
-  if (tier >= 11) {
-    return {
-      label,
-      className: 'border-red-400/50 bg-red-600 text-white',
-    };
-  }
-  if (tier >= 6) {
-    return {
-      label,
-      className: 'border-yellow-300/70 bg-yellow-300 text-yellow-950',
-    };
-  }
-  if (tier >= 1) {
-    return {
-      label,
-      className: 'border-blue-400/50 bg-blue-600 text-white',
-    };
-  }
-
-  return {
-    label,
-    className: 'border-neutral-200 bg-white text-neutral-950',
-  };
-};
-
-const getBeatsPerMeasureAtBeat = (beat: number, timedBpmChanges: TimedBpmChange[]) => {
-  const timeAtBeat = getTimeAtBeat(Math.max(0, beat), timedBpmChanges);
-  const activeChange = getActiveChange(timeAtBeat + 0.001, timedBpmChanges);
-  return parseInt(activeChange.timeSignature.split('/')[0], 10) || 4;
-};
-
-const getMeasureSpanAtBeat = (beat: number, timedBpmChanges: TimedBpmChange[]) => {
-  let measureStartBeat = 0;
-  let beatsPerMeasure = getBeatsPerMeasureAtBeat(measureStartBeat, timedBpmChanges);
-  let measureEndBeat = measureStartBeat + beatsPerMeasure;
-  let guard = 0;
-
-  while (beat >= measureEndBeat - SNAP_EPSILON && guard < 10000) {
-    measureStartBeat = measureEndBeat;
-    beatsPerMeasure = getBeatsPerMeasureAtBeat(measureStartBeat, timedBpmChanges);
-    measureEndBeat = measureStartBeat + beatsPerMeasure;
-    guard += 1;
-  }
-
-  return { measureStartBeat, measureEndBeat, beatsPerMeasure };
-};
-
-const snapBeatToMeasureDivision = (
-  beat: number,
-  divisionsPerMeasure: number,
-  timedBpmChanges: TimedBpmChange[],
-) => {
-  const { measureStartBeat, measureEndBeat, beatsPerMeasure } = getMeasureSpanAtBeat(beat, timedBpmChanges);
-
-  if (divisionsPerMeasure <= 0) {
-    return Math.abs(beat - measureStartBeat) <= Math.abs(measureEndBeat - beat)
-      ? measureStartBeat
-      : measureEndBeat;
-  }
-
-  const step = beatsPerMeasure / divisionsPerMeasure;
-  return measureStartBeat + Math.round((beat - measureStartBeat) / step) * step;
-};
-
-const getBeatAtTimepos = (
-  timepos: number,
-  timedBpmChanges: TimedBpmChange[],
-) => {
-  const measureCount = Math.max(0, Math.floor(timepos));
-  const measureDecimal = Math.max(0, timepos - measureCount);
-  let currentMeasureBeat = 0;
-  let currentBeatsPerMeasure = 4;
-
-  for (let currentMeasure = 0; currentMeasure <= measureCount; currentMeasure += 1) {
-    currentBeatsPerMeasure = getBeatsPerMeasureAtBeat(currentMeasureBeat, timedBpmChanges);
-
-    if (currentMeasure < measureCount) {
-      currentMeasureBeat += currentBeatsPerMeasure;
-    }
-  }
-
-  return currentMeasureBeat + measureDecimal * currentBeatsPerMeasure;
-};
-
-const buildSpeedDistanceIndex = (speedChanges: SpeedChange[]) => {
-  const sortedSpeedChanges = [...speedChanges].sort((a, b) => a.timepos - b.timepos);
-  const points: SpeedDistancePoint[] = [{
-    timepos: 0,
-    distance: 0,
-    speed: 1,
-  }];
-  let distance = 0;
-  let activeSpeed = 1;
-  let previousTimepos = 0;
-
-  sortedSpeedChanges.forEach((change) => {
-    const changeTimepos = Math.max(0, change.timepos);
-    const clampedChangeTimepos = Math.max(previousTimepos, changeTimepos);
-    distance += activeSpeed * (clampedChangeTimepos - previousTimepos);
-    activeSpeed = change.speedChange;
-    previousTimepos = clampedChangeTimepos;
-    points.push({
-      timepos: clampedChangeTimepos,
-      distance,
-      speed: activeSpeed,
-    });
-  });
-
-  return points;
-};
-
-const getSpeedDistanceAtTimepos = (timepos: number, speedDistanceIndex: SpeedDistancePoint[]) => {
-  const targetTimepos = Math.max(0, timepos);
-  let low = 0;
-  let high = speedDistanceIndex.length - 1;
-  let activePoint = speedDistanceIndex[0] ?? { timepos: 0, distance: 0, speed: 1 };
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const point = speedDistanceIndex[mid];
-    if (point.timepos <= targetTimepos) {
-      activePoint = point;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-
-  return activePoint.distance + activePoint.speed * (targetTimepos - activePoint.timepos);
-};
-
-const findFirstPreviewNoteDistanceIndex = (entries: PreviewNoteRenderEntry[], distance: number) => {
-  let low = 0;
-  let high = entries.length;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (entries[mid].distance < distance) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  return low;
-};
-
-const getPreviewNoteEntriesInDistanceRange = (
-  entries: PreviewNoteRenderEntry[],
-  startDistance: number,
-  endDistance: number,
-) => {
-  const minDistance = Math.min(startDistance, endDistance);
-  const maxDistance = Math.max(startDistance, endDistance);
-  const matchingEntries: PreviewNoteRenderEntry[] = [];
-  const firstEntryIndex = findFirstPreviewNoteDistanceIndex(entries, minDistance);
-
-  for (let index = firstEntryIndex; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (entry.distance > maxDistance) {
-      break;
-    }
-
-    matchingEntries.push(entry);
-  }
-
-  return matchingEntries;
-};
-
-const findFirstPreviewConnectorDistanceIndex = (entries: PreviewHoldConnectorSegment[], distance: number) => {
-  let low = 0;
-  let high = entries.length;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (entries[mid].minDistance < distance) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  return low;
-};
-
-const getPreviewConnectorSegmentsInDistanceRange = (
-  entries: PreviewHoldConnectorSegment[],
-  startDistance: number,
-  endDistance: number,
-) => {
-  const minDistance = Math.min(startDistance, endDistance);
-  const maxDistance = Math.max(startDistance, endDistance);
-  const matchingEntries: PreviewHoldConnectorSegment[] = [];
-  let index = findFirstPreviewConnectorDistanceIndex(entries, minDistance);
-
-  while (index > 0 && entries[index - 1].maxDistance >= minDistance) {
-    index -= 1;
-  }
-
-  for (; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (entry.minDistance > maxDistance) {
-      break;
-    }
-
-    if (entry.maxDistance >= minDistance) {
-      matchingEntries.push(entry);
-    }
-  }
-
-  return matchingEntries;
-};
-
-const parsePreviewNoteSpeed = (
-  speed: string | undefined,
-  noteTimepos: number,
-  _speedDistanceIndex: SpeedDistancePoint[],
-): PreviewNoteSpeed => {
-  const normalizedSpeed = speed?.replace(/\s+/g, '') ?? '';
-
-  if (!normalizedSpeed.includes(':')) {
-    const multiplier = Number(normalizedSpeed);
-    return {
-      kind: 'multiplier',
-      multiplier: Number.isFinite(multiplier) && multiplier !== 0 ? multiplier : 1,
-    };
-  }
-
-  const keyframes = normalizedSpeed
-    .split(';')
-    .map((entry) => {
-      const [timeOffsetText, valueOffsetText] = entry.split(':');
-      const timeOffset = Number(timeOffsetText);
-      const valueOffset = Number(valueOffsetText);
-
-      if (!Number.isFinite(timeOffset) || !Number.isFinite(valueOffset)) {
-        return null;
-      }
-
-      return {
-        time: noteTimepos - timeOffset,
-        value: noteTimepos - valueOffset,
-      };
-    })
-    .filter((keyframe): keyframe is PreviewNoteSpeedKeyframe => keyframe !== null)
-    .sort((a, b) => a.time - b.time);
-
-  return keyframes.length > 0
-    ? { kind: 'curve', keyframes }
-    : { kind: 'multiplier', multiplier: 1 };
-};
-
-const evaluatePreviewNoteSpeedCurve = (
-  keyframes: PreviewNoteSpeedKeyframe[],
-  distance: number,
-) => {
-  if (keyframes.length === 0) {
-    return distance;
-  }
-
-  if (distance <= keyframes[0].time) {
-    return keyframes[0].value;
-  }
-
-  const lastKeyframe = keyframes[keyframes.length - 1];
-  if (distance >= lastKeyframe.time) {
-    return lastKeyframe.value;
-  }
-
-  for (let index = 1; index < keyframes.length; index += 1) {
-    const previous = keyframes[index - 1];
-    const next = keyframes[index];
-
-    if (distance <= next.time) {
-      const span = next.time - previous.time;
-      const progress = Math.abs(span) <= SNAP_EPSILON
-        ? 0
-        : (distance - previous.time) / span;
-
-      return previous.value + (next.value - previous.value) * progress;
-    }
-  }
-
-  return lastKeyframe.value;
-};
-
-const getPreviewNoteVisualDistance = (
-  noteDistance: number,
-  noteTimepos: number,
-  noteSpeed: PreviewNoteSpeed,
-  currentDistance: number,
-  currentTimepos: number,
-) => (
-  noteSpeed.kind === 'curve'
-    ? noteTimepos - evaluatePreviewNoteSpeedCurve(noteSpeed.keyframes, currentTimepos)
-    : (noteDistance - currentDistance) * noteSpeed.multiplier
-);
-
-const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
-
-const easeInCubic = (value: number) => value ** 3;
-
-const getPreviewAppearModePosition = (
-  note: Note,
-  x: number,
-  y: number,
-  notePixelWidth: number,
-  visualDistance: number,
-  chartStartX: number,
-  gridWidth: number,
-): PreviewNotePosition => {
-  if (note.appearMode === 'L' || note.appearMode === 'R' || note.appearMode === 'H') {
-    const linearProgress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
-
-    if (note.appearMode === 'L') {
-      const startX = chartStartX - gridWidth * APPEAR_MODE_SIDE_ENTRY_MULTIPLIER - notePixelWidth;
-      return {
-        x: startX + (x - startX) * linearProgress,
-        y,
-        scale: 1,
-      };
-    }
-
-    if (note.appearMode === 'R') {
-      const startX = chartStartX + gridWidth * (1 + APPEAR_MODE_SIDE_ENTRY_MULTIPLIER);
-      return {
-        x: startX + (x - startX) * linearProgress,
-        y,
-        scale: 1,
-      };
-    }
-
-    const yProgress = easeOutCubic(linearProgress);
-    const scaleProgress = easeInCubic(linearProgress);
-    const startY = y - APPEAR_MODE_H_FLY_DOWN_PIXELS;
-    return {
-      x,
-      y: startY + (y - startY) * yProgress,
-      scale: APPEAR_MODE_H_START_SCALE + (1 - APPEAR_MODE_H_START_SCALE) * scaleProgress,
-    };
-  }
-
-  return { x, y, scale: 1 };
-};
-
-const findFirstPreviewJudgementNoteIndex = (entries: PreviewJudgementNoteEntry[], time: number) => {
-  let low = 0;
-  let high = entries.length;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (entries[mid].time < time) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  return low;
-};
-
-const getPreviewCameraXPositionOffset = (
-  segments: PreviewCameraMovementSegment[],
-  currentTime: number,
-) => {
-  let offset = 0;
-
-  for (const segment of segments) {
-    const segmentStartTime = Math.min(segment.startTime, segment.endTime);
-    const segmentEndTime = Math.max(segment.startTime, segment.endTime);
-
-    if (currentTime >= segmentEndTime) {
-      offset += segment.deltaXPosition;
-      continue;
-    }
-
-    if (currentTime <= segmentStartTime) {
-      continue;
-    }
-
-    const progress = (currentTime - segmentStartTime) / Math.max(SNAP_EPSILON, segmentEndTime - segmentStartTime);
-    offset += segment.deltaXPosition * Math.max(0, Math.min(1, progress));
-  }
-
-  return offset;
-};
-
-const getIndicatorKeyAtBeat = (beat: number) => beat.toFixed(6);
-
-const getCurveSnapBeatsBetween = (
-  startBeat: number,
-  endBeat: number,
-  divisionsPerMeasure: number,
-  timedBpmChanges: TimedBpmChange[],
-) => {
-  const minBeat = Math.min(startBeat, endBeat);
-  const maxBeat = Math.max(startBeat, endBeat);
-
-  if (maxBeat - minBeat <= SNAP_EPSILON || divisionsPerMeasure <= 0) {
-    return [];
-  }
-
-  const snapBeats: number[] = [];
-  const seenBeatKeys = new Set<string>();
-  let { measureStartBeat, measureEndBeat, beatsPerMeasure } = getMeasureSpanAtBeat(minBeat, timedBpmChanges);
-  let guard = 0;
-
-  while (measureStartBeat <= maxBeat + SNAP_EPSILON && guard < 10000) {
-    const step = beatsPerMeasure / divisionsPerMeasure;
-    const firstDivision = Math.max(0, Math.ceil((minBeat - measureStartBeat) / step - SNAP_EPSILON));
-    const lastDivision = Math.min(divisionsPerMeasure, Math.floor((maxBeat - measureStartBeat) / step + SNAP_EPSILON));
-
-    for (let division = firstDivision; division <= lastDivision; division += 1) {
-      const beat = measureStartBeat + division * step;
-
-      if (beat <= minBeat + SNAP_EPSILON || beat >= maxBeat - SNAP_EPSILON) {
-        continue;
-      }
-
-      const key = beat.toFixed(6);
-      if (!seenBeatKeys.has(key)) {
-        snapBeats.push(beat);
-        seenBeatKeys.add(key);
-      }
-    }
-
-    measureStartBeat = measureEndBeat;
-    beatsPerMeasure = getBeatsPerMeasureAtBeat(measureStartBeat, timedBpmChanges);
-    measureEndBeat = measureStartBeat + beatsPerMeasure;
-    guard += 1;
-  }
-
-  snapBeats.sort((a, b) => a - b);
-  return startBeat <= endBeat ? snapBeats : snapBeats.reverse();
-};
-
-interface EditorProps {
-  onBack: () => void;
-  mode?: EditorMode;
-  initialProjectData?: ProjectData | null;
-  notes: Note[];
-  setNotes: React.Dispatch<React.SetStateAction<Note[]>>;
-  bpmChanges: BpmChange[];
-  setBpmChanges: React.Dispatch<React.SetStateAction<BpmChange[]>>;
-  speedChanges: SpeedChange[];
-  setSpeedChanges: React.Dispatch<React.SetStateAction<SpeedChange[]>>;
-  offset: string | number;
-  setOffset: React.Dispatch<React.SetStateAction<string | number>>;
-}
-
-interface EditorRuntimeState {
-  isPlaying: boolean;
-  currentTime: number;
-  playbackStartTime: number;
-  playbackStartPerformanceTime: number;
-  playbackAudioClockReadyTime: number;
-  playbackSpeed: number;
-  bpm: number;
-  bpmChanges: BpmChange[];
-  speedChanges: SpeedChange[];
-  offset: string | number;
-  notes: Note[];
-}
-
-interface HoverPreview {
-  lane: number;
-  time: number;
-}
-
-interface SpeedDistancePoint {
-  timepos: number;
-  distance: number;
-  speed: number;
-}
-
-interface PreviewNoteSpeedKeyframe {
-  time: number;
-  value: number;
-}
-
-interface PreviewNotePosition {
-  x: number;
-  y: number;
-  scale: number;
-}
-
-type PreviewNoteSpeed =
-  | { kind: 'multiplier'; multiplier: number }
-  | { kind: 'curve'; keyframes: PreviewNoteSpeedKeyframe[] };
-
-interface PreviewNoteRenderEntry {
-  note: Note;
-  beat: number;
-  timepos: number;
-  distance: number;
-  noteSpeed: PreviewNoteSpeed;
-}
-
-interface PreviewHoldConnectorSegment {
-  note: Note;
-  parentNote: Note;
-  noteBeat: number;
-  parentBeat: number;
-  noteTimepos: number;
-  parentTimepos: number;
-  noteDistance: number;
-  parentDistance: number;
-  noteSpeed: PreviewNoteSpeed;
-  parentSpeed: PreviewNoteSpeed;
-  minDistance: number;
-  maxDistance: number;
-}
-
-interface PreviewJudgementNoteEntry {
-  id: number;
-  time: number;
-}
-
-interface PreviewCameraMovementSegment {
-  startTime: number;
-  endTime: number;
-  deltaXPosition: number;
-}
-
-interface PreviewCameraTiltSegment {
-  startTimepos: number;
-  endTimepos: number;
-  connectorCenterXPosition: number;
-}
-
-interface HitSoundEvent {
-  time: number;
-  soundUrl: string;
-  key: string;
-}
-
-interface PendingDragUpdate {
-  noteId: number;
-  lane: number;
-  time: number;
-}
-
-interface CopiedNote extends Note {
-  copiedTimepos: number;
-}
-
-const APPEAR_MODE_OPTIONS = ['none', 'L', 'R', 'H', 'P', 'N'] as const;
 
 export default function Editor({ 
   onBack, 
@@ -951,6 +300,9 @@ export default function Editor({
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
+  const previewComboTimesRef = useRef<number[]>([]);
+  const previewCameraTiltSegmentsRef = useRef<PreviewCameraTiltSegment[]>([]);
+  const previewCameraTiltIntervalsRef = useRef<PreviewCameraTiltInterval[]>([]);
   const previewJudgementCursorTimeRef = useRef(0);
   const previewTiltAngleRef = useRef(0);
   const previewTiltTimestampRef = useRef(0);
@@ -1277,6 +629,10 @@ export default function Editor({
       resetPreviewJudgementState();
 
       if (nextPreviewMode) {
+        previewComboTimesRef.current = buildPreviewComboTimes(stateRef.current.notes);
+        previewCameraTiltIntervalsRef.current = buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current);
+        previewTiltAngleRef.current = 0;
+        previewTiltTimestampRef.current = 0;
         setIsSettingsOpen(false);
         setIsHelpOpen(false);
         setIsStatisticsRefreshRateMenuOpen(false);
@@ -1288,6 +644,11 @@ export default function Editor({
         setIsShiftHeld(false);
         clearActiveNoteInteraction();
         pasteTargetRef.current = null;
+      } else {
+        previewComboTimesRef.current = [];
+        previewCameraTiltIntervalsRef.current = [];
+        previewTiltAngleRef.current = 0;
+        previewTiltTimestampRef.current = 0;
       }
 
       return nextPreviewMode;
@@ -1371,6 +732,13 @@ export default function Editor({
     () => buildSpeedDistanceIndex(speedChanges),
     [speedChanges],
   );
+  const previewPlaybackSpeedDistanceIndex = useMemo(
+    () => buildSpeedDistanceIndex(speedChanges.map(change => ({
+      ...change,
+      timepos: getTimeFromTimepos(change.timepos),
+    }))),
+    [getTimeFromTimepos, speedChanges],
+  );
   const previewNoteRenderEntries = useMemo(
     () => noteRenderIndex.noteBeatEntries
       .map(({ note, beat }) => {
@@ -1379,7 +747,7 @@ export default function Editor({
           note,
           beat,
           timepos,
-          distance: getSpeedDistanceAtTimepos(timepos, speedDistanceIndex),
+          distance: getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex),
           noteSpeed: parsePreviewNoteSpeed(
             note.appearMode === 'P' ? APPEAR_MODE_P_NSC : note.speed,
             timepos,
@@ -1387,12 +755,16 @@ export default function Editor({
           ),
         };
       })
-      .sort((a, b) => (
-        (a.distance - b.distance)
-        || (a.timepos - b.timepos)
-        || (a.note.id - b.note.id)
-      )),
-    [getTimeposFromTime, noteRenderIndex.noteBeatEntries, speedDistanceIndex],
+      .sort(comparePreviewNoteRenderEntries),
+    [getTimeposFromTime, noteRenderIndex.noteBeatEntries, previewPlaybackSpeedDistanceIndex, speedDistanceIndex],
+  );
+  const previewDistanceIndexedNoteRenderEntries = useMemo(
+    () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind !== 'curve'),
+    [previewNoteRenderEntries],
+  );
+  const previewCurveNoteRenderEntries = useMemo(
+    () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind === 'curve'),
+    [previewNoteRenderEntries],
   );
   const previewNoteRenderEntryById = useMemo(
     () => new Map(previewNoteRenderEntries.map(entry => [entry.note.id, entry])),
@@ -1405,8 +777,8 @@ export default function Editor({
         const parentEntry = previewNoteRenderEntryById.get(segment.parentNote.id);
         const noteTimepos = noteEntry?.timepos ?? getTimeposFromTime(segment.note.time);
         const parentTimepos = parentEntry?.timepos ?? getTimeposFromTime(segment.parentNote.time);
-        const noteDistance = noteEntry?.distance ?? getSpeedDistanceAtTimepos(noteTimepos, speedDistanceIndex);
-        const parentDistance = parentEntry?.distance ?? getSpeedDistanceAtTimepos(parentTimepos, speedDistanceIndex);
+        const noteDistance = noteEntry?.distance ?? getSpeedDistanceAtTimepos(segment.note.time, previewPlaybackSpeedDistanceIndex);
+        const parentDistance = parentEntry?.distance ?? getSpeedDistanceAtTimepos(segment.parentNote.time, previewPlaybackSpeedDistanceIndex);
 
         return {
           note: segment.note,
@@ -1436,7 +808,7 @@ export default function Editor({
         || (a.maxDistance - b.maxDistance)
         || (a.note.id - b.note.id)
       )),
-    [getTimeposFromTime, noteRenderIndex.holdConnectorSegments, previewNoteRenderEntryById, speedDistanceIndex],
+    [getTimeposFromTime, noteRenderIndex.holdConnectorSegments, previewNoteRenderEntryById, previewPlaybackSpeedDistanceIndex, speedDistanceIndex],
   );
   const previewJudgementNoteEntries = useMemo(
     () => notes
@@ -1479,16 +851,13 @@ export default function Editor({
       .sort((a, b) => (a.startTimepos - b.startTimepos) || (a.endTimepos - b.endTimepos)),
     [previewHoldConnectorSegments],
   );
+  previewCameraTiltSegmentsRef.current = previewCameraTiltSegments;
   const previewMinimumNoteSpeedMagnitude = useMemo(
     () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
       entry.noteSpeed.kind === 'multiplier'
         ? Math.min(minimumMagnitude, Math.max(0.05, Math.abs(entry.noteSpeed.multiplier)))
         : minimumMagnitude
     ), 1),
-    [previewNoteRenderEntries],
-  );
-  const hasPreviewNoteSpeedCurves = useMemo(
-    () => previewNoteRenderEntries.some(entry => entry.noteSpeed.kind === 'curve'),
     [previewNoteRenderEntries],
   );
 
@@ -2442,7 +1811,7 @@ export default function Editor({
     const isPreviewPlaybackCanvas = isPreviewMode;
     const currentPreviewTimepos = isPreviewPlaybackCanvas ? getTimeposFromTime(time) : 0;
     const currentPreviewDistance = isPreviewPlaybackCanvas
-      ? getSpeedDistanceAtTimepos(currentPreviewTimepos, speedDistanceIndex)
+      ? getSpeedDistanceAtTimepos(time, previewPlaybackSpeedDistanceIndex)
       : 0;
     const previewDistanceScale = 4 * pixelsPerBeat;
     const previewCameraXOffset = isPreviewPlaybackCanvas
@@ -2458,7 +1827,7 @@ export default function Editor({
     const previewVisibleMaxDistance = currentPreviewDistance + previewVisibleDistanceRadius;
 
     const getPreviewYFromTimepos = (timepos: number) => (
-      hitLineY - (getSpeedDistanceAtTimepos(timepos, speedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
+      hitLineY - (getSpeedDistanceAtTimepos(getTimeFromTimepos(timepos), previewPlaybackSpeedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
     );
 
     const getCanvasYFromBeat = (beat: number) => (
@@ -2504,18 +1873,8 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : noteRenderIndex.holdConnectorSegments;
-    const activePreviewTiltSegments = isPreviewPlaybackCanvas
-      ? previewCameraTiltSegments.filter(segment => (
-          currentPreviewTimepos >= segment.startTimepos - SNAP_EPSILON
-          && currentPreviewTimepos < segment.endTimepos - SNAP_EPSILON
-        ))
-      : [];
-    const targetPreviewTiltDegrees = activePreviewTiltSegments.length > 0
-      ? activePreviewTiltSegments.reduce((tiltTotal, segment) => {
-          const connectorScreenXPosition = segment.connectorCenterXPosition - previewCameraXOffset;
-
-          return tiltTotal + ((connectorScreenXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR);
-        }, 0) / activePreviewTiltSegments.length
+    const targetPreviewTiltDegrees = isPreviewPlaybackCanvas
+      ? getPreviewCameraTiltDegrees(previewCameraTiltIntervalsRef.current, currentPreviewTimepos)
       : 0;
     const tiltNow = performance.now();
     const previousTiltTimestamp = previewTiltTimestampRef.current || tiltNow;
@@ -2532,9 +1891,10 @@ export default function Editor({
 
     ctx.save();
     if (isPreviewPlaybackCanvas && Math.abs(previewTiltDegrees) > SNAP_EPSILON) {
-      ctx.translate(width / 2, height / 2);
+      const editorCanvasCenterX = chartStartX + gridWidth / 2;
+      ctx.translate(editorCanvasCenterX, height / 2);
       ctx.rotate((previewTiltDegrees * Math.PI) / 180);
-      ctx.translate(-width / 2, -height / 2);
+      ctx.translate(-editorCanvasCenterX, -height / 2);
     }
 
     // Draw background for the grid area
@@ -2581,15 +1941,21 @@ export default function Editor({
     const pendingDragBeat = pendingDragUpdate
       ? getBeatAtTime(pendingDragUpdate.time, sortedChanges)
       : null;
+    const visiblePreviewDistanceNoteEntries = isPreviewPlaybackCanvas
+      ? getPreviewNoteEntriesInDistanceRange(
+          previewDistanceIndexedNoteRenderEntries,
+          previewVisibleMinDistance,
+          previewVisibleMaxDistance,
+        )
+      : [];
     const visibleNoteEntries = isPreviewPlaybackCanvas
       ? (
-          hasPreviewNoteSpeedCurves
-            ? previewNoteRenderEntries
-            : getPreviewNoteEntriesInDistanceRange(
-                previewNoteRenderEntries,
-                previewVisibleMinDistance,
-                previewVisibleMaxDistance,
-              )
+          previewCurveNoteRenderEntries.length > 0
+            ? [
+                ...visiblePreviewDistanceNoteEntries,
+                ...previewCurveNoteRenderEntries,
+              ].sort(comparePreviewNoteRenderEntries)
+            : visiblePreviewDistanceNoteEntries
         )
       : getNoteBeatEntriesInRange(
           noteRenderIndex.noteBeatEntries,
@@ -2850,6 +2216,19 @@ export default function Editor({
       if (hiddenPreviewNoteIds?.has(segment.note.id)) {
         continue;
       }
+      const previewSegment = segment as PreviewHoldConnectorSegment;
+      if (isPreviewPlaybackCanvas && previewSegment.noteSpeed.kind === 'curve') {
+        const animationStartTimepos = previewSegment.noteSpeed.keyframes[0]?.time;
+        if (
+          currentPreviewTimepos >= previewSegment.noteTimepos - SNAP_EPSILON
+          || (
+            animationStartTimepos !== undefined
+            && currentPreviewTimepos < animationStartTimepos - SNAP_EPSILON
+          )
+        ) {
+          continue;
+        }
+      }
 
       const noteBeat = segment.note.id === pendingDragUpdate?.noteId && pendingDragBeat !== null
         ? pendingDragBeat
@@ -2866,16 +2245,16 @@ export default function Editor({
         : segment.parentNote;
       const noteY = isPreviewPlaybackCanvas
         ? getPreviewYFromNoteDistance(
-            (segment as PreviewHoldConnectorSegment).noteDistance,
-            (segment as PreviewHoldConnectorSegment).noteTimepos,
-            (segment as PreviewHoldConnectorSegment).noteSpeed,
+            previewSegment.noteDistance,
+            previewSegment.noteTimepos,
+            previewSegment.noteSpeed,
           )
         : getCanvasYFromTime(note.time, noteBeat);
       const parentY = isPreviewPlaybackCanvas
         ? getPreviewYFromNoteDistance(
-            (segment as PreviewHoldConnectorSegment).parentDistance,
-            (segment as PreviewHoldConnectorSegment).parentTimepos,
-            (segment as PreviewHoldConnectorSegment).parentSpeed,
+            previewSegment.parentDistance,
+            previewSegment.parentTimepos,
+            previewSegment.parentSpeed,
           )
         : getCanvasYFromTime(parentNote.time, parentBeat);
 
@@ -2905,8 +2284,11 @@ export default function Editor({
       const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
       const parentRightX = parentLeftX + parentWidthPx - 4;
 
-      const shouldClipPreviewConnectorAtJudgementLine = isPreviewPlaybackCanvas && Math.max(noteY, parentY) > hitLineY;
-      if (isPreviewPlaybackCanvas && Math.min(noteY, parentY) >= hitLineY) {
+      const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
+        && currentPreviewTimepos >= Math.min(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON
+        && currentPreviewTimepos < Math.max(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON;
+      const shouldClipPreviewConnectorAtJudgementLine = isPreviewConnectorBeingJudged && Math.max(noteY, parentY) > hitLineY;
+      if (isPreviewConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
         continue;
       }
 
@@ -3047,19 +2429,21 @@ export default function Editor({
         ? hitLineY - previewVisualDistance * previewDistanceScale
         : getCanvasYFromTime(renderedNote.time, renderedNoteBeat);
 
-      if (isPreviewPlaybackCanvas && renderedNote.appearMode === 'P') {
-        const pAnimationStartTimepos = previewEntry.noteSpeed.kind === 'curve'
-          ? previewEntry.noteSpeed.keyframes[0]?.time
-          : undefined;
-
+      if (isPreviewPlaybackCanvas && previewEntry.noteSpeed.kind === 'curve') {
+        const animationStartTimepos = previewEntry.noteSpeed.keyframes[0]?.time;
         if (
           currentPreviewTimepos >= previewEntry.timepos - SNAP_EPSILON
           || (
-            pAnimationStartTimepos !== undefined
-            && currentPreviewTimepos < pAnimationStartTimepos - SNAP_EPSILON
+            animationStartTimepos !== undefined
+            && currentPreviewTimepos < animationStartTimepos - SNAP_EPSILON
           )
-          || previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE
         ) {
+          return;
+        }
+      }
+
+      if (isPreviewPlaybackCanvas && renderedNote.appearMode === 'P') {
+        if (previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE) {
           return;
         }
       }
@@ -3427,9 +2811,7 @@ export default function Editor({
     ctx.restore();
 
     if (isPreviewMode) {
-      const previewCanvasCombo = notes.reduce((combo, note) => (
-        note.time <= time ? combo + 1 : combo
-      ), 0);
+      const previewCanvasCombo = getPreviewComboAtTime(previewComboTimesRef.current, time);
 
       ctx.save();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -3445,7 +2827,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPreviewNoteSpeedCurves, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCameraTiltSegments, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCurveNoteRenderEntries, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
