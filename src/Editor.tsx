@@ -3911,6 +3911,7 @@ export default function Editor({
   const speedChangeGridClass = 'grid grid-cols-[2rem_minmax(0,1.25fr)_minmax(0,1fr)_1.25rem] gap-2';
   const changeTableInputClass = 'w-full min-w-0 p-1 bg-neutral-800 rounded border border-neutral-700';
   const changeTableMarkerClass = 'inline-flex h-6 w-full items-center justify-center rounded border border-neutral-700 bg-neutral-900 font-mono text-[10px] font-semibold text-neutral-400';
+  const changeTableJumpMarkerClass = `${changeTableMarkerClass} cursor-pointer transition-colors hover:border-indigo-500 hover:bg-indigo-500/10 hover:text-indigo-200 focus:border-indigo-500 focus:outline-none`;
   const emptyCanvasMessage = mode === 'import'
     ? 'Provide the music file in Chart Metadata to start editing this imported chart.'
     : 'Fill in project details in Chart Metadata to start editing.';
@@ -4458,7 +4459,14 @@ export default function Editor({
                     className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
                     renderRow={(change, index, style) => (
                       <div style={style} className={`${bpmChangeGridClass} items-center`}>
-                        <span className={changeTableMarkerClass}>{index + 1}</span>
+                        <button
+                          type="button"
+                          className={changeTableJumpMarkerClass}
+                          title={`Jump to BPM change ${index + 1}`}
+                          onClick={() => jumpToNoteTime(getTimeFromTimepos(getBpmChangeTimepos(change)))}
+                        >
+                          {index + 1}
+                        </button>
                         <CommitInput type="number" step="0.001" value={getBpmChangeTimepos(change)} className={changeTableInputClass} onCommit={(value) => {
                             const timepos = parseFloat(value);
                             updateBpmChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
@@ -4511,7 +4519,14 @@ export default function Editor({
                     className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
                     renderRow={(change, index, style) => (
                     <div style={style} className={`${speedChangeGridClass} items-center`}>
-                      <span className={changeTableMarkerClass}>{index + 1}</span>
+                      <button
+                        type="button"
+                        className={changeTableJumpMarkerClass}
+                        title={`Jump to speed change ${index + 1}`}
+                        onClick={() => jumpToNoteTime(getTimeFromTimepos(change.timepos))}
+                      >
+                        {index + 1}
+                      </button>
                       <CommitInput type="number" step="0.001" value={change.timepos} className={changeTableInputClass} onCommit={(value) => {
                           const timepos = parseFloat(value);
                           updateSpeedChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
