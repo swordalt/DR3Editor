@@ -24,6 +24,10 @@ interface EditorOverlaysProps {
   musicVolume: number;
   tapSoundVolume: number;
   flickSoundVolume: number;
+  isPreviewCameraTiltEnabled: boolean;
+  isPreviewCameraMovementEnabled: boolean;
+  isPreviewNoteSpeedChangesEnabled: boolean;
+  isPreviewNoteAppearModeEnabled: boolean;
   setIsExitWarningOpen: Dispatch<SetStateAction<boolean>>;
   setIsSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setIsHelpOpen: Dispatch<SetStateAction<boolean>>;
@@ -36,7 +40,59 @@ interface EditorOverlaysProps {
   setMusicVolume: Dispatch<SetStateAction<number>>;
   setTapSoundVolume: Dispatch<SetStateAction<number>>;
   setFlickSoundVolume: Dispatch<SetStateAction<number>>;
+  setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewNoteSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewNoteAppearModeEnabled: Dispatch<SetStateAction<boolean>>;
   onBack: () => void;
+}
+
+interface SettingsToggleProps {
+  label: string;
+  description: string;
+  isEnabled: boolean;
+  ariaLabel: string;
+  onToggle: () => void;
+}
+
+function SettingsToggle({
+  label,
+  description,
+  isEnabled,
+  ariaLabel,
+  onToggle,
+}: SettingsToggleProps) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-white">{label}</p>
+          <p className="mt-1 text-xs leading-5 text-neutral-500">
+            {description}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={isEnabled}
+          aria-label={ariaLabel}
+          onClick={onToggle}
+          className={`relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border transition-colors ${
+            isEnabled
+              ? 'border-emerald-300/40 bg-emerald-500/90'
+              : 'border-white/10 bg-neutral-800'
+          }`}
+        >
+          <span className="sr-only">{label}</span>
+          <span
+            className={`absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-transform ${
+              isEnabled ? 'translate-x-7' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function EditorOverlays({
@@ -52,6 +108,10 @@ export default function EditorOverlays({
   musicVolume,
   tapSoundVolume,
   flickSoundVolume,
+  isPreviewCameraTiltEnabled,
+  isPreviewCameraMovementEnabled,
+  isPreviewNoteSpeedChangesEnabled,
+  isPreviewNoteAppearModeEnabled,
   setIsExitWarningOpen,
   setIsSettingsOpen,
   setIsHelpOpen,
@@ -64,6 +124,10 @@ export default function EditorOverlays({
   setMusicVolume,
   setTapSoundVolume,
   setFlickSoundVolume,
+  setIsPreviewCameraTiltEnabled,
+  setIsPreviewCameraMovementEnabled,
+  setIsPreviewNoteSpeedChangesEnabled,
+  setIsPreviewNoteAppearModeEnabled,
   onBack,
 }: EditorOverlaysProps) {
   const closeSettings = () => {
@@ -316,6 +380,46 @@ export default function EditorOverlays({
                       </div>
                     )}
                   </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">Preview Mode</h3>
+                    <p className="mt-1 text-xs text-neutral-500">Choose which chart effects are simulated during preview playback.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <SettingsToggle
+                    label="Camera Tilt"
+                    description="Rotate the preview camera while active hold connectors pass through the judgement line."
+                    isEnabled={isPreviewCameraTiltEnabled}
+                    ariaLabel="Toggle preview camera tilt"
+                    onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
+                  />
+                  <SettingsToggle
+                    label="Camera Movement"
+                    description="Move the preview camera horizontally along pink hold paths."
+                    isEnabled={isPreviewCameraMovementEnabled}
+                    ariaLabel="Toggle preview camera movement"
+                    onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
+                  />
+                  <SettingsToggle
+                    label="Note Speed Changes"
+                    description="Apply per-note speed multipliers and speed curves in preview mode."
+                    isEnabled={isPreviewNoteSpeedChangesEnabled}
+                    ariaLabel="Toggle preview note speed changes"
+                    onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
+                  />
+                  <SettingsToggle
+                    label="Note Appear Mode"
+                    description="Apply note appear modes such as side entry, fly-down, and proximity visibility."
+                    isEnabled={isPreviewNoteAppearModeEnabled}
+                    ariaLabel="Toggle preview note appear mode"
+                    onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
+                  />
                 </div>
               </section>
 

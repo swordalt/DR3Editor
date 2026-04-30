@@ -19,6 +19,10 @@ export interface EditorSettings {
   gridZoom: number;
   isXPositionGridEnabled: boolean;
   pixelsPerBeat: number;
+  isPreviewCameraTiltEnabled: boolean;
+  isPreviewCameraMovementEnabled: boolean;
+  isPreviewNoteSpeedChangesEnabled: boolean;
+  isPreviewNoteAppearModeEnabled: boolean;
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -32,6 +36,10 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   gridZoom: 4,
   isXPositionGridEnabled: true,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
+  isPreviewCameraTiltEnabled: true,
+  isPreviewCameraMovementEnabled: true,
+  isPreviewNoteSpeedChangesEnabled: true,
+  isPreviewNoteAppearModeEnabled: true,
 };
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> => (
@@ -114,6 +122,18 @@ export const loadEditorSettings = (): EditorSettings => {
       pixelsPerBeat: isValidPixelsPerBeat(parsedSettings.pixelsPerBeat)
         ? parsedSettings.pixelsPerBeat
         : DEFAULT_EDITOR_SETTINGS.pixelsPerBeat,
+      isPreviewCameraTiltEnabled: typeof parsedSettings.isPreviewCameraTiltEnabled === 'boolean'
+        ? parsedSettings.isPreviewCameraTiltEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewCameraTiltEnabled,
+      isPreviewCameraMovementEnabled: typeof parsedSettings.isPreviewCameraMovementEnabled === 'boolean'
+        ? parsedSettings.isPreviewCameraMovementEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewCameraMovementEnabled,
+      isPreviewNoteSpeedChangesEnabled: typeof parsedSettings.isPreviewNoteSpeedChangesEnabled === 'boolean'
+        ? parsedSettings.isPreviewNoteSpeedChangesEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewNoteSpeedChangesEnabled,
+      isPreviewNoteAppearModeEnabled: typeof parsedSettings.isPreviewNoteAppearModeEnabled === 'boolean'
+        ? parsedSettings.isPreviewNoteAppearModeEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewNoteAppearModeEnabled,
     };
   } catch {
     return DEFAULT_EDITOR_SETTINGS;

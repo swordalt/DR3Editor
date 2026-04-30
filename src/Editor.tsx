@@ -151,6 +151,10 @@ export default function Editor({
   const [gridZoom, setGridZoom] = useState(initialEditorSettings.gridZoom);
   const [isXPositionGridEnabled, setIsXPositionGridEnabled] = useState(initialEditorSettings.isXPositionGridEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
+  const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
+  const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
+  const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
+  const [isPreviewNoteAppearModeEnabled, setIsPreviewNoteAppearModeEnabled] = useState(initialEditorSettings.isPreviewNoteAppearModeEnabled);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -243,6 +247,10 @@ export default function Editor({
       gridZoom,
       isXPositionGridEnabled,
       pixelsPerBeat,
+      isPreviewCameraTiltEnabled,
+      isPreviewCameraMovementEnabled,
+      isPreviewNoteSpeedChangesEnabled,
+      isPreviewNoteAppearModeEnabled,
     });
   }, [
     isExitWarningEnabled,
@@ -255,6 +263,10 @@ export default function Editor({
     gridZoom,
     isXPositionGridEnabled,
     pixelsPerBeat,
+    isPreviewCameraTiltEnabled,
+    isPreviewCameraMovementEnabled,
+    isPreviewNoteSpeedChangesEnabled,
+    isPreviewNoteAppearModeEnabled,
   ]);
 
   useEffect(() => {
@@ -789,14 +801,27 @@ export default function Editor({
           timepos,
           distance: getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex),
           noteSpeed: parsePreviewNoteSpeed(
-            note.appearMode === 'P' ? APPEAR_MODE_P_NSC : note.speed,
+            isPreviewNoteSpeedChangesEnabled
+              ? (
+                  isPreviewNoteAppearModeEnabled && note.appearMode === 'P'
+                    ? APPEAR_MODE_P_NSC
+                    : note.speed
+                )
+              : undefined,
             timepos,
             speedDistanceIndex,
           ),
         };
       })
       .sort(comparePreviewNoteRenderEntries),
-    [getTimeposFromTime, noteRenderIndex.noteBeatEntries, previewPlaybackSpeedDistanceIndex, speedDistanceIndex],
+    [
+      getTimeposFromTime,
+      isPreviewNoteAppearModeEnabled,
+      isPreviewNoteSpeedChangesEnabled,
+      noteRenderIndex.noteBeatEntries,
+      previewPlaybackSpeedDistanceIndex,
+      speedDistanceIndex,
+    ],
   );
   const previewDistanceIndexedNoteRenderEntries = useMemo(
     () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind !== 'curve'),
@@ -830,12 +855,24 @@ export default function Editor({
           noteDistance,
           parentDistance,
           noteSpeed: noteEntry?.noteSpeed ?? parsePreviewNoteSpeed(
-            segment.note.appearMode === 'P' ? APPEAR_MODE_P_NSC : segment.note.speed,
+            isPreviewNoteSpeedChangesEnabled
+              ? (
+                  isPreviewNoteAppearModeEnabled && segment.note.appearMode === 'P'
+                    ? APPEAR_MODE_P_NSC
+                    : segment.note.speed
+                )
+              : undefined,
             noteTimepos,
             speedDistanceIndex,
           ),
           parentSpeed: parentEntry?.noteSpeed ?? parsePreviewNoteSpeed(
-            segment.parentNote.appearMode === 'P' ? APPEAR_MODE_P_NSC : segment.parentNote.speed,
+            isPreviewNoteSpeedChangesEnabled
+              ? (
+                  isPreviewNoteAppearModeEnabled && segment.parentNote.appearMode === 'P'
+                    ? APPEAR_MODE_P_NSC
+                    : segment.parentNote.speed
+                )
+              : undefined,
             parentTimepos,
             speedDistanceIndex,
           ),
@@ -848,7 +885,15 @@ export default function Editor({
         || (a.maxDistance - b.maxDistance)
         || (a.note.id - b.note.id)
       )),
-    [getTimeposFromTime, noteRenderIndex.holdConnectorSegments, previewNoteRenderEntryById, previewPlaybackSpeedDistanceIndex, speedDistanceIndex],
+    [
+      getTimeposFromTime,
+      isPreviewNoteAppearModeEnabled,
+      isPreviewNoteSpeedChangesEnabled,
+      noteRenderIndex.holdConnectorSegments,
+      previewNoteRenderEntryById,
+      previewPlaybackSpeedDistanceIndex,
+      speedDistanceIndex,
+    ],
   );
   const previewJudgementNoteEntries = useMemo(
     () => notes
@@ -1899,7 +1944,7 @@ export default function Editor({
       ? getSpeedDistanceAtTimepos(time, previewPlaybackSpeedDistanceIndex)
       : 0;
     const previewDistanceScale = 4 * pixelsPerBeat;
-    const previewCameraXOffset = isPreviewPlaybackCanvas
+    const previewCameraXOffset = isPreviewPlaybackCanvas && isPreviewCameraMovementEnabled
       ? getPreviewCameraXPositionOffset(previewCameraMovementSegments, time)
       : 0;
     const previewVisibleMinVisualDistance = -(height - hitLineY + 40) / previewDistanceScale;
@@ -1958,7 +2003,7 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : noteRenderIndex.holdConnectorSegments;
-    const targetPreviewTiltDegrees = isPreviewPlaybackCanvas
+    const targetPreviewTiltDegrees = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
       ? getPreviewCameraTiltDegrees(previewCameraTiltIntervalsRef.current, currentPreviewTimepos)
       : 0;
     const tiltNow = performance.now();
@@ -2255,7 +2300,8 @@ export default function Editor({
     const hasValidPreviewCurveDensity = Number.isInteger(previewCurveDensity) && previewCurveDensity > 0;
     const previewCurveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(curveEasingFamily, curveEasingType));
     const shouldDrawCurvePreview = Boolean(
-      activeLeftPanel === 'curveNotes'
+      !isPreviewMode
+      && activeLeftPanel === 'curveNotes'
       && curveStartIdInput.trim() !== ''
       && curveEndIdInput.trim() !== ''
       && AVAILABLE_NOTE_TYPES.includes(curveNoteType)
@@ -2469,6 +2515,10 @@ export default function Editor({
 
     const orderedVisibleNoteEntries = isPreviewPlaybackCanvas
       ? [...visibleNoteEntries].sort((a, b) => {
+          if (!isPreviewNoteAppearModeEnabled) {
+            return 0;
+          }
+
           const aIsH = a.note.appearMode === 'H';
           const bIsH = b.note.appearMode === 'H';
 
@@ -2529,7 +2579,7 @@ export default function Editor({
         }
       }
 
-      if (isPreviewPlaybackCanvas && renderedNote.appearMode === 'P') {
+      if (isPreviewPlaybackCanvas && isPreviewNoteAppearModeEnabled && renderedNote.appearMode === 'P') {
         if (previewVisualDistance > APPEAR_MODE_P_RENDER_DISTANCE) {
           return;
         }
@@ -2542,7 +2592,7 @@ export default function Editor({
       const xPositionWidth = laneWidth / 2;
       const x = chartStartX + renderedNote.lane * xPositionWidth;
       const notePixelWidth = xPositionWidth * renderedNote.width;
-      const appearedPosition = isPreviewPlaybackCanvas
+      const appearedPosition = isPreviewPlaybackCanvas && isPreviewNoteAppearModeEnabled
         ? getPreviewAppearModePosition(
             renderedNote,
             x,
@@ -2823,14 +2873,58 @@ export default function Editor({
       if (copiedNotes.length > 0) {
         const baseTimepos = Math.min(...copiedNotes.map(note => note.copiedTimepos));
         const previewTimepos = getTimeposFromTime(hoverPreview.time);
-
-        copiedNotes.forEach((note) => {
+        const copiedPreviewNotes = copiedNotes.map((note) => {
           const previewBeat = getBeatAtTime(
             getTimeFromTimepos(previewTimepos + note.copiedTimepos - baseTimepos),
             sortedChanges,
           );
-          const previewY = hitLineY - (previewBeat - currentBeat) * pixelsPerBeat;
 
+          return {
+            note,
+            previewBeat,
+            previewY: hitLineY - (previewBeat - currentBeat) * pixelsPerBeat,
+          };
+        });
+        const copiedPreviewNoteById = new Map(copiedPreviewNotes.map(entry => [entry.note.id, entry]));
+
+        ctx.save();
+        ctx.globalAlpha = 0.08;
+        copiedPreviewNotes.forEach(({ note, previewY }) => {
+          if (!HOLD_CONNECTOR_TYPES.includes(note.type) || HOLD_START_TYPES.includes(note.type) || note.parentId === null) {
+            return;
+          }
+
+          const parentEntry = copiedPreviewNoteById.get(note.parentId);
+          if (!parentEntry) {
+            return;
+          }
+
+          const parentNote = parentEntry.note;
+          const parentY = parentEntry.previewY;
+          if (Math.min(previewY, parentY) > height + 50 || Math.max(previewY, parentY) < -50) {
+            return;
+          }
+
+          const noteWidthPx = xPositionWidth * note.width;
+          const parentWidthPx = xPositionWidth * parentNote.width;
+          const noteLeftX = chartStartX + note.lane * xPositionWidth + 2;
+          const noteRightX = noteLeftX + noteWidthPx - 4;
+          const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
+          const parentRightX = parentLeftX + parentWidthPx - 4;
+
+          ctx.fillStyle = getConnectorFill(note.type);
+          ctx.beginPath();
+          ctx.moveTo(parentLeftX, parentY);
+          ctx.lineTo(parentRightX, parentY);
+          ctx.lineTo(noteRightX, previewY);
+          ctx.lineTo(noteLeftX, previewY);
+          ctx.closePath();
+          ctx.fill();
+          countRenderedObject();
+        });
+        ctx.restore();
+
+        copiedPreviewNotes.forEach(({ note, previewY }) => {
           if (previewY <= -50 || previewY >= height + 50) {
             return;
           }
@@ -2914,7 +3008,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, isPreviewMode, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCurveNoteRenderEntries, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCurveNoteRenderEntries, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -4178,6 +4272,10 @@ export default function Editor({
         musicVolume={musicVolume}
         tapSoundVolume={tapSoundVolume}
         flickSoundVolume={flickSoundVolume}
+        isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
+        isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
+        isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
+        isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
         setIsExitWarningOpen={setIsExitWarningOpen}
         setIsSettingsOpen={setIsSettingsOpen}
         setIsHelpOpen={setIsHelpOpen}
@@ -4190,6 +4288,10 @@ export default function Editor({
         setMusicVolume={setMusicVolume}
         setTapSoundVolume={setTapSoundVolume}
         setFlickSoundVolume={setFlickSoundVolume}
+        setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
+        setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
+        setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
+        setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
         onBack={onBack}
       />
 
@@ -4358,8 +4460,6 @@ export default function Editor({
                     <span className="text-xs text-neutral-400">Width: {noteWidth} / 16</span>
                   </div>
                 </div>
-                <div className="text-xs text-neutral-500 mt-2">Press A/D to switch type</div>
-                <div className="text-xs text-neutral-500 mt-1">Press Q/E to change width</div>
                 </div>
               </div>
             </div>
