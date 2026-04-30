@@ -101,6 +101,17 @@ const SOUND_URLS: Record<string, string> = {
   'hit.ogg': HIT_SOUND_URL,
   'flick.ogg': FLICK_SOUND_URL,
 };
+const getHitSoundVolume = (soundUrl: string, tapSoundVolume: number, flickSoundVolume: number) => (
+  soundUrl === FLICK_SOUND_URL ? flickSoundVolume : tapSoundVolume
+);
+
+interface MusicAudioGraph {
+  context: AudioContext;
+  source: MediaElementAudioSourceNode;
+  gain: GainNode;
+}
+
+const musicAudioGraphs = new WeakMap<HTMLAudioElement, MusicAudioGraph>();
 
 export default function Editor({ 
   onBack, 
@@ -131,6 +142,12 @@ export default function Editor({
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
   const [tapSoundVolume, setTapSoundVolume] = useState(initialEditorSettings.tapSoundVolume);
   const [flickSoundVolume, setFlickSoundVolume] = useState(initialEditorSettings.flickSoundVolume);
+  const enabledHitSoundUrls = useMemo(
+    () => Object.values(SOUND_URLS).filter(soundUrl => (
+      getHitSoundVolume(soundUrl, tapSoundVolume, flickSoundVolume) > 0
+    )),
+    [flickSoundVolume, tapSoundVolume],
+  );
   const [gridZoom, setGridZoom] = useState(initialEditorSettings.gridZoom);
   const [isXPositionGridEnabled, setIsXPositionGridEnabled] = useState(initialEditorSettings.isXPositionGridEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
@@ -369,10 +386,19 @@ export default function Editor({
     const audio = audioRef.current;
     if (!audio) return null;
 
-    if (!musicAudioContextRef.current) {
-      const AudioContextCtor = getAudioContextCtor();
-      if (!AudioContextCtor) return null;
+    const cachedGraph = musicAudioGraphs.get(audio);
+    if (cachedGraph && cachedGraph.context.state !== 'closed') {
+      musicAudioContextRef.current = cachedGraph.context;
+      musicSourceRef.current = cachedGraph.source;
+      musicGainRef.current = cachedGraph.gain;
+      audio.volume = 1;
+      return cachedGraph.context;
+    }
 
+    const AudioContextCtor = getAudioContextCtor();
+    if (!AudioContextCtor) return null;
+
+    try {
       const context = new AudioContextCtor({ latencyHint: 'interactive' });
       const source = context.createMediaElementSource(audio);
       const gain = context.createGain();
@@ -380,13 +406,18 @@ export default function Editor({
       source.connect(gain);
       gain.connect(context.destination);
 
+      const graph = { context, source, gain };
+      musicAudioGraphs.set(audio, graph);
       musicAudioContextRef.current = context;
       musicSourceRef.current = source;
       musicGainRef.current = gain;
       audio.volume = 1;
-    }
 
-    return musicAudioContextRef.current;
+      return context;
+    } catch (error) {
+      console.warn('Failed to initialize music gain control:', error);
+      return null;
+    }
   }, []);
 
   const stateRef = useRef<EditorRuntimeState>({
@@ -416,9 +447,11 @@ export default function Editor({
   }, []);
 
   useEffect(() => {
-    setupMusicGain();
+    const musicContext = setupMusicGain();
     if (musicGainRef.current) {
       musicGainRef.current.gain.value = musicVolume;
+    } else if (!musicContext && audioRef.current) {
+      audioRef.current.volume = musicVolume;
     }
   }, [musicVolume, projectData?.audioUrl, setupMusicGain]);
 
@@ -912,6 +945,14 @@ export default function Editor({
   }, [recordOperation, setNotes, timedBpmChanges]);
 
   useEffect(() => {
+    if (enabledHitSoundUrls.length === 0) {
+      hitSoundEventsRef.current = [];
+      hitSoundCursorRef.current = 0;
+      scheduledHitSoundKeysRef.current.clear();
+      lastPlayedTimeRef.current = stateRef.current.currentTime;
+      return;
+    }
+
     const hitSoundEventsByKey = new Map<string, HitSoundEvent>();
 
     notes.forEach(note => {
@@ -919,6 +960,8 @@ export default function Editor({
       if (!noteTypeInfo?.sound) return;
 
       const soundUrl = SOUND_URLS[noteTypeInfo.sound] || noteTypeInfo.sound;
+      if (getHitSoundVolume(soundUrl, tapSoundVolume, flickSoundVolume) <= 0) return;
+
       const key = `${note.time}-${note.type}`;
       if (!hitSoundEventsByKey.has(key)) {
         hitSoundEventsByKey.set(key, { time: note.time, soundUrl, key });
@@ -929,7 +972,7 @@ export default function Editor({
     hitSoundCursorRef.current = 0;
     scheduledHitSoundKeysRef.current.clear();
     lastPlayedTimeRef.current = stateRef.current.currentTime;
-  }, [notes]);
+  }, [enabledHitSoundUrls.length, flickSoundVolume, notes, tapSoundVolume]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -1037,6 +1080,10 @@ export default function Editor({
   }, [getHitSoundContext]);
 
   const playHitSound = useCallback((soundUrl: string, delaySeconds = 0) => {
+    if (getHitSoundVolume(soundUrl, tapSoundVolume, flickSoundVolume) <= 0) {
+      return;
+    }
+
     const context = getHitSoundContext();
     const buffer = hitSoundBuffersRef.current.get(soundUrl);
     if (!context || !buffer) {
@@ -1046,7 +1093,7 @@ export default function Editor({
 
     const source = context.createBufferSource();
     const gain = context.createGain();
-    gain.gain.value = soundUrl === FLICK_SOUND_URL ? flickSoundVolume : tapSoundVolume;
+    gain.gain.value = getHitSoundVolume(soundUrl, tapSoundVolume, flickSoundVolume);
     source.buffer = buffer;
     source.connect(gain);
     gain.connect(context.destination);
@@ -1062,15 +1109,19 @@ export default function Editor({
   }, [flickSoundVolume, getHitSoundContext, loadHitSoundBuffer, tapSoundVolume]);
 
   const prepareHitSounds = useCallback(() => {
+    if (enabledHitSoundUrls.length === 0) {
+      return Promise.resolve([]);
+    }
+
     const context = getHitSoundContext();
     if (context?.state === 'suspended') {
       context.resume().catch(() => {});
     }
 
     return Promise.all(
-      Object.values(SOUND_URLS).map(soundUrl => loadHitSoundBuffer(soundUrl)),
+      enabledHitSoundUrls.map(soundUrl => loadHitSoundBuffer(soundUrl)),
     );
-  }, [getHitSoundContext, loadHitSoundBuffer]);
+  }, [enabledHitSoundUrls, getHitSoundContext, loadHitSoundBuffer]);
 
   useEffect(() => {
     void prepareHitSounds();
@@ -1086,7 +1137,6 @@ export default function Editor({
       activeHitSounds.current.clear();
       hitSoundContextRef.current?.close().catch(() => {});
       hitSoundContextRef.current = null;
-      musicAudioContextRef.current?.close().catch(() => {});
       musicAudioContextRef.current = null;
       musicSourceRef.current = null;
       musicGainRef.current = null;
@@ -2897,7 +2947,11 @@ export default function Editor({
         return;
       }
 
-      const scheduleUntil = currentTime + HIT_SOUND_LOOKAHEAD_SECONDS * activePlaybackSpeed;
+      const events = hitSoundEventsRef.current;
+      const shouldProcessHitSounds = events.length > 0;
+      const scheduleUntil = shouldProcessHitSounds
+        ? currentTime + HIT_SOUND_LOOKAHEAD_SECONDS * activePlaybackSpeed
+        : currentTime;
       const lastTime = lastPlayedTimeRef.current;
 
       if (isPreviewMode) {
@@ -2925,33 +2979,34 @@ export default function Editor({
         }
       }
 
-      if (currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < lastTime) {
-        hitSoundCursorRef.current = findHitSoundCursor(currentTime);
-        scheduledHitSoundKeysRef.current.clear();
-      }
-
-      if (currentTime - lastTime > HIT_SOUND_JUMP_TOLERANCE_SECONDS) {
-        hitSoundCursorRef.current = findHitSoundCursor(currentTime);
-        scheduledHitSoundKeysRef.current.clear();
-      }
-
-      const events = hitSoundEventsRef.current;
-      let cursor = hitSoundCursorRef.current;
-
-      while (cursor < events.length && events[cursor].time <= lastTime) {
-        cursor += 1;
-      }
-
-      while (cursor < events.length && events[cursor].time <= scheduleUntil) {
-        const event = events[cursor];
-        if (!scheduledHitSoundKeysRef.current.has(event.key)) {
-          scheduledHitSoundKeysRef.current.add(event.key);
-          playHitSound(event.soundUrl, (event.time - currentTime) / activePlaybackSpeed);
+      if (shouldProcessHitSounds) {
+        if (currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < lastTime) {
+          hitSoundCursorRef.current = findHitSoundCursor(currentTime);
+          scheduledHitSoundKeysRef.current.clear();
         }
-        cursor += 1;
-      }
 
-      hitSoundCursorRef.current = cursor;
+        if (currentTime - lastTime > HIT_SOUND_JUMP_TOLERANCE_SECONDS) {
+          hitSoundCursorRef.current = findHitSoundCursor(currentTime);
+          scheduledHitSoundKeysRef.current.clear();
+        }
+
+        let cursor = hitSoundCursorRef.current;
+
+        while (cursor < events.length && events[cursor].time <= lastTime) {
+          cursor += 1;
+        }
+
+        while (cursor < events.length && events[cursor].time <= scheduleUntil) {
+          const event = events[cursor];
+          if (!scheduledHitSoundKeysRef.current.has(event.key)) {
+            scheduledHitSoundKeysRef.current.add(event.key);
+            playHitSound(event.soundUrl, (event.time - currentTime) / activePlaybackSpeed);
+          }
+          cursor += 1;
+        }
+
+        hitSoundCursorRef.current = cursor;
+      }
       
       lastPlayedTimeRef.current = scheduleUntil;
 
