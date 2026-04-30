@@ -3071,16 +3071,19 @@ export default function Editor({
     gridStartX: number,
     laneWidth: number,
     laneCount: number,
+    allowOutOfBounds = false,
   ) => {
     const xPositionWidth = laneWidth / 2;
     const rawLane = (canvasX - gridStartX) / xPositionWidth;
     const xPositionCount = laneCount * 2;
 
     if (isXPositionGridEnabled) {
-      return Math.max(0, Math.min(xPositionCount - 1, Math.round(rawLane)));
+      const snappedLane = Math.round(rawLane);
+      return allowOutOfBounds ? snappedLane : Math.max(0, Math.min(xPositionCount - 1, snappedLane));
     }
 
-    return Number(Math.max(0, Math.min(xPositionCount, rawLane)).toFixed(3));
+    const lane = allowOutOfBounds ? rawLane : Math.max(0, Math.min(xPositionCount, rawLane));
+    return Number(lane.toFixed(3));
   };
 
   const getSelectionPointFromClient = useCallback((clientX: number, clientY: number) => {
@@ -3349,7 +3352,7 @@ export default function Editor({
     }
 
     if (draggingNoteId) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, true);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
@@ -4954,13 +4957,12 @@ export default function Editor({
                     <span className="mb-1 block text-xs text-neutral-400">XPos</span>
                     <CommitInput
                       type="number"
-                      min="0"
-                      max="16"
                       step="0.01"
                       value={selectedSingleNote.lane}
                       className={notePropertyInputClass}
                       onCommit={(value) => {
-                        const lane = Math.max(0, Math.min(X_POSITION_COUNT, Number(value) || 0));
+                        const lane = Number(value);
+                        if (!Number.isFinite(lane)) return;
                         updateSelectedNote({ lane });
                       }}
                     />
