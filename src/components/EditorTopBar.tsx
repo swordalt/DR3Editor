@@ -147,9 +147,11 @@ export default function EditorTopBar({
       <div className="flex items-center gap-2 w-1/3 justify-end">
         {projectData && (
           <>
-            <div className="text-sm font-mono text-neutral-400 w-20 text-left">
-              Snap <span className="inline-block w-8 text-center">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
-            </div>
+            {!isPreviewMode && (
+              <div className="text-sm font-mono text-neutral-400 w-20 text-left">
+                Snap <span className="inline-block w-8 text-center">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
+              </div>
+            )}
             <div className="text-sm font-mono text-neutral-400 w-24 text-left">
               Zoom <span className="inline-block w-10 text-center">{pixelsPerBeat}px</span>
             </div>

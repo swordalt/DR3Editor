@@ -621,10 +621,19 @@ export default function Editor({
   const togglePreviewMode = useCallback(() => {
     setIsPreviewMode(current => {
       const nextPreviewMode = !current;
+      const enteringPreviewDuringPlayback = nextPreviewMode && stateRef.current.isPlaying;
+      const previewStartTime = enteringPreviewDuringPlayback
+        ? Math.max(
+            0,
+            stateRef.current.playbackStartTime
+              + ((performance.now() - stateRef.current.playbackStartPerformanceTime) / 1000)
+                * stateRef.current.playbackSpeed,
+          )
+        : stateRef.current.currentTime;
 
       setIsExportMenuOpen(false);
       setIsPlaybackSpeedMenuOpen(false);
-      resetPreviewJudgementState();
+      resetPreviewJudgementState(previewStartTime, enteringPreviewDuringPlayback);
 
       if (nextPreviewMode) {
         previewComboTimesRef.current = buildPreviewComboTimes(stateRef.current.notes);
@@ -1477,10 +1486,30 @@ export default function Editor({
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
 
       if (isPreviewMode) {
-        if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === 'Space') {
+        if (!isOnlyKeyPressed(e)) {
+          return;
+        }
+
+        if (e.code === 'Space') {
           e.preventDefault();
           togglePlay();
         }
+
+        if (e.key.toLowerCase() === 'i') {
+          e.preventDefault();
+          if (!e.repeat) {
+            togglePreviewMode();
+          }
+        }
+
+        if (e.key.toLowerCase() === 'r') {
+          setPixelsPerBeat(prev => Math.min(MAX_PIXELS_PER_BEAT, prev + 20));
+        }
+
+        if (e.key.toLowerCase() === 'f') {
+          setPixelsPerBeat(prev => Math.max(MIN_PIXELS_PER_BEAT, prev - 20));
+        }
+
         return;
       }
 
@@ -1592,6 +1621,13 @@ export default function Editor({
         e.preventDefault();
         togglePlay();
       }
+
+      if (e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        if (!e.repeat) {
+          togglePreviewMode();
+        }
+      }
       
       if (e.key.toLowerCase() === 'w') {
         setGridZoom(prev => prev + 4);
@@ -1657,7 +1693,7 @@ export default function Editor({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, isPreviewMode, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, undoLastOperation]);
+  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, isPreviewMode, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, togglePreviewMode, undoLastOperation]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1807,6 +1843,7 @@ export default function Editor({
     const currentBeat = getBeatAtTime(time, sortedChanges);
     const hitLineY = height - 150;
     const isPreviewPlaybackCanvas = isPreviewMode;
+    const shouldClipPreviewHoldConnectors = !isPreviewPlaybackCanvas || stateRef.current.isPlaying;
     const currentPreviewTimepos = isPreviewPlaybackCanvas ? getTimeposFromTime(time) : 0;
     const currentPreviewDistance = isPreviewPlaybackCanvas
       ? getSpeedDistanceAtTimepos(time, previewPlaybackSpeedDistanceIndex)
@@ -2285,8 +2322,10 @@ export default function Editor({
       const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
         && currentPreviewTimepos >= Math.min(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON
         && currentPreviewTimepos < Math.max(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON;
-      const shouldClipPreviewConnectorAtJudgementLine = isPreviewConnectorBeingJudged && Math.max(noteY, parentY) > hitLineY;
-      if (isPreviewConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
+      const shouldClipPreviewConnectorAtJudgementLine = shouldClipPreviewHoldConnectors
+        && isPreviewConnectorBeingJudged
+        && Math.max(noteY, parentY) > hitLineY;
+      if (shouldClipPreviewHoldConnectors && isPreviewConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
         continue;
       }
 
@@ -3415,8 +3454,7 @@ export default function Editor({
       clampedTime = audioRef.current.duration;
     }
 
-    const shouldHidePastPreviewNotes = isPreviewMode && clampedTime > stateRef.current.currentTime;
-    resetPreviewJudgementState(clampedTime, shouldHidePastPreviewNotes);
+    resetPreviewJudgementState(clampedTime);
     setCurrentTime(clampedTime);
     stateRef.current.currentTime = clampedTime;
     stateRef.current.playbackStartTime = clampedTime;
