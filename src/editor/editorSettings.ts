@@ -4,9 +4,11 @@ export const MAX_PIXELS_PER_BEAT = 320;
 export const EDITOR_SETTINGS_STORAGE_KEY = 'dancerail3-editor:settings';
 export const STATISTICS_REFRESH_RATE_OPTIONS = ['15fps', '30fps', '60fps', 'max'] as const;
 export const SELECTION_TYPE_OPTIONS = ['window', 'crossing'] as const;
+export const PREVIEW_DISPLAY_MODE_OPTIONS = ['2d', '3d'] as const;
 
 export type StatisticsRefreshRate = typeof STATISTICS_REFRESH_RATE_OPTIONS[number];
 export type SelectionType = typeof SELECTION_TYPE_OPTIONS[number];
+export type PreviewDisplayMode = typeof PREVIEW_DISPLAY_MODE_OPTIONS[number];
 
 export interface EditorSettings {
   isExitWarningEnabled: boolean;
@@ -23,6 +25,7 @@ export interface EditorSettings {
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
+  previewDisplayMode: PreviewDisplayMode;
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -40,6 +43,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isPreviewCameraMovementEnabled: true,
   isPreviewNoteSpeedChangesEnabled: true,
   isPreviewNoteAppearModeEnabled: true,
+  previewDisplayMode: '2d',
 };
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> => (
@@ -71,6 +75,11 @@ const isValidStatisticsRefreshRate = (value: unknown): value is StatisticsRefres
 const isValidSelectionType = (value: unknown): value is SelectionType => (
   typeof value === 'string' &&
   SELECTION_TYPE_OPTIONS.includes(value as SelectionType)
+);
+
+const isValidPreviewDisplayMode = (value: unknown): value is PreviewDisplayMode => (
+  typeof value === 'string' &&
+  PREVIEW_DISPLAY_MODE_OPTIONS.includes(value as PreviewDisplayMode)
 );
 
 export const getStatisticsRefreshIntervalMs = (refreshRate: StatisticsRefreshRate) => {
@@ -134,6 +143,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isPreviewNoteAppearModeEnabled: typeof parsedSettings.isPreviewNoteAppearModeEnabled === 'boolean'
         ? parsedSettings.isPreviewNoteAppearModeEnabled
         : DEFAULT_EDITOR_SETTINGS.isPreviewNoteAppearModeEnabled,
+      previewDisplayMode: isValidPreviewDisplayMode(parsedSettings.previewDisplayMode)
+        ? parsedSettings.previewDisplayMode
+        : DEFAULT_EDITOR_SETTINGS.previewDisplayMode,
     };
   } catch {
     return DEFAULT_EDITOR_SETTINGS;

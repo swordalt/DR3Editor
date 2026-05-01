@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { BpmChange, EditorMode, Note, ProjectData, SpeedChange } from '../types/editorTypes';
 
-export type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'bpmTiming';
+export type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'chartIssues' | 'bpmTiming';
 export type CurveIdSelectTarget = 'start' | 'end' | null;
 export type CurveEasingFamily = 'linear' | 'sine' | 'quad' | 'cubic' | 'quart' | 'quint' | 'expo' | 'circ' | 'back' | 'elastic';
 export type CurveEasingType = 'in' | 'out' | 'inOut';
@@ -93,6 +93,7 @@ export interface PreviewNoteRenderEntry {
   note: Note;
   beat: number;
   timepos: number;
+  playbackTime: number;
   distance: number;
   noteSpeed: PreviewNoteSpeed;
 }
@@ -104,6 +105,8 @@ export interface PreviewHoldConnectorSegment {
   parentBeat: number;
   noteTimepos: number;
   parentTimepos: number;
+  notePlaybackTime: number;
+  parentPlaybackTime: number;
   noteDistance: number;
   parentDistance: number;
   noteSpeed: PreviewNoteSpeed;
@@ -150,4 +153,3 @@ export interface PendingDragUpdate {
 export interface CopiedNote extends Note {
   copiedTimepos: number;
 }
-

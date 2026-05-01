@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, X, ChevronLeft, ChevronRight, Copy, Trash2, FlipHorizontal } from 'lucide-react';
+import { ArrowLeft, Box, Square, X, ChevronLeft, ChevronRight, Copy, Trash2, FlipHorizontal } from 'lucide-react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorModal from './components/EditorModal';
 import EditorCanvas from './components/EditorCanvas';
@@ -28,6 +28,7 @@ import {
 import {
   MAX_PIXELS_PER_BEAT,
   MIN_PIXELS_PER_BEAT,
+  type PreviewDisplayMode,
   type SelectionType,
   type StatisticsRefreshRate,
   getStatisticsRefreshIntervalMs,
@@ -35,6 +36,7 @@ import {
   saveEditorSettings,
 } from './editor/editorSettings';
 import { buildNoteRenderIndex, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
+import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 
 import {
   APPEAR_MODE_OPTIONS,
@@ -155,6 +157,7 @@ export default function Editor({
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
   const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
   const [isPreviewNoteAppearModeEnabled, setIsPreviewNoteAppearModeEnabled] = useState(initialEditorSettings.isPreviewNoteAppearModeEnabled);
+  const [previewDisplayMode, setPreviewDisplayMode] = useState<PreviewDisplayMode>(initialEditorSettings.previewDisplayMode);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -181,11 +184,13 @@ export default function Editor({
   const [draggingNoteId, setDraggingNoteId] = useState<number | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [operationHistory, setOperationHistory] = useState<OperationHistoryEntry[]>([]);
+  const [chartIssues, setChartIssues] = useState<ChartIssue[]>([]);
   const [undoneOperationIds, setUndoneOperationIds] = useState<Set<number>>(() => new Set());
   const [redoableOperationIds, setRedoableOperationIds] = useState<number[]>([]);
   const [shouldShowUndoneOperations, setShouldShowUndoneOperations] = useState(true);
   const nextNoteIdRef = useRef<number>(1);
   const nextOperationHistoryIdRef = useRef<number>(1);
+  const hasScannedInitialChartIssuesRef = useRef(false);
   const pendingOperationSnapshotIdsRef = useRef<number[]>([]);
   const lastPlayedTimeRef = useRef<number>(0);
   const [formData, setFormData] = useState<EditorFormData>({
@@ -251,6 +256,7 @@ export default function Editor({
       isPreviewCameraMovementEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewNoteAppearModeEnabled,
+      previewDisplayMode,
     });
   }, [
     isExitWarningEnabled,
@@ -267,6 +273,7 @@ export default function Editor({
     isPreviewCameraMovementEnabled,
     isPreviewNoteSpeedChangesEnabled,
     isPreviewNoteAppearModeEnabled,
+    previewDisplayMode,
   ]);
 
   useEffect(() => {
@@ -305,6 +312,7 @@ export default function Editor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
+  const hitSoundSchedulerIntervalRef = useRef<number>();
   const pausedTimelineRenderTimeoutRef = useRef<number>();
   const pausedTimelineRenderUntilRef = useRef(0);
   const fpsFrameCountRef = useRef(0);
@@ -655,6 +663,19 @@ export default function Editor({
     return getTimeAtBeat(currentMeasureBeat + measureDecimal * currentBeatsPerMeasure, timedBpmChanges);
   }, [timedBpmChanges]);
 
+  const recheckChartIssues = useCallback(() => {
+    setChartIssues(findChartIssues(notes, getTimeposFromTime));
+  }, [getTimeposFromTime, notes]);
+
+  useEffect(() => {
+    if (hasScannedInitialChartIssuesRef.current) {
+      return;
+    }
+
+    hasScannedInitialChartIssuesRef.current = true;
+    recheckChartIssues();
+  }, [recheckChartIssues]);
+
   const clearActiveNoteInteraction = useCallback(() => {
     setDraggingNoteId(null);
     setSelectionBox(null);
@@ -799,6 +820,7 @@ export default function Editor({
           note,
           beat,
           timepos,
+          playbackTime: note.time,
           distance: getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex),
           noteSpeed: parsePreviewNoteSpeed(
             isPreviewNoteSpeedChangesEnabled
@@ -842,6 +864,8 @@ export default function Editor({
         const parentEntry = previewNoteRenderEntryById.get(segment.parentNote.id);
         const noteTimepos = noteEntry?.timepos ?? getTimeposFromTime(segment.note.time);
         const parentTimepos = parentEntry?.timepos ?? getTimeposFromTime(segment.parentNote.time);
+        const notePlaybackTime = noteEntry?.playbackTime ?? segment.note.time;
+        const parentPlaybackTime = parentEntry?.playbackTime ?? segment.parentNote.time;
         const noteDistance = noteEntry?.distance ?? getSpeedDistanceAtTimepos(segment.note.time, previewPlaybackSpeedDistanceIndex);
         const parentDistance = parentEntry?.distance ?? getSpeedDistanceAtTimepos(segment.parentNote.time, previewPlaybackSpeedDistanceIndex);
 
@@ -852,6 +876,8 @@ export default function Editor({
           parentBeat: segment.parentBeat,
           noteTimepos,
           parentTimepos,
+          notePlaybackTime,
+          parentPlaybackTime,
           noteDistance,
           parentDistance,
           noteSpeed: noteEntry?.noteSpeed ?? parsePreviewNoteSpeed(
@@ -1248,6 +1274,43 @@ export default function Editor({
 
     return low;
   };
+
+  const scheduleHitSoundsThrough = useCallback((currentTime: number, activePlaybackSpeed: number) => {
+    const events = hitSoundEventsRef.current;
+    const lookaheadSeconds = document.hidden
+      ? Math.max(HIT_SOUND_LOOKAHEAD_SECONDS, 1.25)
+      : HIT_SOUND_LOOKAHEAD_SECONDS;
+    const scheduleUntil = currentTime + lookaheadSeconds * activePlaybackSpeed;
+    const lastScheduledTime = lastPlayedTimeRef.current;
+
+    if (events.length === 0) {
+      lastPlayedTimeRef.current = scheduleUntil;
+      return;
+    }
+
+    if (currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < lastScheduledTime) {
+      hitSoundCursorRef.current = findHitSoundCursor(currentTime);
+      scheduledHitSoundKeysRef.current.clear();
+    }
+
+    let cursor = hitSoundCursorRef.current;
+
+    while (cursor < events.length && events[cursor].time <= lastScheduledTime) {
+      cursor += 1;
+    }
+
+    while (cursor < events.length && events[cursor].time <= scheduleUntil) {
+      const event = events[cursor];
+      if (!scheduledHitSoundKeysRef.current.has(event.key)) {
+        scheduledHitSoundKeysRef.current.add(event.key);
+        playHitSound(event.soundUrl, (event.time - currentTime) / activePlaybackSpeed);
+      }
+      cursor += 1;
+    }
+
+    hitSoundCursorRef.current = cursor;
+    lastPlayedTimeRef.current = scheduleUntil;
+  }, [playHitSound]);
 
   const getPlaybackTimeFromClock = (audio: HTMLAudioElement | null, offsetInSeconds: number) => {
     const now = performance.now();
@@ -1975,14 +2038,17 @@ export default function Editor({
     const getPreviewYFromNoteDistance = (
       noteDistance: number,
       noteTimepos: number,
+      notePlaybackTime: number,
       noteSpeed: PreviewNoteSpeed,
     ) => (
       hitLineY - getPreviewNoteVisualDistance(
         noteDistance,
         noteTimepos,
+        notePlaybackTime,
         noteSpeed,
         currentPreviewDistance,
         currentPreviewTimepos,
+        getTimeFromTimepos,
       ) * previewDistanceScale
     );
 
@@ -2328,7 +2394,7 @@ export default function Editor({
         const interpolatedWidth = previewStartNote.width + (previewEndNote.width - previewStartNote.width) * easedProgress;
         const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
         const center = startCenter + (endCenter - startCenter) * easedProgress;
-        const lane = Math.max(0, Math.min(X_POSITION_COUNT - width, Number((center - width / 2).toFixed(3))));
+        const lane = Number((center - width / 2).toFixed(3));
 
         curvePreviewNotes.push({
           id: -index - 1,
@@ -2378,6 +2444,7 @@ export default function Editor({
         ? getPreviewYFromNoteDistance(
             previewSegment.noteDistance,
             previewSegment.noteTimepos,
+            previewSegment.notePlaybackTime,
             previewSegment.noteSpeed,
           )
         : getCanvasYFromTime(note.time, noteBeat);
@@ -2385,6 +2452,7 @@ export default function Editor({
         ? getPreviewYFromNoteDistance(
             previewSegment.parentDistance,
             previewSegment.parentTimepos,
+            previewSegment.parentPlaybackTime,
             previewSegment.parentSpeed,
           )
         : getCanvasYFromTime(parentNote.time, parentBeat);
@@ -2544,6 +2612,11 @@ export default function Editor({
       const renderedNote = note.id === pendingDragUpdate?.noteId
         ? { ...note, lane: pendingDragUpdate.lane, time: pendingDragUpdate.time }
         : note;
+      if (isPreviewPlaybackCanvas && stateRef.current.isPlaying && renderedNote.time <= time + SNAP_EPSILON) {
+        hiddenPreviewNoteIdsRef.current.add(renderedNote.id);
+        return;
+      }
+
       if (isPreviewMode && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
         return;
       }
@@ -2557,9 +2630,11 @@ export default function Editor({
         ? getPreviewNoteVisualDistance(
             previewEntry.distance,
             previewEntry.timepos,
+            previewEntry.playbackTime,
             previewEntry.noteSpeed,
             currentPreviewDistance,
             currentPreviewTimepos,
+            getTimeFromTimepos,
           )
         : 0;
       const y = isPreviewPlaybackCanvas
@@ -2618,6 +2693,7 @@ export default function Editor({
       const noteBodyWidth = Math.max(1, scaledNotePixelWidth - noteBodyInset * 2);
       const noteBodyX = scaledX + noteBodyInset;
       const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * appearedScale);
+      const shouldDrawTopIndicators = scaledNotePixelWidth > 0;
         
       const noteTypeInfo = NOTE_TYPES[renderedNote.type] || UNKNOWN_NOTE_TYPE;
       ctx.fillStyle = noteTypeInfo.color;
@@ -2627,34 +2703,34 @@ export default function Editor({
       ctx.lineWidth = 2 * appearedScale;
       ctx.strokeRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
 
-      if (renderedNote.type === 1 || renderedNote.type === 2) {
+      if (shouldDrawTopIndicators && (renderedNote.type === 1 || renderedNote.type === 2)) {
         ctx.fillStyle = '#ffffff';
         drawInvertedTriangle(noteCenterX, appearedY, Math.min(markAvailableWidth, 12 * appearedScale));
       }
 
-      if (renderedNote.type === 9) {
+      if (shouldDrawTopIndicators && renderedNote.type === 9) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2 * appearedScale;
         drawCircleMark(noteCenterX, appearedY, Math.min(markAvailableWidth / 2, 6 * appearedScale));
       }
 
-      if (HOLD_START_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_START_TYPES.includes(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'S', appearedScale);
       }
 
-      if (HOLD_CENTER_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'C', appearedScale);
       }
 
-      if (HOLD_END_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_END_TYPES.includes(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'E', appearedScale);
       }
 
-      if (!(renderedNote.type in NOTE_TYPES)) {
+      if (shouldDrawTopIndicators && !(renderedNote.type in NOTE_TYPES)) {
         drawNoteLetter(noteCenterX, appearedY, '?', appearedScale);
       }
 
-      if ([13, 14, 15, 16].includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && [13, 14, 15, 16].includes(renderedNote.type)) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2 * appearedScale;
 
@@ -2801,12 +2877,14 @@ export default function Editor({
     ) => {
       const previewCenterX = previewX + previewPixelWidth / 2;
       const previewTypeInfo = NOTE_TYPES[previewType] || UNKNOWN_NOTE_TYPE;
+      const shouldDrawTopIndicators = previewPixelWidth > 0;
+      const previewBodyWidth = Math.max(1, previewPixelWidth - 4);
 
       ctx.save();
       ctx.globalAlpha = fillAlpha;
       ctx.fillStyle = previewTypeInfo.color;
-      ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
-      if (previewType === 1 || previewType === 2) {
+      ctx.fillRect(previewX + 2, previewY - 10, previewBodyWidth, 20);
+      if (shouldDrawTopIndicators && (previewType === 1 || previewType === 2)) {
         ctx.fillStyle = '#ffffff';
         drawInvertedTriangle(
           previewCenterX,
@@ -2814,7 +2892,7 @@ export default function Editor({
           Math.min(previewPixelWidth - 12, 12),
         );
       }
-      if (previewType === 9) {
+      if (shouldDrawTopIndicators && previewType === 9) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         drawCircleMark(
@@ -2823,19 +2901,19 @@ export default function Editor({
           Math.min((previewPixelWidth - 12) / 2, 6),
         );
       }
-      if (HOLD_START_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_START_TYPES.includes(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'S');
       }
-      if (HOLD_CENTER_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_CENTER_TYPES.includes(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'C');
       }
-      if (HOLD_END_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_END_TYPES.includes(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'E');
       }
-      if (!(previewType in NOTE_TYPES)) {
+      if (shouldDrawTopIndicators && !(previewType in NOTE_TYPES)) {
         drawNoteLetter(previewCenterX, previewY, '?');
       }
-      if ([13, 14, 15, 16].includes(previewType)) {
+      if (shouldDrawTopIndicators && [13, 14, 15, 16].includes(previewType)) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
 
@@ -2858,10 +2936,10 @@ export default function Editor({
       ctx.globalAlpha = outlineAlpha;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+      ctx.strokeRect(previewX + 2, previewY - 10, previewBodyWidth, 20);
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = '#ffffff';
-      ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
+      ctx.strokeRect(previewX, previewY - 12, Math.max(1, previewPixelWidth), 24);
       ctx.restore();
       countRenderedObject();
     };
@@ -3041,13 +3119,6 @@ export default function Editor({
         return;
       }
 
-      const events = hitSoundEventsRef.current;
-      const shouldProcessHitSounds = events.length > 0;
-      const scheduleUntil = shouldProcessHitSounds
-        ? currentTime + HIT_SOUND_LOOKAHEAD_SECONDS * activePlaybackSpeed
-        : currentTime;
-      const lastTime = lastPlayedTimeRef.current;
-
       if (isPreviewMode) {
         const previousJudgementTime = previewJudgementCursorTimeRef.current;
 
@@ -3055,7 +3126,7 @@ export default function Editor({
           currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < previousJudgementTime
           || currentTime - previousJudgementTime > HIT_SOUND_JUMP_TOLERANCE_SECONDS
         ) {
-          resetPreviewJudgementState(currentTime);
+          resetPreviewJudgementState(currentTime, currentTime > previousJudgementTime);
         } else if (currentTime > previousJudgementTime) {
           const firstJudgedIndex = findFirstPreviewJudgementNoteIndex(
             previewJudgementNoteEntries,
@@ -3073,36 +3144,7 @@ export default function Editor({
         }
       }
 
-      if (shouldProcessHitSounds) {
-        if (currentTime + HIT_SOUND_JUMP_TOLERANCE_SECONDS < lastTime) {
-          hitSoundCursorRef.current = findHitSoundCursor(currentTime);
-          scheduledHitSoundKeysRef.current.clear();
-        }
-
-        if (currentTime - lastTime > HIT_SOUND_JUMP_TOLERANCE_SECONDS) {
-          hitSoundCursorRef.current = findHitSoundCursor(currentTime);
-          scheduledHitSoundKeysRef.current.clear();
-        }
-
-        let cursor = hitSoundCursorRef.current;
-
-        while (cursor < events.length && events[cursor].time <= lastTime) {
-          cursor += 1;
-        }
-
-        while (cursor < events.length && events[cursor].time <= scheduleUntil) {
-          const event = events[cursor];
-          if (!scheduledHitSoundKeysRef.current.has(event.key)) {
-            scheduledHitSoundKeysRef.current.add(event.key);
-            playHitSound(event.soundUrl, (event.time - currentTime) / activePlaybackSpeed);
-          }
-          cursor += 1;
-        }
-
-        hitSoundCursorRef.current = cursor;
-      }
-      
-      lastPlayedTimeRef.current = scheduleUntil;
+      scheduleHitSoundsThrough(currentTime, activePlaybackSpeed);
 
       if (shouldUpdateLiveStatsRef.current && now - liveStatsLastUpdateRef.current >= statisticsRefreshIntervalMs) {
         liveStatsLastUpdateRef.current = now;
@@ -3121,7 +3163,7 @@ export default function Editor({
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, playHitSound, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -3150,6 +3192,33 @@ export default function Editor({
       }
     };
   }, [drawGrid, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      if (hitSoundSchedulerIntervalRef.current !== undefined) {
+        window.clearInterval(hitSoundSchedulerIntervalRef.current);
+        hitSoundSchedulerIntervalRef.current = undefined;
+      }
+      return;
+    }
+
+    hitSoundSchedulerIntervalRef.current = window.setInterval(() => {
+      if (!stateRef.current.isPlaying || !audioRef.current) {
+        return;
+      }
+
+      const offsetInSeconds = parseFloat(offset.toString()) / 1000;
+      const playbackTime = getPlaybackTimeFromClock(audioRef.current, offsetInSeconds);
+      scheduleHitSoundsThrough(playbackTime, stateRef.current.playbackSpeed);
+    }, 25);
+
+    return () => {
+      if (hitSoundSchedulerIntervalRef.current !== undefined) {
+        window.clearInterval(hitSoundSchedulerIntervalRef.current);
+        hitSoundSchedulerIntervalRef.current = undefined;
+      }
+    };
+  }, [isPlaying, offset, scheduleHitSoundsThrough]);
 
   useEffect(() => {
     return () => {
@@ -3254,8 +3323,10 @@ export default function Editor({
       const noteY = hitLineY - (noteBeat - currentBeat) * pixelsPerBeat;
       const xPositionWidth = laneWidth / 2;
       const noteStartX = startX + note.lane * xPositionWidth;
-      const noteEndX = noteStartX + xPositionWidth * note.width;
-      return clickX >= noteStartX && clickX <= noteEndX && clickY >= noteY - 10 && clickY <= noteY + 10
+      const noteWidthPx = xPositionWidth * note.width;
+      const noteCenterX = noteStartX + noteWidthPx / 2;
+      const noteHitHalfWidth = note.width === 0 ? Math.max(4, xPositionWidth / 4) : Math.abs(noteWidthPx) / 2;
+      return clickX >= noteCenterX - noteHitHalfWidth && clickX <= noteCenterX + noteHitHalfWidth && clickY >= noteY - 10 && clickY <= noteY + 10
         ? note
         : null;
     }).filter((note): note is Note => note !== null);
@@ -3627,43 +3698,84 @@ export default function Editor({
     renderPausedTimelineAtFullFps();
   };
 
-  const saveZipData = async (zipBuffer: ArrayBuffer, suggestedName: string, errorLabel: string) => {
-    const fallbackDownload = () => {
-      const zipBlob = new Blob([zipBuffer], { type: 'application/zip' });
-      const url = URL.createObjectURL(zipBlob);
-      const anchor = document.createElement('a');
-
-      anchor.href = url;
-      anchor.download = suggestedName;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    };
-
-    if ('showSaveFilePicker' in window) {
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName,
-          types: [{
-            description: 'ZIP Archive',
-            accept: { 'application/zip': ['.zip'] },
-          }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(zipBuffer);
-        await writable.close();
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          console.error(`${errorLabel} export failed`, err);
-          fallbackDownload();
-        }
-      }
-    } else {
-      fallbackDownload();
+  const createZipBlobForSave = (zipBuffer: ArrayBuffer) => {
+    if (zipBuffer.byteLength === 0) {
+      throw new Error('Export generated an empty ZIP file.');
     }
+
+    return new Blob([zipBuffer], { type: 'application/zip' });
+  };
+
+  const downloadZipData = (zipBuffer: ArrayBuffer, suggestedName: string) => {
+    const zipBlob = createZipBlobForSave(zipBuffer);
+    const url = URL.createObjectURL(zipBlob);
+    const anchor = document.createElement('a');
+
+    anchor.href = url;
+    anchor.download = suggestedName;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const getExportFileHandle = async (suggestedName: string, errorLabel: string) => {
+    if (!('showSaveFilePicker' in window)) {
+      return null;
+    }
+
+    try {
+      return await (window as any).showSaveFilePicker({
+        suggestedName,
+        types: [{
+          description: 'ZIP Archive',
+          accept: { 'application/zip': ['.zip'] },
+        }],
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        return undefined;
+      }
+
+      console.error(`${errorLabel} save picker failed`, err);
+      return null;
+    }
+  };
+
+  const saveZipData = async (
+    zipBuffer: ArrayBuffer,
+    suggestedName: string,
+    fileHandle: FileSystemFileHandle | null | undefined,
+    errorLabel: string,
+  ) => {
+    if (fileHandle === undefined) {
+      return;
+    }
+
+    if (fileHandle) {
+      try {
+        const zipBlob = createZipBlobForSave(zipBuffer);
+        const writable = await fileHandle.createWritable({ keepExistingData: true });
+        await writable.write({ type: 'write', position: 0, data: zipBlob });
+        await writable.truncate(zipBlob.size);
+        await writable.close();
+        return;
+      } catch (err) {
+        console.error(`${errorLabel} file save failed`, err);
+      }
+    }
+
+    downloadZipData(zipBuffer, suggestedName);
   };
 
   const exportDr3Viewer = async () => {
     if (!projectData || isExportDisabled) return;
+
+    const songId = projectData.songId || 'level';
+    const difficulty = projectData.difficulty || '0';
+    const fileHandle = await getExportFileHandle(`${songId}.${difficulty}.zip`, 'DR3Viewer');
+    if (fileHandle === undefined) return;
 
     try {
       const { zipBuffer, suggestedName } = await createExportZipInWorker({
@@ -3674,7 +3786,7 @@ export default function Editor({
         speedChanges,
         offset,
       });
-      await saveZipData(zipBuffer, suggestedName, 'DR3Viewer');
+      await saveZipData(zipBuffer, suggestedName, fileHandle, 'DR3Viewer');
     } catch (err) {
       console.error('DR3Viewer export failed', err);
     }
@@ -3682,6 +3794,10 @@ export default function Editor({
 
   const exportDr3Fp = async () => {
     if (!projectData || isExportDisabled) return;
+
+    const songId = projectData.songId || 'level';
+    const fileHandle = await getExportFileHandle(`${songId}.zip`, 'DR3FP');
+    if (fileHandle === undefined) return;
 
     try {
       const { zipBuffer, suggestedName } = await createExportZipInWorker({
@@ -3692,7 +3808,7 @@ export default function Editor({
         speedChanges,
         offset,
       });
-      await saveZipData(zipBuffer, suggestedName, 'DR3FP');
+      await saveZipData(zipBuffer, suggestedName, fileHandle, 'DR3FP');
     } catch (err) {
       console.error('DR3FP export failed', err);
     }
@@ -3853,7 +3969,7 @@ export default function Editor({
       const interpolatedWidth = startNote.width + (endNote.width - startNote.width) * easedProgress;
       const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
       const center = startCenter + (endCenter - startCenter) * easedProgress;
-      const lane = Math.max(0, Math.min(X_POSITION_COUNT - width, Number((center - width / 2).toFixed(3))));
+      const lane = Number((center - width / 2).toFixed(3));
       const id = firstGeneratedId + index;
       const parentId = canGeneratedNotesHaveParent ? previousParentId : null;
 
@@ -4381,7 +4497,7 @@ export default function Editor({
                   onClick={handleEditInfo}
                   className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
                 >
-                  Chart Metadata
+                  Info & Files
                 </button>
                 <button onClick={() => setActiveLeftPanel('bpmTiming')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   BPM / Timing
@@ -4397,6 +4513,9 @@ export default function Editor({
                 </button>
                 <button onClick={() => setActiveLeftPanel('history')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   Operation History
+                </button>
+                <button onClick={() => setActiveLeftPanel('chartIssues')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  Chart Issues
                 </button>
               </div>
               
@@ -4851,14 +4970,14 @@ export default function Editor({
             </div>
           )}
 
-          {isLeftPanelContentVisible && ['organize', 'history'].includes(activeLeftPanel) && (
+          {isLeftPanelContentVisible && ['organize', 'history', 'chartIssues'].includes(activeLeftPanel) && (
             <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
               <div className="flex items-center gap-2 mb-4 shrink-0">
                 <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-                  {activeLeftPanel === 'organize' ? 'Organize' : 'History'}
+                  {activeLeftPanel === 'organize' ? 'Organize' : activeLeftPanel === 'chartIssues' ? 'Chart Issues' : 'History'}
                 </div>
               </div>
               {activeLeftPanel === 'organize' ? (
@@ -4874,6 +4993,71 @@ export default function Editor({
                   <p className="mt-2 text-xs leading-5 text-neutral-500">
                     Reassigns note IDs from earliest to latest timepos, then left to right by xpos. Notes sharing the same timepos and xpos keep their original ID order, and parent links are remapped to stay grouped with their children.
                   </p>
+                </div>
+              ) : activeLeftPanel === 'chartIssues' ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={recheckChartIssues}
+                    className="w-full shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                  >
+                    Recheck Chart Issues
+                  </button>
+
+                  <div className="shrink-0 rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
+                    Initial scan found <span className="font-semibold text-neutral-200">{chartIssues.length}</span> potential {chartIssues.length === 1 ? 'issue' : 'issues'}.
+                  </div>
+
+                  {chartIssues.length === 0 ? (
+                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
+                      No chart issues found
+                    </div>
+                  ) : (
+                    <VirtualizedChangeList
+                      items={chartIssues}
+                      rowHeight={124}
+                      overscan={8}
+                      getKey={(issue) => issue.id}
+                      className="min-h-0 flex-1 pr-1"
+                      renderRow={(issue, _index, style) => (
+                        <div style={style} className="pb-2">
+                          <div className="flex h-[116px] flex-col rounded-lg border border-amber-500/20 bg-amber-500/10 p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 truncate text-sm font-medium text-amber-100">
+                                {issue.title}
+                              </div>
+                              <span className="shrink-0 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-200">
+                                {issue.category}
+                              </span>
+                            </div>
+                            <div className="mt-1 max-h-12 overflow-hidden break-words text-xs leading-5 text-neutral-300">
+                              {issue.detail}
+                            </div>
+                            <div className="mt-auto flex items-center justify-between gap-2 text-[11px] text-neutral-500">
+                              <span>#{issue.id}</span>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate">
+                                  Notes {formatGroupedIds(issue.noteIds)}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={issue.timepos === null}
+                                  onClick={() => {
+                                    if (issue.timepos !== null) {
+                                      jumpToNoteTime(getTimeFromTimepos(issue.timepos));
+                                    }
+                                  }}
+                                  className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-neutral-300 transition-colors hover:border-indigo-500 hover:bg-indigo-600 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-950 disabled:text-neutral-700"
+                                >
+                                  Jump
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -4943,6 +5127,51 @@ export default function Editor({
             </div>
           )}
         </aside>
+        )}
+
+        {isPreviewMode && (
+          <aside className="w-64 shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col overflow-hidden">
+            <div className="border-b border-neutral-800 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Preview Mode</div>
+            </div>
+            <div className="flex flex-col gap-4 p-4">
+              <div>
+                <div className="mb-2 text-xs font-medium text-neutral-400">Display Mode</div>
+                <div className="grid grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDisplayMode('2d')}
+                    aria-pressed={previewDisplayMode === '2d'}
+                    className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${
+                      previewDisplayMode === '2d'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    <Square className="h-4 w-4" />
+                    2D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDisplayMode('3d')}
+                    aria-pressed={previewDisplayMode === '3d'}
+                    className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${
+                      previewDisplayMode === '3d'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    <Box className="h-4 w-4" />
+                    3D
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                NSC and Note Appear Mode in Preview Mode may not be 100% accurate to the official game or other chart players.
+              </div>
+            </div>
+          </aside>
         )}
 
         {/* Center - Canvas */}
@@ -5087,13 +5316,14 @@ export default function Editor({
                     <span className="mb-1 block text-xs text-neutral-400">Width</span>
                     <CommitInput
                       type="number"
-                      min="1"
+                      min="0"
                       max="16"
                       step="0.01"
                       value={selectedSingleNote.width}
                       className={notePropertyInputClass}
                       onCommit={(value) => {
-                        const width = Math.max(1, Math.min(16, Number(value) || 1));
+                        const parsedWidth = Number(value);
+                        const width = Number.isFinite(parsedWidth) ? Math.max(0, Math.min(16, parsedWidth)) : selectedSingleNote.width;
                         updateSelectedNote({ width });
                       }}
                     />

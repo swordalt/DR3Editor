@@ -163,6 +163,9 @@ export const parsePreviewNoteSpeed = (
         return null;
       }
 
+      // Complex NSC is "timepos offset : displayed timepos offset".
+      // Example: "0.25:0" means when playback is at noteTimepos - 0.25,
+      // render the note as if it were positioned at noteTimepos - 0.
       return {
         time: noteTimepos - timeOffset,
         value: noteTimepos - valueOffset,
@@ -178,18 +181,18 @@ export const parsePreviewNoteSpeed = (
 
 export const evaluatePreviewNoteSpeedCurve = (
   keyframes: PreviewNoteSpeedKeyframe[],
-  distance: number,
+  currentTimepos: number,
 ) => {
   if (keyframes.length === 0) {
-    return distance;
+    return currentTimepos;
   }
 
-  if (distance <= keyframes[0].time) {
+  if (currentTimepos <= keyframes[0].time) {
     return keyframes[0].value;
   }
 
   const lastKeyframe = keyframes[keyframes.length - 1];
-  if (distance >= lastKeyframe.time) {
+  if (currentTimepos >= lastKeyframe.time) {
     return lastKeyframe.value;
   }
 
@@ -197,11 +200,11 @@ export const evaluatePreviewNoteSpeedCurve = (
     const previous = keyframes[index - 1];
     const next = keyframes[index];
 
-    if (distance <= next.time) {
+    if (currentTimepos <= next.time) {
       const span = next.time - previous.time;
       const progress = Math.abs(span) <= SNAP_EPSILON
         ? 0
-        : (distance - previous.time) / span;
+        : (currentTimepos - previous.time) / span;
 
       return previous.value + (next.value - previous.value) * progress;
     }
@@ -213,12 +216,18 @@ export const evaluatePreviewNoteSpeedCurve = (
 export const getPreviewNoteVisualDistance = (
   noteDistance: number,
   noteTimepos: number,
+  notePlaybackTime: number,
   noteSpeed: PreviewNoteSpeed,
   currentDistance: number,
   currentTimepos: number,
+  getPlaybackTimeFromTimepos?: (timepos: number) => number,
 ) => (
   noteSpeed.kind === 'curve'
-    ? noteTimepos - evaluatePreviewNoteSpeedCurve(noteSpeed.keyframes, currentTimepos)
+    ? notePlaybackTime - (
+        getPlaybackTimeFromTimepos
+          ? getPlaybackTimeFromTimepos(evaluatePreviewNoteSpeedCurve(noteSpeed.keyframes, currentTimepos))
+          : evaluatePreviewNoteSpeedCurve(noteSpeed.keyframes, currentTimepos)
+      )
     : (noteDistance - currentDistance) * noteSpeed.multiplier
 );
 
