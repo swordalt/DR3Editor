@@ -27,7 +27,9 @@ import {
 } from './editor/editorHistory';
 import {
   MAX_PIXELS_PER_BEAT,
+  MAX_PREVIEW_3D_TILT_DEGREES,
   MIN_PIXELS_PER_BEAT,
+  MIN_PREVIEW_3D_TILT_DEGREES,
   type PreviewDisplayMode,
   type SelectionType,
   type StatisticsRefreshRate,
@@ -39,9 +41,13 @@ import { buildNoteRenderIndex, getNoteBeatEntriesInRange } from './editor/noteRe
 import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 
 import {
+  APPEAR_MODE_ENTRY_DISTANCE,
+  APPEAR_MODE_H_FLY_DOWN_PIXELS,
+  APPEAR_MODE_H_START_SCALE,
   APPEAR_MODE_OPTIONS,
   APPEAR_MODE_P_NSC,
   APPEAR_MODE_P_RENDER_DISTANCE,
+  APPEAR_MODE_SIDE_ENTRY_MULTIPLIER,
   AUDIO_CLOCK_HANDOFF_DELAY_MS,
   AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS,
   AUDIO_SEEK_TIMEOUT_MS,
@@ -106,6 +112,16 @@ const SOUND_URLS: Record<string, string> = {
 const getHitSoundVolume = (soundUrl: string, tapSoundVolume: number, flickSoundVolume: number) => (
   soundUrl === FLICK_SOUND_URL ? flickSoundVolume : tapSoundVolume
 );
+const PREVIEW_3D_MAX_GRID_WIDTH_RATIO = 0.84;
+const PREVIEW_3D_HORIZON_VIEWPORT_MULTIPLIER = 0.6;
+const PREVIEW_3D_NEAR_SPEED_MULTIPLIER = 2.05;
+const PREVIEW_3D_FAR_DISTANCE_MULTIPLIER = 2.2;
+const PREVIEW_3D_CONNECTOR_CLIP_PADDING = 80;
+const PREVIEW_3D_CONNECTOR_MAX_SEGMENT_HEIGHT = 18;
+const PREVIEW_3D_CAMERA_BASE_Z = -7;
+const PREVIEW_3D_CAMERA_Z_PER_HEIGHT = -14;
+const PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT = -120;
+const PREVIEW_3D_CAMERA_EASE_PER_SECOND = 20;
 
 interface MusicAudioGraph {
   context: AudioContext;
@@ -158,6 +174,7 @@ export default function Editor({
   const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
   const [isPreviewNoteAppearModeEnabled, setIsPreviewNoteAppearModeEnabled] = useState(initialEditorSettings.isPreviewNoteAppearModeEnabled);
   const [previewDisplayMode, setPreviewDisplayMode] = useState<PreviewDisplayMode>(initialEditorSettings.previewDisplayMode);
+  const [preview3DTiltDegrees, setPreview3DTiltDegrees] = useState(initialEditorSettings.preview3DTiltDegrees);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -257,6 +274,7 @@ export default function Editor({
       isPreviewNoteSpeedChangesEnabled,
       isPreviewNoteAppearModeEnabled,
       previewDisplayMode,
+      preview3DTiltDegrees,
     });
   }, [
     isExitWarningEnabled,
@@ -274,6 +292,7 @@ export default function Editor({
     isPreviewNoteSpeedChangesEnabled,
     isPreviewNoteAppearModeEnabled,
     previewDisplayMode,
+    preview3DTiltDegrees,
   ]);
 
   useEffect(() => {
@@ -341,6 +360,9 @@ export default function Editor({
   const previewJudgementCursorTimeRef = useRef(0);
   const previewTiltAngleRef = useRef(0);
   const previewTiltTimestampRef = useRef(0);
+  const preview3DCameraScaleRef = useRef(1);
+  const preview3DCameraYOffsetRef = useRef(0);
+  const preview3DCameraTimestampRef = useRef(0);
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   const resetPreviewJudgementState = useCallback((time = stateRef.current.currentTime, hidePastNotes = false) => {
@@ -706,6 +728,9 @@ export default function Editor({
         previewCameraTiltIntervalsRef.current = buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current);
         previewTiltAngleRef.current = 0;
         previewTiltTimestampRef.current = 0;
+        preview3DCameraScaleRef.current = 1;
+        preview3DCameraYOffsetRef.current = 0;
+        preview3DCameraTimestampRef.current = 0;
         setIsSettingsOpen(false);
         setIsHelpOpen(false);
         setIsStatisticsRefreshRateMenuOpen(false);
@@ -722,6 +747,9 @@ export default function Editor({
         previewCameraTiltIntervalsRef.current = [];
         previewTiltAngleRef.current = 0;
         previewTiltTimestampRef.current = 0;
+        preview3DCameraScaleRef.current = 1;
+        preview3DCameraYOffsetRef.current = 0;
+        preview3DCameraTimestampRef.current = 0;
       }
 
       return nextPreviewMode;
@@ -946,6 +974,60 @@ export default function Editor({
       .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime)),
     [noteRenderIndex.holdConnectorSegments],
   );
+  const hasPinkHoldCameraNotes = useMemo(
+    () => notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
+    [notes],
+  );
+  const preview3DZoomHeightCurve = useMemo(() => {
+    const curveLength = Math.max(
+      1,
+      Math.ceil(Math.max(duration, ...notes.map(note => note.time), 0)) + 3,
+    );
+    const heightList = Array.from({ length: curveLength }, () => 0);
+    const setHeight = (second: number, value: number) => {
+      if (second < 0 || second >= heightList.length) {
+        return;
+      }
+
+      heightList[second] = Math.max(heightList[second], value);
+    };
+
+    notes.forEach((note) => {
+      const second = Math.floor(note.time);
+      const noteLeft = note.lane;
+      const noteRight = note.lane + note.width;
+      let heightAmount = 0;
+
+      if (noteLeft < 0) {
+        heightAmount = Math.max(heightAmount, noteLeft / -X_POSITION_COUNT);
+      }
+
+      if (noteRight > X_POSITION_COUNT) {
+        heightAmount = Math.max(heightAmount, (noteRight - X_POSITION_COUNT) / X_POSITION_COUNT);
+      }
+
+      if (heightAmount > 0) {
+        setHeight(second, heightAmount);
+        setHeight(second + 1, heightAmount);
+      }
+
+      let neighborHeightAmount = 0;
+      if (noteLeft < -X_POSITION_COUNT / 2) {
+        neighborHeightAmount = Math.max(neighborHeightAmount, noteLeft / -(X_POSITION_COUNT * 2));
+      }
+
+      if (noteRight > X_POSITION_COUNT * 1.5) {
+        neighborHeightAmount = Math.max(neighborHeightAmount, (noteRight - X_POSITION_COUNT) / (X_POSITION_COUNT * 2));
+      }
+
+      if (neighborHeightAmount > 0) {
+        setHeight(second - 1, neighborHeightAmount);
+        setHeight(second + 2, neighborHeightAmount);
+      }
+    });
+
+    return heightList;
+  }, [duration, notes]);
   const previewCameraTiltSegments = useMemo(
     () => previewHoldConnectorSegments
       .map((segment) => {
@@ -2001,6 +2083,7 @@ export default function Editor({
     const currentBeat = getBeatAtTime(time, sortedChanges);
     const hitLineY = height - 150;
     const isPreviewPlaybackCanvas = isPreviewMode;
+    const isPreview3DMode = isPreviewPlaybackCanvas && previewDisplayMode === '3d';
     const shouldClipPreviewHoldConnectors = !isPreviewPlaybackCanvas || stateRef.current.isPlaying;
     const currentPreviewTimepos = isPreviewPlaybackCanvas ? getTimeposFromTime(time) : 0;
     const currentPreviewDistance = isPreviewPlaybackCanvas
@@ -2010,8 +2093,33 @@ export default function Editor({
     const previewCameraXOffset = isPreviewPlaybackCanvas && isPreviewCameraMovementEnabled
       ? getPreviewCameraXPositionOffset(previewCameraMovementSegments, time)
       : 0;
+    const preview3DHorizonY = -height * PREVIEW_3D_HORIZON_VIEWPORT_MULTIPLIER;
+    const preview3DMaxTravel = Math.max(1, hitLineY - preview3DHorizonY);
+    const preview3DFocalDistance = preview3DMaxTravel / PREVIEW_3D_NEAR_SPEED_MULTIPLIER;
+    const projectPreviewY = (linearY: number) => {
+      if (!isPreview3DMode) {
+        return linearY;
+      }
+
+      const distanceFromJudgementLine = hitLineY - linearY;
+      if (distanceFromJudgementLine <= 0) {
+        return linearY;
+      }
+
+      const projectedDistance = (
+        preview3DMaxTravel
+        * distanceFromJudgementLine
+        / (distanceFromJudgementLine + preview3DFocalDistance)
+      );
+
+      return hitLineY - projectedDistance;
+    };
     const previewVisibleMinVisualDistance = -(height - hitLineY + 40) / previewDistanceScale;
-    const previewVisibleMaxVisualDistance = (hitLineY + 40) / previewDistanceScale;
+    const previewVisibleMaxVisualDistance = (
+      isPreview3DMode
+        ? preview3DMaxTravel * PREVIEW_3D_FAR_DISTANCE_MULTIPLIER + 40
+        : hitLineY + 40
+    ) / previewDistanceScale;
     const previewVisibleDistanceRadius = Math.max(
       Math.abs(previewVisibleMinVisualDistance),
       Math.abs(previewVisibleMaxVisualDistance),
@@ -2019,7 +2127,7 @@ export default function Editor({
     const previewVisibleMinDistance = currentPreviewDistance - previewVisibleDistanceRadius;
     const previewVisibleMaxDistance = currentPreviewDistance + previewVisibleDistanceRadius;
 
-    const getPreviewYFromTimepos = (timepos: number) => (
+    const getPreviewYFromTimepos = (timepos: number) => projectPreviewY(
       hitLineY - (getSpeedDistanceAtTimepos(getTimeFromTimepos(timepos), previewPlaybackSpeedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
     );
 
@@ -2040,7 +2148,7 @@ export default function Editor({
       noteTimepos: number,
       notePlaybackTime: number,
       noteSpeed: PreviewNoteSpeed,
-    ) => (
+    ) => projectPreviewY(
       hitLineY - getPreviewNoteVisualDistance(
         noteDistance,
         noteTimepos,
@@ -2053,12 +2161,220 @@ export default function Editor({
     );
 
     const lanes = LANE_COUNT;
-    const laneWidth = Math.min(60, width / (lanes + 2));
+    const baseLaneWidth = Math.min(60, width / (lanes + 2));
+    const baseGridWidth = lanes * baseLaneWidth;
+    const preview3DSideLineSlope = Math.tan((preview3DTiltDegrees * Math.PI) / 180);
+    const preview3DGridWidth = Math.min(
+      width * PREVIEW_3D_MAX_GRID_WIDTH_RATIO,
+      baseGridWidth + preview3DSideLineSlope * preview3DMaxTravel * 2,
+    );
+    const laneWidth = isPreview3DMode ? preview3DGridWidth / lanes : baseLaneWidth;
     const gridWidth = lanes * laneWidth;
     const startX = (width - gridWidth) / 2;
     const xPositionWidth = laneWidth / 2;
     const cameraOffsetX = -previewCameraXOffset * xPositionWidth;
     const chartStartX = startX + cameraOffsetX;
+    const effectivePreview3DSideLineSlope = isPreview3DMode
+      ? Math.max(0, Math.min(preview3DSideLineSlope, (gridWidth - baseGridWidth) / (preview3DMaxTravel * 2)))
+      : 0;
+    const getPreviewLaneLeftX = (y: number) => (
+      isPreview3DMode ? chartStartX + (hitLineY - y) * effectivePreview3DSideLineSlope : chartStartX
+    );
+    const getPreviewLaneRightX = (y: number) => (
+      isPreview3DMode ? chartStartX + gridWidth - (hitLineY - y) * effectivePreview3DSideLineSlope : chartStartX + gridWidth
+    );
+    const getPreviewLaneWidthAtY = (y: number) => getPreviewLaneRightX(y) - getPreviewLaneLeftX(y);
+    const getProjectedXPositionWidth = (y: number) => (
+      isPreview3DMode ? getPreviewLaneWidthAtY(y) / X_POSITION_COUNT : xPositionWidth
+    );
+    const getProjectedScale = (y: number) => (
+      isPreview3DMode ? getProjectedXPositionWidth(y) / xPositionWidth : 1
+    );
+    const getProjectedXFromLane = (lane: number, y: number) => (
+      isPreview3DMode
+        ? getPreviewLaneLeftX(y) + lane * getProjectedXPositionWidth(y)
+        : chartStartX + lane * xPositionWidth
+    );
+    const getProjectedNoteWidth = (noteWidth: number, y: number) => (
+      noteWidth * getProjectedXPositionWidth(y)
+    );
+    const easePreviewAppearOut = (value: number) => 1 - ((1 - value) ** 3);
+    const easePreviewAppearIn = (value: number) => value ** 3;
+    const getPreview3DAppearModePosition = (
+      note: Note,
+      targetX: number,
+      targetY: number,
+      targetNotePixelWidth: number,
+      visualDistance: number,
+      linearY: number,
+    ) => {
+      if (note.appearMode === 'L' || note.appearMode === 'R') {
+        const linearProgress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
+        const targetLaneLeftX = getPreviewLaneLeftX(targetY);
+        const targetLaneWidth = getPreviewLaneWidthAtY(targetY);
+        const startX = note.appearMode === 'L'
+          ? targetLaneLeftX - targetLaneWidth * APPEAR_MODE_SIDE_ENTRY_MULTIPLIER - targetNotePixelWidth
+          : targetLaneLeftX + targetLaneWidth * (1 + APPEAR_MODE_SIDE_ENTRY_MULTIPLIER);
+
+        return {
+          x: startX + (targetX - startX) * linearProgress,
+          y: targetY,
+          scale: 1,
+        };
+      }
+
+      if (note.appearMode === 'H') {
+        const linearProgress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
+        const yProgress = easePreviewAppearOut(linearProgress);
+        const scaleProgress = easePreviewAppearIn(linearProgress);
+        const startY = projectPreviewY(linearY - APPEAR_MODE_H_FLY_DOWN_PIXELS);
+        const startX = getProjectedXFromLane(note.lane, startY);
+        const startNotePixelWidth = getProjectedNoteWidth(note.width, startY);
+        const targetCenterX = targetX + targetNotePixelWidth / 2;
+        const startCenterX = startX + startNotePixelWidth / 2;
+        const currentCenterX = startCenterX + (targetCenterX - startCenterX) * yProgress;
+        const startScale = targetNotePixelWidth > SNAP_EPSILON
+          ? (startNotePixelWidth * APPEAR_MODE_H_START_SCALE) / targetNotePixelWidth
+          : APPEAR_MODE_H_START_SCALE;
+        const scale = startScale + (1 - startScale) * scaleProgress;
+
+        return {
+          x: currentCenterX - targetNotePixelWidth / 2,
+          y: startY + (targetY - startY) * yProgress,
+          scale,
+        };
+      }
+
+      return { x: targetX, y: targetY, scale: 1 };
+    };
+    const getProjectedNoteBodyInset = (notePixelWidth: number, y: number) => (
+      Math.min(Math.max(0.5, 2 * getProjectedScale(y)), Math.max(0, notePixelWidth / 2))
+    );
+    const getProjectedNoteEdges = (note: Note, y: number) => {
+      const noteX = getProjectedXFromLane(note.lane, y);
+      const notePixelWidth = getProjectedNoteWidth(note.width, y);
+      const inset = getProjectedNoteBodyInset(notePixelWidth, y);
+
+      return {
+        left: noteX + inset,
+        right: noteX + Math.max(inset, notePixelWidth - inset),
+      };
+    };
+    const getInterpolatedConnectorNote = (fromNote: Note, toNote: Note, progress: number): Note => ({
+      ...fromNote,
+      lane: fromNote.lane + (toNote.lane - fromNote.lane) * progress,
+      width: fromNote.width + (toNote.width - fromNote.width) * progress,
+    });
+    const getClippedPreviewConnector = (
+      fromNote: Note,
+      fromY: number,
+      toNote: Note,
+      toY: number,
+    ) => {
+      if (!isPreview3DMode) {
+        return {
+          fromNote,
+          fromY,
+          toNote,
+          toY,
+        };
+      }
+
+      const minY = -PREVIEW_3D_CONNECTOR_CLIP_PADDING;
+      const maxY = height + PREVIEW_3D_CONNECTOR_CLIP_PADDING;
+      const connectorMinY = Math.min(fromY, toY);
+      const connectorMaxY = Math.max(fromY, toY);
+
+      if (connectorMaxY < minY || connectorMinY > maxY) {
+        return null;
+      }
+
+      if (Math.abs(toY - fromY) <= SNAP_EPSILON) {
+        const clippedY = Math.min(maxY, Math.max(minY, fromY));
+        return {
+          fromNote,
+          fromY: clippedY,
+          toNote,
+          toY: clippedY,
+        };
+      }
+
+      let startProgress = 0;
+      let endProgress = 1;
+      const yAtProgress = (progress: number) => fromY + (toY - fromY) * progress;
+      const progressAtY = (targetY: number) => (targetY - fromY) / (toY - fromY);
+
+      if (fromY < toY) {
+        if (fromY < minY) {
+          startProgress = Math.max(startProgress, progressAtY(minY));
+        }
+        if (toY > maxY) {
+          endProgress = Math.min(endProgress, progressAtY(maxY));
+        }
+      } else {
+        if (fromY > maxY) {
+          startProgress = Math.max(startProgress, progressAtY(maxY));
+        }
+        if (toY < minY) {
+          endProgress = Math.min(endProgress, progressAtY(minY));
+        }
+      }
+
+      if (startProgress > endProgress) {
+        return null;
+      }
+
+      return {
+        fromNote: getInterpolatedConnectorNote(fromNote, toNote, startProgress),
+        fromY: yAtProgress(startProgress),
+        toNote: getInterpolatedConnectorNote(fromNote, toNote, endProgress),
+        toY: yAtProgress(endProgress),
+      };
+    };
+    const drawProjectedConnectorQuad = (
+      fromNote: Note,
+      fromY: number,
+      toNote: Note,
+      toY: number,
+    ) => {
+      if (!isPreview3DMode) {
+        const fromEdges = getProjectedNoteEdges(fromNote, fromY);
+        const toEdges = getProjectedNoteEdges(toNote, toY);
+
+        ctx.beginPath();
+        ctx.moveTo(fromEdges.left, fromY);
+        ctx.lineTo(fromEdges.right, fromY);
+        ctx.lineTo(toEdges.right, toY);
+        ctx.lineTo(toEdges.left, toY);
+        ctx.closePath();
+        ctx.fill();
+        return;
+      }
+
+      const segmentCount = Math.max(
+        1,
+        Math.ceil(Math.abs(toY - fromY) / PREVIEW_3D_CONNECTOR_MAX_SEGMENT_HEIGHT),
+      );
+
+      for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+        const startProgress = segmentIndex / segmentCount;
+        const endProgress = (segmentIndex + 1) / segmentCount;
+        const segmentFromNote = getInterpolatedConnectorNote(fromNote, toNote, startProgress);
+        const segmentToNote = getInterpolatedConnectorNote(fromNote, toNote, endProgress);
+        const segmentFromY = fromY + (toY - fromY) * startProgress;
+        const segmentToY = fromY + (toY - fromY) * endProgress;
+        const fromEdges = getProjectedNoteEdges(segmentFromNote, segmentFromY);
+        const toEdges = getProjectedNoteEdges(segmentToNote, segmentToY);
+
+        ctx.beginPath();
+        ctx.moveTo(fromEdges.left, segmentFromY);
+        ctx.lineTo(fromEdges.right, segmentFromY);
+        ctx.lineTo(toEdges.right, segmentToY);
+        ctx.lineTo(toEdges.left, segmentToY);
+        ctx.closePath();
+        ctx.fill();
+      }
+    };
     const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
       : null;
@@ -2084,8 +2400,62 @@ export default function Editor({
     }
     previewTiltTimestampRef.current = tiltNow;
     const previewTiltDegrees = previewTiltAngleRef.current;
+    const preview3DCameraCenterX = chartStartX + gridWidth / 2;
+    const getPreview3DZoomHeightAtTime = (targetTime: number) => {
+      if (preview3DZoomHeightCurve.length === 0) {
+        return 0;
+      }
+
+      const clampedTime = Math.max(0, Math.min(targetTime, preview3DZoomHeightCurve.length - 1));
+      const previousSecond = Math.floor(clampedTime);
+      const nextSecond = Math.min(preview3DZoomHeightCurve.length - 1, previousSecond + 1);
+      const progress = clampedTime - previousSecond;
+
+      return preview3DZoomHeightCurve[previousSecond]
+        + (preview3DZoomHeightCurve[nextSecond] - preview3DZoomHeightCurve[previousSecond]) * progress;
+    };
+    let targetPreview3DCameraScale = 1;
+    let targetPreview3DCameraYOffset = 0;
+    if (isPreview3DMode && !hasPinkHoldCameraNotes) {
+      const preview3DZoomHeight = getPreview3DZoomHeightAtTime(time);
+      const targetPreview3DCameraZ = PREVIEW_3D_CAMERA_BASE_Z + PREVIEW_3D_CAMERA_Z_PER_HEIGHT * preview3DZoomHeight;
+
+      targetPreview3DCameraScale = Math.abs(PREVIEW_3D_CAMERA_BASE_Z) / Math.max(0.001, Math.abs(targetPreview3DCameraZ));
+      targetPreview3DCameraYOffset = PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT * preview3DZoomHeight;
+    }
+    const previousPreview3DCameraTimestamp = preview3DCameraTimestampRef.current || tiltNow;
+    const preview3DCameraDeltaSeconds = Math.max(0, (tiltNow - previousPreview3DCameraTimestamp) / 1000);
+    const preview3DCameraEase = isPreview3DMode
+      ? Math.min(1, PREVIEW_3D_CAMERA_EASE_PER_SECOND * preview3DCameraDeltaSeconds)
+      : 1;
+
+    if (!isPreview3DMode) {
+      preview3DCameraScaleRef.current = 1;
+      preview3DCameraYOffsetRef.current = 0;
+    } else {
+      preview3DCameraScaleRef.current += (
+        targetPreview3DCameraScale - preview3DCameraScaleRef.current
+      ) * preview3DCameraEase;
+      preview3DCameraYOffsetRef.current += (
+        targetPreview3DCameraYOffset - preview3DCameraYOffsetRef.current
+      ) * preview3DCameraEase;
+    }
+    preview3DCameraTimestampRef.current = tiltNow;
+    const preview3DCameraScale = preview3DCameraScaleRef.current;
+    const preview3DCameraYOffset = preview3DCameraYOffsetRef.current;
 
     ctx.save();
+    if (
+      isPreview3DMode
+      && (
+        Math.abs(preview3DCameraScale - 1) > SNAP_EPSILON
+        || Math.abs(preview3DCameraYOffset) > SNAP_EPSILON
+      )
+    ) {
+      ctx.translate(preview3DCameraCenterX, hitLineY + preview3DCameraYOffset);
+      ctx.scale(preview3DCameraScale, preview3DCameraScale);
+      ctx.translate(-preview3DCameraCenterX, -hitLineY);
+    }
     if (isPreviewPlaybackCanvas && Math.abs(previewTiltDegrees) > SNAP_EPSILON) {
       const editorCanvasCenterX = chartStartX + gridWidth / 2;
       ctx.translate(editorCanvasCenterX, height / 2);
@@ -2095,16 +2465,26 @@ export default function Editor({
 
     // Draw background for the grid area
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.fillRect(isPreviewPlaybackCanvas ? chartStartX : startX, 0, gridWidth, height);
+    if (isPreview3DMode) {
+      ctx.beginPath();
+      ctx.moveTo(getPreviewLaneLeftX(0), 0);
+      ctx.lineTo(getPreviewLaneRightX(0), 0);
+      ctx.lineTo(getPreviewLaneRightX(height), height);
+      ctx.lineTo(getPreviewLaneLeftX(height), height);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillRect(isPreviewPlaybackCanvas ? chartStartX : startX, 0, gridWidth, height);
+    }
 
     if (isPreviewMode) {
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(chartStartX, 0);
-      ctx.lineTo(chartStartX, height);
-      ctx.moveTo(chartStartX + gridWidth, 0);
-      ctx.lineTo(chartStartX + gridWidth, height);
+      ctx.moveTo(getPreviewLaneLeftX(0), 0);
+      ctx.lineTo(getPreviewLaneLeftX(height), height);
+      ctx.moveTo(getPreviewLaneRightX(0), 0);
+      ctx.lineTo(getPreviewLaneRightX(height), height);
       ctx.stroke();
       countRenderedObject();
       countRenderedObject();
@@ -2475,13 +2855,10 @@ export default function Editor({
         }
       }
 
-      const xPositionWidth = laneWidth / 2;
-      const noteWidthPx = xPositionWidth * note.width;
-      const parentWidthPx = xPositionWidth * parentNote.width;
-      const noteLeftX = chartStartX + note.lane * xPositionWidth + 2;
-      const noteRightX = noteLeftX + noteWidthPx - 4;
-      const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
-      const parentRightX = parentLeftX + parentWidthPx - 4;
+      const clippedConnector = getClippedPreviewConnector(parentNote, parentY, note, noteY);
+      if (!clippedConnector) {
+        continue;
+      }
 
       const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
         && currentPreviewTimepos >= Math.min(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON
@@ -2501,13 +2878,12 @@ export default function Editor({
       }
 
       ctx.fillStyle = getConnectorFill(note.type);
-      ctx.beginPath();
-      ctx.moveTo(parentLeftX, parentY);
-      ctx.lineTo(parentRightX, parentY);
-      ctx.lineTo(noteRightX, noteY);
-      ctx.lineTo(noteLeftX, noteY);
-      ctx.closePath();
-      ctx.fill();
+      drawProjectedConnectorQuad(
+        clippedConnector.fromNote,
+        clippedConnector.fromY,
+        clippedConnector.toNote,
+        clippedConnector.toY,
+      );
       if (shouldClipPreviewConnectorAtJudgementLine) {
         ctx.restore();
       }
@@ -2515,7 +2891,6 @@ export default function Editor({
     }
 
     if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
-      const xPositionWidth = laneWidth / 2;
       const connectorAlpha = 0.08;
       let parentNote = previewStartNote;
       let parentBeat = getBeatAtTime(previewStartNote.time, sortedChanges);
@@ -2527,22 +2902,18 @@ export default function Editor({
       curvePreviewNotes.forEach((previewNote) => {
         const noteY = hitLineY - (previewNote.beat - currentBeat) * pixelsPerBeat;
         const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
-        const noteWidthPx = xPositionWidth * previewNote.width;
-        const parentWidthPx = xPositionWidth * parentNote.width;
-        const noteLeftX = chartStartX + previewNote.lane * xPositionWidth + 2;
-        const noteRightX = noteLeftX + noteWidthPx - 4;
-        const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
-        const parentRightX = parentLeftX + parentWidthPx - 4;
+        const noteEdges = getProjectedNoteEdges(previewNote, noteY);
+        const parentEdges = getProjectedNoteEdges(parentNote, parentY);
 
         if (
           Math.max(previewNote.beat, parentBeat) >= visibleStartBeat
           && Math.min(previewNote.beat, parentBeat) <= visibleEndBeat
         ) {
           ctx.beginPath();
-          ctx.moveTo(parentLeftX, parentY);
-          ctx.lineTo(parentRightX, parentY);
-          ctx.lineTo(noteRightX, noteY);
-          ctx.lineTo(noteLeftX, noteY);
+          ctx.moveTo(parentEdges.left, parentY);
+          ctx.lineTo(parentEdges.right, parentY);
+          ctx.lineTo(noteEdges.right, noteY);
+          ctx.lineTo(noteEdges.left, noteY);
           ctx.closePath();
           ctx.fill();
           countRenderedObject();
@@ -2556,22 +2927,18 @@ export default function Editor({
         const noteBeat = getBeatAtTime(previewEndNote!.time, sortedChanges);
         const noteY = hitLineY - (noteBeat - currentBeat) * pixelsPerBeat;
         const parentY = hitLineY - (parentBeat - currentBeat) * pixelsPerBeat;
-        const noteWidthPx = xPositionWidth * previewEndNote!.width;
-        const parentWidthPx = xPositionWidth * parentNote.width;
-        const noteLeftX = chartStartX + previewEndNote!.lane * xPositionWidth + 2;
-        const noteRightX = noteLeftX + noteWidthPx - 4;
-        const parentLeftX = chartStartX + parentNote.lane * xPositionWidth + 2;
-        const parentRightX = parentLeftX + parentWidthPx - 4;
+        const noteEdges = getProjectedNoteEdges(previewEndNote!, noteY);
+        const parentEdges = getProjectedNoteEdges(parentNote, parentY);
 
         if (
           Math.max(noteBeat, parentBeat) >= visibleStartBeat
           && Math.min(noteBeat, parentBeat) <= visibleEndBeat
         ) {
           ctx.beginPath();
-          ctx.moveTo(parentLeftX, parentY);
-          ctx.lineTo(parentRightX, parentY);
-          ctx.lineTo(noteRightX, noteY);
-          ctx.lineTo(noteLeftX, noteY);
+          ctx.moveTo(parentEdges.left, parentY);
+          ctx.lineTo(parentEdges.right, parentY);
+          ctx.lineTo(noteEdges.right, noteY);
+          ctx.lineTo(noteEdges.left, noteY);
           ctx.closePath();
           ctx.fill();
           countRenderedObject();
@@ -2583,6 +2950,13 @@ export default function Editor({
 
     const orderedVisibleNoteEntries = isPreviewPlaybackCanvas
       ? [...visibleNoteEntries].sort((a, b) => {
+          if (isPreview3DMode) {
+            const distanceSort = (b as PreviewNoteRenderEntry).distance - (a as PreviewNoteRenderEntry).distance;
+            if (Math.abs(distanceSort) > SNAP_EPSILON) {
+              return distanceSort;
+            }
+          }
+
           if (!isPreviewNoteAppearModeEnabled) {
             return 0;
           }
@@ -2637,8 +3011,9 @@ export default function Editor({
             getTimeFromTimepos,
           )
         : 0;
+      const previewLinearY = hitLineY - previewVisualDistance * previewDistanceScale;
       const y = isPreviewPlaybackCanvas
-        ? hitLineY - previewVisualDistance * previewDistanceScale
+        ? projectPreviewY(previewLinearY)
         : getCanvasYFromTime(renderedNote.time, renderedNoteBeat);
 
       if (isPreviewPlaybackCanvas && previewEntry.noteSpeed.kind === 'curve') {
@@ -2664,18 +3039,31 @@ export default function Editor({
         return;
       }
 
-      const xPositionWidth = laneWidth / 2;
-      const x = chartStartX + renderedNote.lane * xPositionWidth;
-      const notePixelWidth = xPositionWidth * renderedNote.width;
+      const x = getProjectedXFromLane(renderedNote.lane, y);
+      const notePixelWidth = getProjectedNoteWidth(renderedNote.width, y);
+      const projectedScale = getProjectedScale(y);
+      const noteLaneLeftX = getPreviewLaneLeftX(y);
+      const noteLaneWidth = getPreviewLaneWidthAtY(y);
       const appearedPosition = isPreviewPlaybackCanvas && isPreviewNoteAppearModeEnabled
-        ? getPreviewAppearModePosition(
-            renderedNote,
-            x,
-            y,
-            notePixelWidth,
-            previewVisualDistance,
-            chartStartX,
-            gridWidth,
+        ? (
+            isPreview3DMode
+              ? getPreview3DAppearModePosition(
+                  renderedNote,
+                  x,
+                  y,
+                  notePixelWidth,
+                  previewVisualDistance,
+                  previewLinearY,
+                )
+              : getPreviewAppearModePosition(
+                  renderedNote,
+                  x,
+                  y,
+                  notePixelWidth,
+                  previewVisualDistance,
+                  noteLaneLeftX,
+                  noteLaneWidth,
+                )
           )
         : { x, y, scale: 1 };
       const appearedX = appearedPosition.x;
@@ -2685,14 +3073,15 @@ export default function Editor({
       }
 
       const appearedScale = appearedPosition.scale;
+      const combinedScale = appearedScale * projectedScale;
       const scaledNotePixelWidth = notePixelWidth * appearedScale;
-      const scaledNoteHeight = 20 * appearedScale;
+      const scaledNoteHeight = 20 * combinedScale;
       const scaledX = appearedX + (notePixelWidth - scaledNotePixelWidth) / 2;
       const noteCenterX = appearedX + notePixelWidth / 2;
-      const noteBodyInset = 2 * appearedScale;
+      const noteBodyInset = 2 * combinedScale;
       const noteBodyWidth = Math.max(1, scaledNotePixelWidth - noteBodyInset * 2);
       const noteBodyX = scaledX + noteBodyInset;
-      const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * appearedScale);
+      const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * combinedScale);
       const shouldDrawTopIndicators = scaledNotePixelWidth > 0;
         
       const noteTypeInfo = NOTE_TYPES[renderedNote.type] || UNKNOWN_NOTE_TYPE;
@@ -2700,54 +3089,54 @@ export default function Editor({
       ctx.fillRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
         
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2 * appearedScale;
+      ctx.lineWidth = 2 * combinedScale;
       ctx.strokeRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
 
       if (shouldDrawTopIndicators && (renderedNote.type === 1 || renderedNote.type === 2)) {
         ctx.fillStyle = '#ffffff';
-        drawInvertedTriangle(noteCenterX, appearedY, Math.min(markAvailableWidth, 12 * appearedScale));
+        drawInvertedTriangle(noteCenterX, appearedY, Math.min(markAvailableWidth, 12 * combinedScale));
       }
 
       if (shouldDrawTopIndicators && renderedNote.type === 9) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2 * appearedScale;
-        drawCircleMark(noteCenterX, appearedY, Math.min(markAvailableWidth / 2, 6 * appearedScale));
+        ctx.lineWidth = 2 * combinedScale;
+        drawCircleMark(noteCenterX, appearedY, Math.min(markAvailableWidth / 2, 6 * combinedScale));
       }
 
       if (shouldDrawTopIndicators && HOLD_START_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, appearedY, 'S', appearedScale);
+        drawNoteLetter(noteCenterX, appearedY, 'S', combinedScale);
       }
 
       if (shouldDrawTopIndicators && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, appearedY, 'C', appearedScale);
+        drawNoteLetter(noteCenterX, appearedY, 'C', combinedScale);
       }
 
       if (shouldDrawTopIndicators && HOLD_END_TYPES.includes(renderedNote.type)) {
-        drawNoteLetter(noteCenterX, appearedY, 'E', appearedScale);
+        drawNoteLetter(noteCenterX, appearedY, 'E', combinedScale);
       }
 
       if (shouldDrawTopIndicators && !(renderedNote.type in NOTE_TYPES)) {
-        drawNoteLetter(noteCenterX, appearedY, '?', appearedScale);
+        drawNoteLetter(noteCenterX, appearedY, '?', combinedScale);
       }
 
       if (shouldDrawTopIndicators && [13, 14, 15, 16].includes(renderedNote.type)) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2 * appearedScale;
+        ctx.lineWidth = 2 * combinedScale;
 
         if (renderedNote.type === 13) {
-          drawArrow(noteCenterX, appearedY, 'left', 10 * appearedScale);
+          drawArrow(noteCenterX, appearedY, 'left', 10 * combinedScale);
         }
 
         if (renderedNote.type === 14) {
-          drawArrow(noteCenterX, appearedY, 'right', 10 * appearedScale);
+          drawArrow(noteCenterX, appearedY, 'right', 10 * combinedScale);
         }
 
         if (renderedNote.type === 15) {
-          drawArrow(noteCenterX, appearedY, 'up', 10 * appearedScale);
+          drawArrow(noteCenterX, appearedY, 'up', 10 * combinedScale);
         }
 
         if (renderedNote.type === 16) {
-          drawArrow(noteCenterX, appearedY, 'down', 10 * appearedScale);
+          drawArrow(noteCenterX, appearedY, 'down', 10 * combinedScale);
         }
       }
 
@@ -3058,8 +3447,8 @@ export default function Editor({
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(isPreviewPlaybackCanvas ? chartStartX : startX, hitLineY);
-    ctx.lineTo((isPreviewPlaybackCanvas ? chartStartX : startX) + gridWidth, hitLineY);
+    ctx.moveTo(isPreview3DMode ? getPreviewLaneLeftX(hitLineY) : (isPreviewPlaybackCanvas ? chartStartX : startX), hitLineY);
+    ctx.lineTo(isPreview3DMode ? getPreviewLaneRightX(hitLineY) : (isPreviewPlaybackCanvas ? chartStartX : startX) + gridWidth, hitLineY);
     ctx.stroke();
     
     ctx.shadowColor = '#fff';
@@ -3086,7 +3475,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, previewCurveNoteRenderEntries, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -5169,6 +5558,32 @@ export default function Editor({
 
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
                 NSC and Note Appear Mode in Preview Mode may not be 100% accurate to the official game or other chart players.
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="preview-3d-tilt" className="text-xs font-medium text-neutral-400">
+                    3D Tilt Angle
+                  </label>
+                  <span className="text-xs tabular-nums text-neutral-500">
+                    {preview3DTiltDegrees.toFixed(1)}°
+                  </span>
+                </div>
+                <input
+                  id="preview-3d-tilt"
+                  type="range"
+                  min={MIN_PREVIEW_3D_TILT_DEGREES}
+                  max={MAX_PREVIEW_3D_TILT_DEGREES}
+                  step="0.1"
+                  value={preview3DTiltDegrees}
+                  onChange={(event) => setPreview3DTiltDegrees(Number(event.target.value))}
+                  disabled={previewDisplayMode !== '3d'}
+                  className="h-2 w-full accent-indigo-500 disabled:opacity-45"
+                />
+                <div className="flex justify-between text-[11px] text-neutral-600">
+                  <span>{MIN_PREVIEW_3D_TILT_DEGREES}°</span>
+                  <span>{MAX_PREVIEW_3D_TILT_DEGREES}°</span>
+                </div>
               </div>
             </div>
           </aside>
