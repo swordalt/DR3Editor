@@ -123,6 +123,10 @@ const PREVIEW_3D_CAMERA_Z_PER_HEIGHT = -14;
 const PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT = -120;
 const PREVIEW_3D_CAMERA_EASE_PER_SECOND = 20;
 
+const getMirroredNoteLane = (note: Pick<Note, 'lane' | 'width'>) => (
+  X_POSITION_COUNT - note.lane - note.width
+);
+
 interface MusicAudioGraph {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
@@ -803,7 +807,7 @@ export default function Editor({
     let changedCount = 0;
 
     selectedNotes.forEach(note => {
-      const mirroredLane = Math.max(0, Math.min(X_POSITION_COUNT - note.width, X_POSITION_COUNT - note.lane - note.width));
+      const mirroredLane = getMirroredNoteLane(note);
       mirroredLaneById.set(note.id, mirroredLane);
       if (mirroredLane !== note.lane) {
         changedCount += 1;
@@ -1823,7 +1827,7 @@ export default function Editor({
             id: nextId,
             time: getTimeFromTimepos(pasteTimepos + copiedTimepos - baseTimepos),
             lane: shouldMirrorPaste
-              ? Math.max(0, Math.min(X_POSITION_COUNT - note.width, X_POSITION_COUNT - note.lane - note.width))
+              ? getMirroredNoteLane(note)
               : note.lane,
             parentId: nextParentId,
           };
