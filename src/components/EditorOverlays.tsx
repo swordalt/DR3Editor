@@ -15,6 +15,7 @@ interface EditorOverlaysProps {
   isExitWarningOpen: boolean;
   isSettingsOpen: boolean;
   isHelpOpen: boolean;
+  isDr3FpPreviewInfoOpen: boolean;
   isExitWarningEnabled: boolean;
   isScrollDirectionInverted: boolean;
   isSelectionTypeMenuOpen: boolean;
@@ -31,6 +32,7 @@ interface EditorOverlaysProps {
   setIsExitWarningOpen: Dispatch<SetStateAction<boolean>>;
   setIsSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setIsHelpOpen: Dispatch<SetStateAction<boolean>>;
+  setIsDr3FpPreviewInfoOpen: Dispatch<SetStateAction<boolean>>;
   setIsExitWarningEnabled: Dispatch<SetStateAction<boolean>>;
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -99,6 +101,7 @@ export default function EditorOverlays({
   isExitWarningOpen,
   isSettingsOpen,
   isHelpOpen,
+  isDr3FpPreviewInfoOpen,
   isExitWarningEnabled,
   isScrollDirectionInverted,
   isSelectionTypeMenuOpen,
@@ -115,6 +118,7 @@ export default function EditorOverlays({
   setIsExitWarningOpen,
   setIsSettingsOpen,
   setIsHelpOpen,
+  setIsDr3FpPreviewInfoOpen,
   setIsExitWarningEnabled,
   setIsScrollDirectionInverted,
   setIsSelectionTypeMenuOpen,
@@ -184,6 +188,67 @@ export default function EditorOverlays({
                 className="flex-1 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:bg-white/[0.08]"
               >
                 Cancel
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {isDr3FpPreviewInfoOpen && (
+        <motion.div
+          className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onMouseDown={() => setIsDr3FpPreviewInfoOpen(false)}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dr3fp-preview-info-title"
+            className="flex w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            initial={{ opacity: 0, y: 28, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">DR3FP Preview</p>
+              <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
+                DR3FP should have opened with your chart
+              </h2>
+            </div>
+
+            <div className="px-6 py-6">
+              <p className="text-sm leading-6 text-neutral-300">
+                If DR3FP did not open, download it from{' '}
+                <a
+                  href="https://github.com/swordalt/DanceRail3FanmadePlayer/releases"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-indigo-300 underline decoration-indigo-300/40 underline-offset-4 transition-colors hover:text-indigo-200"
+                >
+                  DanceRail3FanmadePlayer releases
+                </a>
+                , extract the files, and open the app at least once before using the DR3FP preview option here in the editor.
+                <br />
+                <br />
+                If it fails, try disabling request blockers (privacy extensions). If you get a browser notification about communicating with the local network, grant permission.
+                <br />
+                <br />
+                (Currently only for Windows. Uses a temporary local server to transfer files to DR3FP.)
+              </p>
+            </div>
+
+            <div className="border-t border-white/10 p-4">
+              <button
+                type="button"
+                onClick={() => setIsDr3FpPreviewInfoOpen(false)}
+                className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
+              >
+                Got it
               </button>
             </div>
           </motion.div>

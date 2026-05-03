@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Box, Square, X, ChevronLeft, ChevronRight, Copy, Trash2, FlipHorizontal } from 'lucide-react';
+import { ArrowLeft, Box, Square, X, ChevronLeft, ChevronRight, Copy, Trash2, FlipHorizontal, FileText, Image, Info, Music } from 'lucide-react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorModal from './components/EditorModal';
 import EditorCanvas from './components/EditorCanvas';
@@ -11,6 +11,7 @@ import VirtualizedChangeList from './components/VirtualizedChangeList';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerClient';
+import { buildLevelText } from './utils/levelFormat';
 import { applyAudioPlaybackSpeed } from './editor/audioPlayback';
 import {
   MAX_OPERATION_HISTORY_ENTRIES,
@@ -122,10 +123,36 @@ const PREVIEW_3D_CAMERA_BASE_Z = -7;
 const PREVIEW_3D_CAMERA_Z_PER_HEIGHT = -14;
 const PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT = -120;
 const PREVIEW_3D_CAMERA_EASE_PER_SECOND = 20;
+const DR3FP_PREVIEW_RECEIVER_ORIGIN = 'http://127.0.0.1:27373';
+const DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS = 30_000;
+const DR3FP_PREVIEW_RECEIVER_POLL_MS = 250;
 
 const getMirroredNoteLane = (note: Pick<Note, 'lane' | 'width'>) => (
   X_POSITION_COUNT - note.lane - note.width
 );
+
+const getFileExtension = (file: File) => {
+  const extension = file.name.split('.').pop();
+  return extension && extension !== file.name ? extension : 'bin';
+};
+
+const formatFileSize = (file: File | null) => {
+  if (!file) return '';
+
+  return formatByteSize(file.size);
+};
+
+const formatByteSize = (size: number) => {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
+};
 
 interface MusicAudioGraph {
   context: AudioContext;
@@ -152,8 +179,10 @@ export default function Editor({
   const [isModalOpen, setIsModalOpen] = useState(mode === 'new');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isDr3FpPreviewInfoOpen, setIsDr3FpPreviewInfoOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isPlaybackSpeedMenuOpen, setIsPlaybackSpeedMenuOpen] = useState(false);
+  const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
   const [isStatisticsRefreshRateMenuOpen, setIsStatisticsRefreshRateMenuOpen] = useState(false);
   const [isSelectionTypeMenuOpen, setIsSelectionTypeMenuOpen] = useState(false);
   const [isExitWarningOpen, setIsExitWarningOpen] = useState(false);
@@ -725,6 +754,7 @@ export default function Editor({
 
       setIsExportMenuOpen(false);
       setIsPlaybackSpeedMenuOpen(false);
+      setIsPreviewMenuOpen(false);
       resetPreviewJudgementState(previewStartTime, enteringPreviewDuringPlayback);
 
       if (nextPreviewMode) {
@@ -4162,6 +4192,76 @@ export default function Editor({
     downloadZipData(zipBuffer, suggestedName);
   };
 
+  const waitForDr3FpPreviewReceiver = async (sessionId: string) => {
+    const deadline = Date.now() + DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS;
+    const url = `${DR3FP_PREVIEW_RECEIVER_ORIGIN}/preview/${encodeURIComponent(sessionId)}/ready`;
+
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(url, { method: 'GET' });
+        if (response.ok) {
+          const body = await response.json();
+          if (body?.ready === true && body?.version === 1) {
+            return;
+          }
+        }
+      } catch {
+        // DR3FanmadeViewer may still be starting.
+      }
+
+      await new Promise(resolve => window.setTimeout(resolve, DR3FP_PREVIEW_RECEIVER_POLL_MS));
+    }
+
+    throw new Error('DR3FanmadeViewer preview receiver did not become ready. If your browser reports ERR_BLOCKED_BY_CLIENT, allow requests to 127.0.0.1:27373 or disable ad blocking/privacy extensions for this editor page.');
+  };
+
+  const uploadDr3FpPreviewBundle = async (sessionId: string, zipBlob: Blob) => {
+    const response = await fetch(`${DR3FP_PREVIEW_RECEIVER_ORIGIN}/preview/${encodeURIComponent(sessionId)}/bundle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/zip',
+      },
+      body: zipBlob,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Preview upload failed: HTTP ${response.status}`);
+    }
+
+    const body = await response.json().catch(() => null);
+    if (body?.accepted !== true) {
+      throw new Error('Preview upload was not accepted by DR3FanmadeViewer.');
+    }
+  };
+
+  const previewDr3Fp = async () => {
+    if (!projectData || isExportDisabled) return;
+
+    setIsDr3FpPreviewInfoOpen(true);
+
+    try {
+      const { zipBuffer } = await createExportZipInWorker({
+        format: 'dr3-fp-preview',
+        projectData,
+        notes,
+        bpmChanges,
+        speedChanges,
+        offset,
+      });
+      const zipBlob = createZipBlobForSave(zipBuffer);
+      const sessionId = crypto.randomUUID();
+
+      window.location.href = `dr3fp://preview?session=${encodeURIComponent(sessionId)}&version=1`;
+
+      await waitForDr3FpPreviewReceiver(sessionId);
+      await uploadDr3FpPreviewBundle(sessionId, zipBlob);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Preview failed.';
+      console.error('DR3FP preview failed', err);
+      window.alert(message);
+    }
+  };
+
   const exportDr3Viewer = async () => {
     if (!projectData || isExportDisabled) return;
 
@@ -4695,6 +4795,57 @@ export default function Editor({
   );
 
   const tierBadge = getTierBadge(projectData?.difficulty);
+  const chartProjectFiles = useMemo(() => {
+    if (!projectData) return [];
+
+    const songId = projectData.songId || 'level';
+    const difficulty = projectData.difficulty || '0';
+    const chartText = buildLevelText({
+      projectData,
+      notes,
+      bpmChanges,
+      speedChanges,
+      offset,
+    });
+    const firstBpm = [...bpmChanges]
+      .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))[0]?.bpm ?? projectData.bpm ?? 120;
+    const infoText = `${projectData.songName || ''}\n${projectData.songArtist || ''}\n${firstBpm}\n`;
+    const textEncoder = new TextEncoder();
+    const files = [
+      {
+        label: 'Chart File',
+        name: `${songId}.${difficulty}.txt`,
+        detail: formatByteSize(textEncoder.encode(chartText).byteLength),
+        Icon: FileText,
+      },
+      {
+        label: 'Info File',
+        name: 'info.txt',
+        detail: formatByteSize(textEncoder.encode(infoText).byteLength),
+        Icon: Info,
+      },
+    ];
+
+    if (projectData.songFile) {
+      files.push({
+        label: 'Audio',
+        name: projectData.songFile.name || `${songId}.${getFileExtension(projectData.songFile)}`,
+        detail: formatFileSize(projectData.songFile),
+        Icon: Music,
+      });
+    }
+
+    if (projectData.songIllustration) {
+      files.push({
+        label: 'Illustration',
+        name: projectData.songIllustration.name || `${songId}.${getFileExtension(projectData.songIllustration)}`,
+        detail: formatFileSize(projectData.songIllustration),
+        Icon: Image,
+      });
+    }
+
+    return files;
+  }, [bpmChanges, notes, offset, projectData, speedChanges]);
 
   const jumpToNoteTime = (time: number) => {
     if (stateRef.current.isPlaying) {
@@ -4772,6 +4923,7 @@ export default function Editor({
         isExitWarningOpen={isExitWarningOpen}
         isSettingsOpen={isSettingsOpen}
         isHelpOpen={isHelpOpen}
+        isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
         isExitWarningEnabled={isExitWarningEnabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
@@ -4788,6 +4940,7 @@ export default function Editor({
         setIsExitWarningOpen={setIsExitWarningOpen}
         setIsSettingsOpen={setIsSettingsOpen}
         setIsHelpOpen={setIsHelpOpen}
+        setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
         setIsExitWarningEnabled={setIsExitWarningEnabled}
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
@@ -4815,6 +4968,7 @@ export default function Editor({
         isSettingsOpen={isSettingsOpen}
         isPreviewMode={isPreviewMode}
         isExportMenuOpen={isExportMenuOpen}
+        isPreviewMenuOpen={isPreviewMenuOpen}
         isExportDisabled={isExportDisabled}
         hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
         duration={duration}
@@ -4832,10 +4986,12 @@ export default function Editor({
         setIsXPositionGridEnabled={setIsXPositionGridEnabled}
         setIsExportMenuOpen={setIsExportMenuOpen}
         setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
+        setIsPreviewMenuOpen={setIsPreviewMenuOpen}
         changePlaybackSpeed={changePlaybackSpeed}
         openHelp={openHelp}
         openSettings={openSettings}
         togglePreviewMode={togglePreviewMode}
+        previewDr3Fp={previewDr3Fp}
         exportDr3Viewer={exportDr3Viewer}
         exportDr3Fp={exportDr3Fp}
       />
@@ -5025,6 +5181,24 @@ export default function Editor({
                     </p>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => setFormData({...formData, songIllustration: e.target.files?.[0] || null})} />
                   </label>
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-xs text-neutral-400">Available Files</label>
+                    <span className="text-[11px] text-neutral-500">{chartProjectFiles.length} files</span>
+                  </div>
+                  <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
+                    {chartProjectFiles.map(({ label, name, detail, Icon }) => (
+                      <div key={`${label}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
+                        <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium text-neutral-300">{label}</div>
+                          <div className="truncate text-xs text-neutral-500" title={name}>{name}</div>
+                        </div>
+                        {detail && <div className="shrink-0 text-[11px] text-neutral-500">{detail}</div>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <button onClick={handleConfirm} className="w-full p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-semibold mt-2 transition-colors shrink-0">Save Changes</button>
               </div>
@@ -5561,7 +5735,7 @@ export default function Editor({
               </div>
 
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
-                NSC and Note Appear Mode in Preview Mode may not be 100% accurate to the official game or other chart players.
+                NSC and Note Appear Mode in Preview Mode may not be 100% accurate to the official game or other chart players.<br/><br/>Use direct preview via DR3FP for an 100% accurate preview in relation to DanceRail3.
               </div>
 
               <div className="flex flex-col gap-2">

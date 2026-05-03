@@ -3,7 +3,7 @@ export const EDITOR_KEYBIND_GROUPS = [
     title: 'Playback and Navigation',
     bindings: [
       { keys: ['Space'], description: 'Play or pause the song from the current editor time.' },
-      { keys: ['I'], description: 'Enter or exit Preview Mode.' },
+      { keys: ['I'], description: 'Switch between Editor Preview and disabled Preview Mode.' },
       { keys: ['Mouse wheel'], description: 'Move through the timeline. Scrolling stops playback before seeking.' },
     ],
   },

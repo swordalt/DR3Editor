@@ -1,5 +1,5 @@
 import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react';
-import { ArrowLeft, Download, Grid2x2, Grid2x2X, HelpCircle, Pause, Play, Settings } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Download, Grid2x2, Grid2x2X, HelpCircle, Pause, Play, Settings } from 'lucide-react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import type { BpmChange, ProjectData } from '../types/editorTypes';
@@ -18,6 +18,7 @@ interface EditorTopBarProps {
   isSettingsOpen: boolean;
   isPreviewMode: boolean;
   isExportMenuOpen: boolean;
+  isPreviewMenuOpen: boolean;
   isExportDisabled: boolean;
   hasExportIncompatibleTimeSignature: boolean;
   duration: number;
@@ -35,10 +36,12 @@ interface EditorTopBarProps {
   setIsXPositionGridEnabled: Dispatch<SetStateAction<boolean>>;
   setIsExportMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsPlaybackSpeedMenuOpen: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewMenuOpen: Dispatch<SetStateAction<boolean>>;
   changePlaybackSpeed: (speed: number) => void;
   openHelp: () => void;
   openSettings: () => void;
   togglePreviewMode: () => void;
+  previewDr3Fp: () => Promise<void>;
   exportDr3Viewer: () => Promise<void>;
   exportDr3Fp: () => Promise<void>;
 }
@@ -53,6 +56,7 @@ export default function EditorTopBar({
   isSettingsOpen,
   isPreviewMode,
   isExportMenuOpen,
+  isPreviewMenuOpen,
   isExportDisabled,
   hasExportIncompatibleTimeSignature,
   duration,
@@ -70,10 +74,12 @@ export default function EditorTopBar({
   setIsXPositionGridEnabled,
   setIsExportMenuOpen,
   setIsPlaybackSpeedMenuOpen,
+  setIsPreviewMenuOpen,
   changePlaybackSpeed,
   openHelp,
   openSettings,
   togglePreviewMode,
+  previewDr3Fp,
   exportDr3Viewer,
   exportDr3Fp,
 }: EditorTopBarProps) {
@@ -162,6 +168,7 @@ export default function EditorTopBar({
             type="button"
             onClick={() => {
               setIsExportMenuOpen(false);
+              setIsPreviewMenuOpen(false);
               setIsPlaybackSpeedMenuOpen(current => !current);
             }}
             className="min-w-14 rounded-lg px-2 py-1.5 font-mono text-sm text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
@@ -221,25 +228,75 @@ export default function EditorTopBar({
         >
           <Settings className="w-4 h-4" />
         </button>
-        <button
-          type="button"
-          disabled={!projectData}
-          onClick={togglePreviewMode}
-          className={`ml-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500 ${
-            isPreviewMode
-              ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-              : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white'
-          }`}
-          title={isPreviewMode ? 'Return to editor mode' : 'Preview chart playback'}
-          aria-pressed={isPreviewMode}
-        >
-          {isPreviewMode ? 'Return' : 'Preview'}
-        </button>
+        {isPreviewMode ? (
+          <button
+            type="button"
+            disabled={!projectData}
+            onClick={togglePreviewMode}
+            className="ml-2 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+            title="Return to editor mode"
+            aria-pressed={isPreviewMode}
+          >
+            Return
+          </button>
+        ) : (
+          <div className="relative ml-2">
+            <button
+              type="button"
+              disabled={!projectData}
+              onClick={() => {
+                setIsExportMenuOpen(false);
+                setIsPlaybackSpeedMenuOpen(false);
+                setIsPreviewMenuOpen(current => !current);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-neutral-800 px-3 py-1.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              title="Preview chart playback"
+              aria-haspopup="menu"
+              aria-expanded={isPreviewMenuOpen}
+            >
+              Preview
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            {isPreviewMenuOpen && (
+              <div
+                className="absolute right-0 top-full z-50 mt-2 w-36 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPreviewMenuOpen(false);
+                    togglePreviewMode();
+                  }}
+                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                  role="menuitem"
+                >
+                  Editor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPreviewMenuOpen(false);
+                    void previewDr3Fp();
+                  }}
+                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                  role="menuitem"
+                >
+                  DR3FP
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="relative ml-2">
           <button
             type="button"
             disabled={isExportDisabled}
-            onClick={() => setIsExportMenuOpen(current => !current)}
+            onClick={() => {
+              setIsPlaybackSpeedMenuOpen(false);
+              setIsPreviewMenuOpen(false);
+              setIsExportMenuOpen(current => !current);
+            }}
             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors text-sm font-medium disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             title={isExportDisabled ? 'Song ID, difficulty, and audio are required before export.' : 'Export Level'}
             aria-haspopup="menu"

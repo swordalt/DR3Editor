@@ -16,6 +16,18 @@ const getFirstBpm = (bpmChanges: BpmChange[], fallbackBpm: number | undefined) =
   return firstChange?.bpm ?? fallbackBpm ?? 120;
 };
 
+const assertSafeZipFileName = (fileName: string) => {
+  if (
+    !fileName ||
+    fileName.includes('/') ||
+    fileName.includes('\\') ||
+    fileName.includes('..') ||
+    /^[a-zA-Z]:/.test(fileName)
+  ) {
+    throw new Error(`Unsafe preview file name: ${fileName || '(empty)'}`);
+  }
+};
+
 const createExportZip = async (payload: ExportWorkerPayload) => {
   const { format, projectData, notes, bpmChanges, speedChanges, offset } = payload;
 
@@ -55,6 +67,60 @@ const createExportZip = async (payload: ExportWorkerPayload) => {
     return {
       zipBuffer: await createZipBuffer(entries),
       suggestedName: `${songId}.${difficulty}.zip`,
+    };
+  }
+
+  if (format === 'dr3-fp-preview') {
+    const chartFileName = `${difficulty}.txt`;
+    const audioFileName = `base.${getFileExtension(projectData.songFile)}`;
+    const illustrationFileName = projectData.songIllustration
+      ? `base.${getFileExtension(projectData.songIllustration)}`
+      : undefined;
+    const files = [chartFileName, audioFileName];
+
+    if (illustrationFileName) {
+      files.push(illustrationFileName);
+    }
+
+    [chartFileName, audioFileName, ...files].forEach(assertSafeZipFileName);
+
+    const manifest = {
+      version: 1,
+      keyword: projectData.songId || 'editor-preview',
+      title: projectData.songName || 'Untitled Project',
+      artist: projectData.songArtist || '',
+      diff: Number.parseInt(difficulty, 10) || 0,
+      chart: chartFileName,
+      audio: audioFileName,
+      ...(illustrationFileName ? { illustration: illustrationFileName } : {}),
+      files,
+    };
+
+    const entries = [
+      {
+        name: 'manifest.json',
+        data: `${JSON.stringify(manifest, null, 2)}\n`,
+      },
+      {
+        name: chartFileName,
+        data: chartText,
+      },
+      {
+        name: audioFileName,
+        data: projectData.songFile,
+      },
+    ];
+
+    if (projectData.songIllustration && illustrationFileName) {
+      entries.push({
+        name: illustrationFileName,
+        data: projectData.songIllustration,
+      });
+    }
+
+    return {
+      zipBuffer: await createZipBuffer(entries),
+      suggestedName: `${songId}.preview.zip`,
     };
   }
 

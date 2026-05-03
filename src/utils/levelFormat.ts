@@ -17,6 +17,15 @@ const DEFAULT_BPM_CHANGE: BpmChange = {
 
 const APPEAR_MODES = new Set(['L', 'R', 'H', 'P', 'N']);
 
+const formatChartNumber = (value: number, precision = 3) => {
+  const roundedValue = Number(value.toFixed(precision));
+  return Object.is(roundedValue, -0) ? '0' : roundedValue.toString();
+};
+
+const trimNumericTextTrailingZeros = (value: string) => (
+  value.replace(/-?\d+(?:\.\d+)?/g, (numericText) => formatChartNumber(Number(numericText)))
+);
+
 const parseIndexedNumericValue = (line: string, prefix: string) => {
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = line.match(new RegExp(`^${escapedPrefix}\\[(\\d+)\\]=(\\d+\\.?\\d*);$`));
@@ -158,7 +167,6 @@ export function buildLevelText(params: {
   offset: string | number;
 }): string {
   const { notes, bpmChanges, speedChanges, offset } = params;
-  const formatNoteValue = (value: number) => Number(value.toFixed(3)).toString();
   const getSerializedParentId = (note: Note) => (HOLD_START_TYPES.includes(note.type) ? 0 : (note.parentId ?? 0));
   const getSerializedSpeed = (note: Note) => {
     const normalizedSpeed = note.speed?.replace(/\s+/g, '');
@@ -167,24 +175,24 @@ export function buildLevelText(params: {
     }
 
     const numericSpeed = Number(normalizedSpeed);
-    return Number.isFinite(numericSpeed) ? formatNoteValue(numericSpeed) : normalizedSpeed;
+    return Number.isFinite(numericSpeed) ? formatChartNumber(numericSpeed) : trimNumericTextTrailingZeros(normalizedSpeed);
   };
   const normalizedBpmChanges = [...(bpmChanges.length > 0 ? bpmChanges : [DEFAULT_BPM_CHANGE])]
     .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b));
-  const formatTimepos = (change: BpmChange) => getBpmChangeTimepos(change).toFixed(3);
+  const formatTimepos = (change: BpmChange) => formatChartNumber(getBpmChangeTimepos(change));
 
-  let content = `#OFFSET=${parseFloat(offset.toString()) / -1000};\n`;
+  let content = `#OFFSET=${formatChartNumber(parseFloat(offset.toString()) / -1000)};\n`;
   content += '#BEAT=1;\n';
   content += `#BPM_NUMBER=${normalizedBpmChanges.length};\n`;
   normalizedBpmChanges.forEach((change, index) => {
-    content += `#BPM [${index}]=${change.bpm};\n`;
+    content += `#BPM [${index}]=${formatChartNumber(change.bpm)};\n`;
     content += `#BPMS[${index}]=${formatTimepos(change)};\n`;
   });
   content += `#SCN=${speedChanges.length};\n`;
 
   speedChanges.forEach((change, index) => {
-    content += `#SC [${index}]=${change.speedChange};\n`;
-    content += `#SCI[${index}]=${change.timepos.toFixed(3)};\n`;
+    content += `#SC [${index}]=${formatChartNumber(change.speedChange)};\n`;
+    content += `#SCI[${index}]=${formatChartNumber(change.timepos)};\n`;
   });
 
   const sortedChanges = convertBpmChangesToTime(bpmChanges);
@@ -213,7 +221,7 @@ export function buildLevelText(params: {
     const serializedAppearMode = note.appearMode && APPEAR_MODES.has(note.appearMode)
       ? `<${note.appearMode}>`
       : '';
-    content += `<${note.id}><${note.type}><${(measureCount + beatInMeasure / currentBeatsPerMeasure).toFixed(3)}><${formatNoteValue(note.lane)}><${formatNoteValue(note.width)}><${getSerializedSpeed(note)}><${getSerializedParentId(note)}>${serializedAppearMode}\n`;
+    content += `<${note.id}><${note.type}><${formatChartNumber(measureCount + beatInMeasure / currentBeatsPerMeasure)}><${formatChartNumber(note.lane)}><${formatChartNumber(note.width)}><${getSerializedSpeed(note)}><${getSerializedParentId(note)}>${serializedAppearMode}\n`;
   });
 
   return content;
