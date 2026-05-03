@@ -179,6 +179,8 @@ export function buildLevelText(params: {
   };
   const normalizedBpmChanges = [...(bpmChanges.length > 0 ? bpmChanges : [DEFAULT_BPM_CHANGE])]
     .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b));
+  const normalizedSpeedChanges = [...speedChanges]
+    .sort((a, b) => a.timepos - b.timepos);
   const formatTimepos = (change: BpmChange) => formatChartNumber(getBpmChangeTimepos(change));
 
   let content = `#OFFSET=${formatChartNumber(parseFloat(offset.toString()) / -1000)};\n`;
@@ -188,9 +190,9 @@ export function buildLevelText(params: {
     content += `#BPM [${index}]=${formatChartNumber(change.bpm)};\n`;
     content += `#BPMS[${index}]=${formatTimepos(change)};\n`;
   });
-  content += `#SCN=${speedChanges.length};\n`;
+  content += `#SCN=${normalizedSpeedChanges.length};\n`;
 
-  speedChanges.forEach((change, index) => {
+  normalizedSpeedChanges.forEach((change, index) => {
     content += `#SC [${index}]=${formatChartNumber(change.speedChange)};\n`;
     content += `#SCI[${index}]=${formatChartNumber(change.timepos)};\n`;
   });
