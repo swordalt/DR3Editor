@@ -4569,22 +4569,11 @@ export default function Editor({
           ? change.speedChange
           : activeSpeed
       ), 1);
-    const currentEditorDistanceState = sortedSpeedChanges.reduce((distanceState, change) => {
-      const changeTimepos = change.timepos;
-
-      if (changeTimepos > currentEditorTimepos) {
-        return distanceState;
-      }
-
-      const clampedChangeTimepos = Math.max(distanceState.timepos, changeTimepos);
-      return {
-        distance: distanceState.distance + distanceState.speed * (clampedChangeTimepos - distanceState.timepos),
-        speed: change.speedChange,
-        timepos: clampedChangeTimepos,
-      };
-    }, { distance: 0, speed: 1, timepos: 0 });
-    const currentEditorDistance = currentEditorDistanceState.distance +
-      currentEditorDistanceState.speed * Math.max(0, currentEditorTimepos - currentEditorDistanceState.timepos);
+    const currentEditorDistanceIndex = buildSpeedDistanceIndex(sortedSpeedChanges.map(change => ({
+      timepos: getTimeFromTimepos(change.timepos),
+      speedChange: change.speedChange,
+    })));
+    const currentEditorDistance = getSpeedDistanceAtTimepos(liveStatsTime, currentEditorDistanceIndex);
     const currentEditorCombo = notes.reduce((combo, note) => (
       note.time <= liveStatsTime ? combo + 1 : combo
     ), 0);
@@ -4599,7 +4588,7 @@ export default function Editor({
       currentEditorCombo,
       currentEditorScore,
     };
-  }, [getTimeposFromTime, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
+  }, [getTimeFromTimepos, getTimeposFromTime, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
   const {
     currentEditorBpm,
     currentEditorSpeed,
