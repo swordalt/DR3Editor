@@ -54,7 +54,6 @@ export default function EditorLeftSpeedPanel(props: any) {
     deleteSpeedChange,
     addSpeedChange,
     selectedNoteIdSet,
-    selectedNotesSorted,
     curveNoteType,
     setCurveNoteType,
     notePropertyInputClass,
@@ -141,6 +140,7 @@ export default function EditorLeftSpeedPanel(props: any) {
     </>
   );
 }
+
 
 
 

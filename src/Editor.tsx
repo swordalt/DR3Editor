@@ -4787,7 +4787,6 @@ export default function Editor({
     deleteSpeedChange,
     addSpeedChange,
     selectedNoteIdSet,
-    selectedNotesSorted,
     curveNoteType,
     setCurveNoteType,
     notePropertyInputClass,
