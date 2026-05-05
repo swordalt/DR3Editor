@@ -100,6 +100,15 @@ import { getMirroredNoteLane } from './editor/editorNoteTransforms';
 import { buildChartProjectFiles } from './editor/chartProjectFiles';
 import { calculateChartStatistics } from './editor/chartStatistics';
 import {
+  METADATA_REQUIRED_FIELDS,
+  getInvalidMetadataFields,
+  hasInvalidMetadataFields,
+  isValidDifficulty,
+  isValidSongId,
+  type MetadataField,
+  type MetadataTouchedFields,
+} from './editor/metadataValidation';
+import {
   DR3FP_PREVIEW_RECEIVER_ORIGIN,
   DR3FP_PREVIEW_RECEIVER_POLL_MS,
   DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS,
@@ -206,6 +215,7 @@ export default function Editor({
     songFile: null as File | null,
     songIllustration: null as File | null,
   });
+  const [metadataTouchedFields, setMetadataTouchedFields] = useState<MetadataTouchedFields>({});
   const [illustrationPreview, setIllustrationPreview] = useState<string | null>(null);
 
   useEffect(() => {
@@ -575,17 +585,26 @@ export default function Editor({
 
   const timedBpmChanges = useMemo(() => convertBpmChangesToTime(bpmChanges), [bpmChanges]);
   const isOfficialChartFormat = (projectData?.chartFormat ?? 'Official') === 'Official';
+  const hasValidProjectSongId = Boolean(projectData && isValidSongId(projectData.songId));
   const hasExportIncompatibleTimeSignature = useMemo(
     () => !isOfficialChartFormat && bpmChanges.some(change => change.timeSignature.trim() !== '4/4'),
     [bpmChanges, isOfficialChartFormat],
   );
   const hasRequiredExportMetadata = Boolean(
-    projectData?.songId.trim() &&
-    projectData?.difficulty.trim() &&
+    hasValidProjectSongId &&
+    projectData && isValidDifficulty(projectData.difficulty) &&
     projectData?.songFile,
   );
   const isExportDisabled = hasExportIncompatibleTimeSignature || !hasRequiredExportMetadata;
   const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds]);
+  const invalidMetadataFields = useMemo(() => getInvalidMetadataFields(formData), [formData]);
+  const visibleInvalidMetadataFields = useMemo(
+    () => METADATA_REQUIRED_FIELDS.reduce((fields, field) => ({
+      ...fields,
+      [field]: Boolean(metadataTouchedFields[field] && invalidMetadataFields[field]),
+    }), {} as Record<MetadataField, boolean>),
+    [invalidMetadataFields, metadataTouchedFields],
+  );
 
   const cloneEditorSnapshot = useCallback((): OperationHistorySnapshot => ({
     projectData: projectData ? { ...projectData } : null,
@@ -1133,7 +1152,26 @@ export default function Editor({
     };
   }, []);
 
+  const showMetadataFieldValidation = (field: MetadataField) => {
+    setMetadataTouchedFields(prev => ({ ...prev, [field]: true }));
+  };
+
+  const handleMetadataFieldKeyDown = (field: MetadataField, event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      showMetadataFieldValidation(field);
+    }
+  };
+
   const handleConfirm = () => {
+    setMetadataTouchedFields(Object.fromEntries(
+      METADATA_REQUIRED_FIELDS.map(field => [field, true]),
+    ) as MetadataTouchedFields);
+
+    if (hasInvalidMetadataFields(invalidMetadataFields)) {
+      alert('Please enter a valid Song ID, Song BPM, Difficulty, and Audio File.');
+      return;
+    }
+
     const wasProjectCreated = !projectData;
     let audioUrl = projectData?.audioUrl || '';
     if (formData.songFile && formData.songFile !== projectData?.songFile) {
@@ -1161,6 +1199,7 @@ export default function Editor({
     if (activeLeftPanel === 'editInfo') {
       setActiveLeftPanel('main');
     }
+    setMetadataTouchedFields({});
 
     recordOperation({
       category: 'metadata',
@@ -1179,6 +1218,7 @@ export default function Editor({
       songFile: projectData?.songFile || null,
       songIllustration: projectData?.songIllustration || null,
     });
+    setMetadataTouchedFields({});
     setActiveLeftPanel('editInfo');
   };
 
@@ -4777,6 +4817,9 @@ export default function Editor({
     noteWidth,
     formData,
     setFormData,
+    invalidMetadataFields: visibleInvalidMetadataFields,
+    showMetadataFieldValidation,
+    handleMetadataFieldKeyDown,
     illustrationPreview,
     chartProjectFiles,
     handleConfirm,
@@ -4895,6 +4938,9 @@ export default function Editor({
       setIsModalOpen={setIsModalOpen}
       formData={formData}
       setFormData={setFormData}
+      invalidMetadataFields={visibleInvalidMetadataFields}
+      showMetadataFieldValidation={showMetadataFieldValidation}
+      handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
       handleConfirm={handleConfirm}
       projectData={projectData}
       audioRef={audioRef}

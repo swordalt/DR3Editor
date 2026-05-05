@@ -1,6 +1,12 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { EditorFormData } from '../types/editorTypes';
+import {
+  getInvalidMetadataFields,
+  hasInvalidMetadataFields,
+  type MetadataField,
+  type MetadataInvalidFields,
+} from '../editor/metadataValidation';
 
 interface EditorModalProps {
   isOpen: boolean;
@@ -8,10 +14,26 @@ interface EditorModalProps {
   onConfirm: () => void;
   formData: EditorFormData;
   setFormData: (data: EditorFormData) => void;
+  invalidMetadataFields: MetadataInvalidFields;
+  showMetadataFieldValidation: (field: MetadataField) => void;
+  handleMetadataFieldKeyDown: (field: MetadataField, event: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
-export default function EditorModal({ isOpen, onClose, onConfirm, formData, setFormData }: EditorModalProps) {
+export default function EditorModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  formData,
+  setFormData,
+  invalidMetadataFields,
+  showMetadataFieldValidation,
+  handleMetadataFieldKeyDown,
+}: EditorModalProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const isConfirmDisabled = hasInvalidMetadataFields(getInvalidMetadataFields(formData));
+  const getInputClassName = (field: MetadataField) => (
+    `w-full p-3 bg-neutral-800 rounded-lg border outline-none transition-colors ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
+  );
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -39,16 +61,46 @@ export default function EditorModal({ isOpen, onClose, onConfirm, formData, setF
               </h2>
             </div>
             <div className="space-y-4">
-              <input type="text" placeholder="Song ID *" value={formData.songId} required className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songId: e.target.value})} />
+              <input
+                type="text"
+                placeholder="Song ID *"
+                value={formData.songId}
+                required
+                className={getInputClassName('songId')}
+                onBlur={() => showMetadataFieldValidation('songId')}
+                onKeyDown={(event) => handleMetadataFieldKeyDown('songId', event)}
+                onChange={(e) => setFormData({...formData, songId: e.target.value})}
+              />
               <input type="text" placeholder="Song Name" value={formData.songName} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
               <input type="text" placeholder="Song Artist" value={formData.songArtist} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
-              <input type="number" placeholder="Song BPM *" value={formData.songBpm} required className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songBpm: e.target.value})} />
-              <input type="number" placeholder="Difficulty *" value={formData.difficulty} required className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, difficulty: e.target.value})} />
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Song BPM *"
+                value={formData.songBpm}
+                required
+                className={getInputClassName('songBpm')}
+                onBlur={() => showMetadataFieldValidation('songBpm')}
+                onKeyDown={(event) => handleMetadataFieldKeyDown('songBpm', event)}
+                onChange={(e) => setFormData({...formData, songBpm: e.target.value})}
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Difficulty *"
+                value={formData.difficulty}
+                required
+                className={getInputClassName('difficulty')}
+                onBlur={() => showMetadataFieldValidation('difficulty')}
+                onKeyDown={(event) => handleMetadataFieldKeyDown('difficulty', event)}
+                onChange={(e) => setFormData({...formData, difficulty: e.target.value})}
+              />
               
               <div className="flex items-center gap-2">
                 <button 
                   onClick={handleUploadClick}
-                  className="p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700 transition-colors w-full text-left"
+                  onBlur={() => showMetadataFieldValidation('songFile')}
+                  className={`p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border transition-colors w-full text-left ${invalidMetadataFields.songFile ? 'border-red-500' : 'border-neutral-700'}`}
                 >
                   {formData.songFile ? formData.songFile.name : 'Select Audio File *'}
                 </button>
@@ -66,7 +118,11 @@ export default function EditorModal({ isOpen, onClose, onConfirm, formData, setF
                 <button onClick={onClose} className="w-full p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg font-semibold transition-colors">
                   Return to Landing
                 </button>
-                <button onClick={onConfirm} className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors">
+                <button
+                  onClick={onConfirm}
+                  disabled={isConfirmDisabled}
+                  className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                >
                   Confirm
                 </button>
               </div>

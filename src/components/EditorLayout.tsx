@@ -17,6 +17,9 @@ export default function EditorLayout(props: any) {
     setIsModalOpen,
     formData,
     setFormData,
+    invalidMetadataFields,
+    showMetadataFieldValidation,
+    handleMetadataFieldKeyDown,
     handleConfirm,
     projectData,
     audioRef,
@@ -131,15 +134,12 @@ export default function EditorLayout(props: any) {
           }
           setIsModalOpen(false);
         }}
-        onConfirm={() => {
-          if (!formData.songId.trim() || !formData.difficulty.trim() || !formData.songFile || !formData.songBpm) {
-            alert('Please fill in all required fields: Song ID, Difficulty, Audio File, and Song BPM.');
-            return;
-          }
-          handleConfirm();
-        }}
+        onConfirm={handleConfirm}
         formData={formData}
         setFormData={setFormData}
+        invalidMetadataFields={invalidMetadataFields}
+        showMetadataFieldValidation={showMetadataFieldValidation}
+        handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
       />
 
       <EditorOverlays

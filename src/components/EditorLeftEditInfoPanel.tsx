@@ -15,6 +15,7 @@ import {
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
+import type { MetadataField } from '../editor/metadataValidation';
 export default function EditorLeftEditInfoPanel(props: any) {
   const {
     isLeftPanelContentVisible,
@@ -33,6 +34,9 @@ export default function EditorLeftEditInfoPanel(props: any) {
     noteWidth,
     formData,
     setFormData,
+    invalidMetadataFields,
+    showMetadataFieldValidation,
+    handleMetadataFieldKeyDown,
     illustrationPreview,
     chartProjectFiles,
     handleConfirm,
@@ -80,6 +84,9 @@ export default function EditorLeftEditInfoPanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const getMetadataInputClassName = (field: MetadataField) => (
+    `w-full p-2 text-sm bg-neutral-800 rounded border outline-none ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
+  );
 
   return (
     <>
@@ -94,7 +101,15 @@ export default function EditorLeftEditInfoPanel(props: any) {
               <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 pb-4">
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">Song ID *</label>
-                  <input type="text" value={formData.songId} required className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songId: e.target.value})} />
+                  <input
+                    type="text"
+                    value={formData.songId}
+                    required
+                    className={getMetadataInputClassName('songId')}
+                    onBlur={() => showMetadataFieldValidation('songId')}
+                    onKeyDown={(event) => handleMetadataFieldKeyDown('songId', event)}
+                    onChange={(e) => setFormData({...formData, songId: e.target.value})}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">Song Name</label>
@@ -106,11 +121,24 @@ export default function EditorLeftEditInfoPanel(props: any) {
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">Difficulty *</label>
-                  <input type="number" value={formData.difficulty} required className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, difficulty: e.target.value})} />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formData.difficulty}
+                    required
+                    className={getMetadataInputClassName('difficulty')}
+                    onBlur={() => showMetadataFieldValidation('difficulty')}
+                    onKeyDown={(event) => handleMetadataFieldKeyDown('difficulty', event)}
+                    onChange={(e) => setFormData({...formData, difficulty: e.target.value})}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">Audio File *</label>
-                  <label className="flex flex-col items-center justify-center w-full h-12 border-2 border-dashed border-neutral-700 rounded cursor-pointer hover:border-indigo-500 hover:bg-neutral-800/50 transition-colors">
+                  <label
+                    className={`flex flex-col items-center justify-center w-full h-12 border-2 border-dashed rounded cursor-pointer hover:border-indigo-500 hover:bg-neutral-800/50 transition-colors ${invalidMetadataFields.songFile ? 'border-red-500' : 'border-neutral-700'}`}
+                    tabIndex={0}
+                    onBlur={() => showMetadataFieldValidation('songFile')}
+                  >
                     <p className="text-xs text-neutral-400 truncate w-full px-2 text-center">
                       {formData.songFile ? <span className="font-semibold text-indigo-400">{formData.songFile.name}</span> : <span>Upload audio</span>}
                     </p>
