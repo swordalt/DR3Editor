@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Box, Square, X, ChevronLeft, ChevronRight, Copy, Trash2, FlipHorizontal, FileText, Image, Info, Music } from 'lucide-react';
+import { FileText, Image, Info, Music } from 'lucide-react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorModal from './components/EditorModal';
-import EditorCanvas from './components/EditorCanvas';
+import EditorCanvasStage from './components/EditorCanvasStage';
 import EditorOverlays from './components/EditorOverlays';
 import EditorTopBar from './components/EditorTopBar';
+import EditorPerformanceStats from './components/EditorPerformanceStats';
+import EditorLeftSidebar from './components/EditorLeftSidebar';
+import EditorPreviewSidebar from './components/EditorPreviewSidebar';
+import EditorRightSidebar from './components/EditorRightSidebar';
 import CommitInput from './components/CommitInput';
 import VirtualizedChangeList from './components/VirtualizedChangeList';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, shouldOmitParentForType } from './constants/editorConstants';
@@ -103,64 +107,24 @@ import {
   getSpeedDistanceAtTimepos,
   parsePreviewNoteSpeed,
 } from './editor/previewPlayback';
-
-const HIT_SOUND_URL = new URL('../hit.ogg', import.meta.url).href;
-const FLICK_SOUND_URL = new URL('../flick.ogg', import.meta.url).href;
-const SOUND_URLS: Record<string, string> = {
-  'hit.ogg': HIT_SOUND_URL,
-  'flick.ogg': FLICK_SOUND_URL,
-};
-const getHitSoundVolume = (soundUrl: string, tapSoundVolume: number, flickSoundVolume: number) => (
-  soundUrl === FLICK_SOUND_URL ? flickSoundVolume : tapSoundVolume
-);
-const PREVIEW_3D_MAX_GRID_WIDTH_RATIO = 0.84;
-const PREVIEW_3D_HORIZON_VIEWPORT_MULTIPLIER = 0.6;
-const PREVIEW_3D_NEAR_SPEED_MULTIPLIER = 2.05;
-const PREVIEW_3D_FAR_DISTANCE_MULTIPLIER = 2.2;
-const PREVIEW_3D_CONNECTOR_CLIP_PADDING = 80;
-const PREVIEW_3D_CONNECTOR_MAX_SEGMENT_HEIGHT = 18;
-const PREVIEW_3D_CAMERA_BASE_Z = -7;
-const PREVIEW_3D_CAMERA_Z_PER_HEIGHT = -14;
-const PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT = -120;
-const PREVIEW_3D_CAMERA_EASE_PER_SECOND = 20;
-const DR3FP_PREVIEW_RECEIVER_ORIGIN = 'http://127.0.0.1:27373';
-const DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS = 30_000;
-const DR3FP_PREVIEW_RECEIVER_POLL_MS = 250;
-
-const getMirroredNoteLane = (note: Pick<Note, 'lane' | 'width'>) => (
-  X_POSITION_COUNT - note.lane - note.width
-);
-
-const getFileExtension = (file: File) => {
-  const extension = file.name.split('.').pop();
-  return extension && extension !== file.name ? extension : 'bin';
-};
-
-const formatFileSize = (file: File | null) => {
-  if (!file) return '';
-
-  return formatByteSize(file.size);
-};
-
-const formatByteSize = (size: number) => {
-  if (size >= 1024 * 1024) {
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  if (size >= 1024) {
-    return `${Math.round(size / 1024)} KB`;
-  }
-
-  return `${size} B`;
-};
-
-interface MusicAudioGraph {
-  context: AudioContext;
-  source: MediaElementAudioSourceNode;
-  gain: GainNode;
-}
-
-const musicAudioGraphs = new WeakMap<HTMLAudioElement, MusicAudioGraph>();
+import { SOUND_URLS, getHitSoundVolume, musicAudioGraphs, type MusicAudioGraph } from './editor/editorAudioAssets';
+import { formatByteSize, formatFileSize, getFileExtension } from './editor/editorFileHelpers';
+import { getMirroredNoteLane } from './editor/editorNoteTransforms';
+import {
+  DR3FP_PREVIEW_RECEIVER_ORIGIN,
+  DR3FP_PREVIEW_RECEIVER_POLL_MS,
+  DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS,
+  PREVIEW_3D_CAMERA_BASE_Z,
+  PREVIEW_3D_CAMERA_EASE_PER_SECOND,
+  PREVIEW_3D_CAMERA_Y_OFFSET_PER_HEIGHT,
+  PREVIEW_3D_CAMERA_Z_PER_HEIGHT,
+  PREVIEW_3D_CONNECTOR_CLIP_PADDING,
+  PREVIEW_3D_CONNECTOR_MAX_SEGMENT_HEIGHT,
+  PREVIEW_3D_FAR_DISTANCE_MULTIPLIER,
+  PREVIEW_3D_HORIZON_VIEWPORT_MULTIPLIER,
+  PREVIEW_3D_MAX_GRID_WIDTH_RATIO,
+  PREVIEW_3D_NEAR_SPEED_MULTIPLIER,
+} from './editor/preview3DConstants';
 
 export default function Editor({ 
   onBack, 
@@ -4986,8 +4950,9 @@ export default function Editor({
       />
 
       {projectData && (
-        <div
-          className="group fixed bottom-4 right-4 z-40 select-none"
+        <EditorPerformanceStats
+          fps={fps}
+          renderedObjects={renderedObjects}
           onMouseEnter={() => {
             shouldCountRenderedObjectsRef.current = true;
             setIsFpsCounterHovered(true);
@@ -5001,1070 +4966,147 @@ export default function Editor({
             renderedObjectsDisplayLastUpdateRef.current = 0;
             setRenderedObjects(0);
           }}
-          tabIndex={0}
-          aria-label={`Performance statistics: ${fps} FPS, ${renderedObjects} rendered objects`}
-        >
-          <div className="pointer-events-none absolute bottom-full right-0 mb-2 min-w-40 translate-y-1 rounded-xl border border-neutral-700 bg-neutral-950/95 px-3 py-2 text-right font-mono text-xs text-neutral-300 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
-            Rendered objects <span className="ml-2 text-white">{renderedObjects}</span>
-          </div>
-          <div className="rounded-xl border border-neutral-700 bg-neutral-950/90 px-3 py-2 font-mono text-sm text-neutral-300 shadow-2xl shadow-black/40 backdrop-blur">
-            FPS <span className="ml-2 inline-block min-w-8 text-right text-white">{fps}</span>
-          </div>
-        </div>
+        />
       )}
 
       {/* Main Editor Area */}
       <main className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Sidebar - General Functions */}
         {!isPreviewMode && (
-        <aside className={`${isLeftPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
-          <div className={`p-2 border-b border-neutral-800 flex ${isLeftPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
-            <button
-              onClick={toggleLeftPanelCompact}
-              className={`flex items-center gap-2 rounded text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors ${isLeftPanelContentVisible ? 'px-2 py-1 text-xs font-medium' : 'p-1'}`}
-            >
-              {isLeftPanelCompact ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-              {isLeftPanelContentVisible && <span>Collapse Window</span>}
-            </button>
-          </div>
-          {isLeftPanelContentVisible && activeLeftPanel === 'main' && (
-            <div className="p-4 flex flex-col gap-4 h-full overflow-y-auto min-h-0">
-              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">General Functions</div>
-              <div className="flex flex-col gap-2 flex-1">
-                <button 
-                  onClick={handleEditInfo}
-                  className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
-                >
-                  Info & Files
-                </button>
-                <button onClick={() => setActiveLeftPanel('bpmTiming')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  BPM / Timing
-                </button>
-                <button onClick={() => setActiveLeftPanel('speedChanges')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Speed Changes
-                </button>
-                <button onClick={() => setActiveLeftPanel('curveNotes')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Curve Notes
-                </button>
-                <button onClick={() => setActiveLeftPanel('organize')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Organize Notes
-                </button>
-                <button onClick={() => setActiveLeftPanel('history')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Operation History
-                </button>
-                <button onClick={() => setActiveLeftPanel('chartIssues')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Chart Issues
-                </button>
-              </div>
-              
-              <div className="mt-auto pt-4 border-t border-neutral-800">
-                <button
-                  type="button"
-                  onClick={handleClearCopiedNotes}
-                  disabled={copiedNotesCount === 0}
-                  className="mb-4 w-full px-3 py-2 text-sm text-neutral-300 bg-neutral-800 hover:bg-neutral-700 hover:text-white disabled:bg-neutral-900 disabled:text-neutral-600 rounded-lg transition-colors"
-                >
-                  Clear Clipboard
-                </button>
-                <div className="mb-4 border-t border-neutral-800 pt-4">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Current Parent</div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={currentParentInput}
-                    placeholder="Auto"
-                    className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none"
-                    onChange={(e) => setCurrentParentInput(e.target.value)}
-                  />
-                  <div className="text-xs text-neutral-400 mt-2">
-                    {currentParentNote
-                      ? `ID ${currentParentNote.id} | XPos ${formatNoteLane(currentParentNote.lane)} | Type ${NOTE_TYPES[currentParentNote.type]?.name || currentParentNote.type}`
-                      : currentParentInput.trim() === ''
-                        ? 'Auto-select current ID when placing.'
-                        : 'No note exists with that ID.'}
-                  </div>
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      onClick={() => setCurrentParentInput('')}
-                      className="flex-1 px-2 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors"
-                    >
-                      Auto
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (selectedSingleNote) {
-                          setCurrentParentInput(selectedSingleNote.id.toString());
-                        }
-                      }}
-                      disabled={!canUseSelectedAsParent}
-                      className="flex-1 px-2 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:text-neutral-600 rounded transition-colors"
-                    >
-                      Use Selected
-                    </button>
-                  </div>
-                  <div className="text-xs text-neutral-500 mt-2">
-                    Current ID: {currentId}
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-neutral-800">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Selected Note</div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded shadow-sm border border-neutral-700 flex items-center justify-center" style={{ backgroundColor: NOTE_TYPES[selectedNoteType]?.color || '#3b82f6' }}>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-neutral-300">{NOTE_TYPES[selectedNoteType]?.name || 'Unknown'}</span>
-                    <span className="text-xs text-neutral-400">Width: {noteWidth} / 16</span>
-                  </div>
-                </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isLeftPanelContentVisible && activeLeftPanel === 'editInfo' && (
-            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
-              <div className="flex items-center gap-2 mb-4 shrink-0">
-                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Edit Info</div>
-              </div>
-              <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 pb-4">
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Song ID *</label>
-                  <input type="text" value={formData.songId} required className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songId: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Song Name</label>
-                  <input type="text" value={formData.songName} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Song Artist</label>
-                  <input type="text" value={formData.songArtist} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Difficulty *</label>
-                  <input type="number" value={formData.difficulty} required className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, difficulty: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Audio File *</label>
-                  <label className="flex flex-col items-center justify-center w-full h-12 border-2 border-dashed border-neutral-700 rounded cursor-pointer hover:border-indigo-500 hover:bg-neutral-800/50 transition-colors">
-                    <p className="text-xs text-neutral-400 truncate w-full px-2 text-center">
-                      {formData.songFile ? <span className="font-semibold text-indigo-400">{formData.songFile.name}</span> : <span>Upload audio</span>}
-                    </p>
-                    <input type="file" accept="audio/*" required className="hidden" onChange={(e) => setFormData({...formData, songFile: e.target.files?.[0] || null})} />
-                  </label>
-                </div>
-                <div>
-                  <label className="block text-xs text-neutral-400 mb-1">Illustration</label>
-                  <label className="group flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-neutral-700 rounded cursor-pointer hover:border-indigo-500 hover:bg-neutral-800/50 transition-colors relative overflow-hidden">
-                    {illustrationPreview && (
-                      <>
-                        <img src={illustrationPreview} alt="Preview" className="absolute inset-0 w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-neutral-900/70 group-hover:bg-neutral-900/50 transition-colors" />
-                      </>
-                    )}
-                    <p className="text-xs text-neutral-300 truncate w-full px-2 text-center relative z-10">
-                      {formData.songIllustration ? <span className="font-semibold text-indigo-300">{formData.songIllustration.name}</span> : <span>Upload image</span>}
-                    </p>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => setFormData({...formData, songIllustration: e.target.files?.[0] || null})} />
-                  </label>
-                </div>
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="block text-xs text-neutral-400">Available Files</label>
-                    <span className="text-[11px] text-neutral-500">{chartProjectFiles.length} files</span>
-                  </div>
-                  <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
-                    {chartProjectFiles.map(({ label, name, detail, Icon }) => (
-                      <div key={`${label}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
-                        <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium text-neutral-300">{label}</div>
-                          <div className="truncate text-xs text-neutral-500" title={name}>{name}</div>
-                        </div>
-                        {detail && <div className="shrink-0 text-[11px] text-neutral-500">{detail}</div>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <button onClick={handleConfirm} className="w-full p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-semibold mt-2 transition-colors shrink-0">Save Changes</button>
-              </div>
-            </div>
-          )}
-
-          {isLeftPanelContentVisible && activeLeftPanel === 'bpmTiming' && (
-            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
-              <div className="flex items-center gap-2 mb-4 shrink-0">
-                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">BPM / Timing</div>
-              </div>
-              <div className="flex flex-col gap-4 overflow-hidden flex-1 pr-1 pb-4 min-h-0">
-                <div className="shrink-0">
-                  <label className="block text-xs text-neutral-400 mb-1">Offset (ms)</label>
-                  <CommitInput type="number" value={offset} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onCommit={(val) => {
-                    if (val === '-' || val === "") updateOffset(val);
-                    else {
-                      const num = parseFloat(val);
-                      updateOffset(isNaN(num) ? 0 : num);
-                    }
-                  }} />
-                </div>
-                <div className="flex flex-1 min-h-0 flex-col">
-                  {!isOfficialChartFormat && (
-                    <p className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
-                      Export currently only supports BPM changes with 4/4 time signatures.
-                    </p>
-                  )}
-                  <label className="block shrink-0 text-xs text-neutral-400 mb-1">BPM Changes</label>
-                  <div className={`${bpmChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
-                    <div>ID</div>
-                    <div>Timepos</div>
-                    <div>BPM</div>
-                    {!isOfficialChartFormat && <div>Sig</div>}
-                    <div />
-                  </div>
-                  <VirtualizedChangeList
-                    items={bpmChanges}
-                    rowHeight={36}
-                    getKey={(_, index) => index}
-                    className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
-                    renderRow={(change, index, style) => (
-                      <div style={style} className={`${bpmChangeGridClass} items-center`}>
-                        <button
-                          type="button"
-                          className={changeTableJumpMarkerClass}
-                          title={`Jump to BPM change ${index + 1}`}
-                          onClick={() => jumpToNoteTime(getTimeFromTimepos(getBpmChangeTimepos(change)))}
-                        >
-                          {index + 1}
-                        </button>
-                        <CommitInput type="number" step="0.001" value={getBpmChangeTimepos(change)} className={changeTableInputClass} onCommit={(value) => {
-                            const timepos = parseFloat(value);
-                            updateBpmChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
-                          }} />
-                        <CommitInput type="number" value={change.bpm} className={changeTableInputClass} onCommit={(value) => {
-                            updateBpmChange(index, { bpm: parseFloat(value) || 120 });
-                          }} />
-                        {!isOfficialChartFormat && (
-                          <CommitInput type="text" value={change.timeSignature} className={changeTableInputClass} onCommit={(value) => {
-                              updateBpmChange(index, { timeSignature: value });
-                            }} />
-                        )}
-                        <div>
-                          {index > 0 && (
-                            <button onClick={() => {
-                              deleteBpmChange(index);
-                            }} className="text-red-400 hover:text-red-300">
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  />
-                  <button onClick={addBpmChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">Add BPM Change</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isLeftPanelContentVisible && activeLeftPanel === 'speedChanges' && (
-            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
-              <div className="flex items-center gap-2 mb-4 shrink-0">
-                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Speed Changes</div>
-              </div>
-              <div className="flex flex-col overflow-hidden flex-1 pr-1 pb-4 min-h-0">
-                <div className={`${speedChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
-                  <div>ID</div>
-                  <div>Timepos</div>
-                  <div>Speed</div>
-                  <div />
-                </div>
-                <VirtualizedChangeList
-                  items={speedChanges}
-                  rowHeight={36}
-                    getKey={(_, index) => index}
-                    className="min-h-0 flex-1 pr-1 text-sm text-neutral-300"
-                    renderRow={(change, index, style) => (
-                    <div style={style} className={`${speedChangeGridClass} items-center`}>
-                      <button
-                        type="button"
-                        className={changeTableJumpMarkerClass}
-                        title={`Jump to speed change ${index + 1}`}
-                        onClick={() => jumpToNoteTime(getTimeFromTimepos(change.timepos))}
-                      >
-                        {index + 1}
-                      </button>
-                      <CommitInput type="number" step="0.001" value={change.timepos} className={changeTableInputClass} onCommit={(value) => {
-                          const timepos = parseFloat(value);
-                          updateSpeedChange(index, { timepos: Number.isFinite(timepos) ? timepos : 0 });
-                        }} />
-                      <CommitInput type="number" step="0.1" value={change.speedChange} className={changeTableInputClass} onCommit={(value) => {
-                          const val = parseFloat(value);
-                          updateSpeedChange(index, { speedChange: isNaN(val) ? 1 : val });
-                        }} />
-                      <div>
-                        {index > 0 && (
-                          <button onClick={() => {
-                            deleteSpeedChange(index);
-                          }} className="text-red-400 hover:text-red-300">
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                />
-                <button onClick={addSpeedChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">Add Speed Change</button>
-              </div>
-            </div>
-          )}
-
-          {isLeftPanelContentVisible && activeLeftPanel === 'curveNotes' && (
-            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
-              <div className="flex items-center gap-2 mb-4 shrink-0">
-                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Curve Notes</div>
-              </div>
-              <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Start ID</span>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={curveStartIdInput}
-                      className={`${notePropertyInputClass} min-w-0 flex-1`}
-                      onChange={(e) => {
-                        setCurveStartIdInput(e.target.value);
-                        setCurveNotesMessage('');
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={curveIdSelectTarget === 'end'}
-                      onClick={() => {
-                        const nextTarget = curveIdSelectTarget === 'start' ? null : 'start';
-                        setCurveIdSelectTarget(nextTarget);
-                        setCurveNotesMessage(nextTarget ? 'Click a note to set Start ID.' : '');
-                      }}
-                      className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
-                        curveIdSelectTarget === 'start'
-                          ? 'border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700'
-                          : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
-                      }`}
-                    >
-                      {curveIdSelectTarget === 'start' ? 'Cancel' : 'Select'}
-                    </button>
-                  </div>
-                  <div className="mt-1 text-xs text-neutral-500">
-                    {curveStartNote
-                      ? `${NOTE_TYPES[curveStartNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveStartNote.time, timedBpmChanges)}`
-                      : curveStartIdInput.trim() === ''
-                        ? 'Enter an existing note ID.'
-                        : 'No note exists with that ID.'}
-                  </div>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">End ID</span>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={curveEndIdInput}
-                      className={`${notePropertyInputClass} min-w-0 flex-1`}
-                      onChange={(e) => {
-                        setCurveEndIdInput(e.target.value);
-                        setCurveNotesMessage('');
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={curveIdSelectTarget === 'start'}
-                      onClick={() => {
-                        const nextTarget = curveIdSelectTarget === 'end' ? null : 'end';
-                        setCurveIdSelectTarget(nextTarget);
-                        setCurveNotesMessage(nextTarget ? 'Click a note to set End ID.' : '');
-                      }}
-                      className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
-                        curveIdSelectTarget === 'end'
-                          ? 'border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700'
-                          : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
-                      }`}
-                    >
-                      {curveIdSelectTarget === 'end' ? 'Cancel' : 'Select'}
-                    </button>
-                  </div>
-                  <div className="mt-1 text-xs text-neutral-500">
-                    {curveEndNote
-                      ? `${NOTE_TYPES[curveEndNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveEndNote.time, timedBpmChanges)}`
-                      : curveEndIdInput.trim() === ''
-                        ? 'Enter an existing note ID.'
-                        : 'No note exists with that ID.'}
-                  </div>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Type</span>
-                  <select
-                    value={curveNoteType}
-                    className={notePropertyInputClass}
-                    onChange={(e) => {
-                      setCurveNoteType(Number(e.target.value));
-                      setCurveNotesMessage('');
-                    }}
-                  >
-                    {AVAILABLE_NOTE_TYPES.map(type => (
-                      <option key={type} value={type}>
-                        {type} - {NOTE_TYPES[type]?.name || UNKNOWN_NOTE_TYPE.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Density</span>
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-sm text-neutral-400">1/</span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={curveDensityInput}
-                      className={`${notePropertyInputClass} min-w-0 flex-1`}
-                      onChange={(e) => {
-                        setCurveDensityInput(e.target.value);
-                        setCurveNotesMessage('');
-                      }}
-                    />
-                  </div>
-                  <div className="mt-1 text-xs text-neutral-500">
-                    {curveDensityInput.trim() === ''
-                      ? 'Enter a denominator.'
-                      : hasValidCurveDensity
-                        ? `Snap density 1/${parsedCurveDensity}.`
-                        : 'Density denominator must be a positive whole number.'}
-                  </div>
-                </label>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block min-w-0">
-                    <span className="mb-1 block text-xs text-neutral-400">Easing</span>
-                    <select
-                      value={curveEasingFamily}
-                      className={`${notePropertyInputClass} min-w-0`}
-                      onChange={(e) => {
-                        setCurveEasingFamily(e.target.value as CurveEasingFamily);
-                        setCurveNotesMessage('');
-                      }}
-                    >
-                      {CURVE_EASING_FAMILY_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block min-w-0">
-                    <span className="mb-1 block text-xs text-neutral-400">Type</span>
-                    <select
-                      value={curveEasingType}
-                      className={`${notePropertyInputClass} min-w-0`}
-                      disabled={curveEasingFamily === 'linear'}
-                      onChange={(e) => {
-                        setCurveEasingType(e.target.value as CurveEasingType);
-                        setCurveNotesMessage('');
-                      }}
-                    >
-                      {CURVE_EASING_TYPE_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGenerateCurveNotes}
-                  disabled={!canGenerateCurveNotes}
-                  className="mt-1 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                >
-                  Generate Curve Notes
-                </button>
-
-                <p className="text-xs leading-5 text-neutral-500">
-                  Generates intermediate notes on the selected snap grid, interpolating xpos and width with the selected easing.
-                </p>
-
-                {canTypeHaveParent(curveNoteType) && (
-                  <p className="text-xs leading-5 text-neutral-500">
-                    Generated connector notes will parent to the previous point in the curve.
-                  </p>
-                )}
-
-                {curveNotesMessage && (
-                  <div className="rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
-                    {curveNotesMessage}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {isLeftPanelContentVisible && ['organize', 'history', 'chartIssues'].includes(activeLeftPanel) && (
-            <div className="p-4 flex flex-col h-full overflow-hidden min-h-0">
-              <div className="flex items-center gap-2 mb-4 shrink-0">
-                <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-                  {activeLeftPanel === 'organize' ? 'Organize' : activeLeftPanel === 'chartIssues' ? 'Chart Issues' : 'History'}
-                </div>
-              </div>
-              {activeLeftPanel === 'organize' ? (
-                <div className="flex-1">
-                  <button
-                    type="button"
-                    onClick={handleOrganizeNotes}
-                    disabled={notes.length === 0 || isOrganizingNotes}
-                    className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                  >
-                    {isOrganizingNotes ? 'Organizing...' : 'Organize Notes'}
-                  </button>
-                  <p className="mt-2 text-xs leading-5 text-neutral-500">
-                    Reassigns note IDs from earliest to latest timepos, then left to right by xpos. Notes sharing the same timepos and xpos keep their original ID order, and parent links are remapped to stay grouped with their children.
-                  </p>
-                </div>
-              ) : activeLeftPanel === 'chartIssues' ? (
-                <div className="flex min-h-0 flex-1 flex-col gap-3">
-                  <button
-                    type="button"
-                    onClick={recheckChartIssues}
-                    className="w-full shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
-                  >
-                    Recheck Chart Issues
-                  </button>
-
-                  <div className="shrink-0 rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
-                    Initial scan found <span className="font-semibold text-neutral-200">{chartIssues.length}</span> potential {chartIssues.length === 1 ? 'issue' : 'issues'}.
-                  </div>
-
-                  {chartIssues.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      No chart issues found
-                    </div>
-                  ) : (
-                    <VirtualizedChangeList
-                      items={chartIssues}
-                      rowHeight={124}
-                      overscan={8}
-                      getKey={(issue) => issue.id}
-                      className="min-h-0 flex-1 pr-1"
-                      renderRow={(issue, _index, style) => (
-                        <div style={style} className="pb-2">
-                          <div className="flex h-[116px] flex-col rounded-lg border border-amber-500/20 bg-amber-500/10 p-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 truncate text-sm font-medium text-amber-100">
-                                {issue.title}
-                              </div>
-                              <span className="shrink-0 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-200">
-                                {issue.category}
-                              </span>
-                            </div>
-                            <div className="mt-1 max-h-12 overflow-hidden break-words text-xs leading-5 text-neutral-300">
-                              {issue.detail}
-                            </div>
-                            <div className="mt-auto flex items-center justify-between gap-2 text-[11px] text-neutral-500">
-                              <span>#{issue.id}</span>
-                              <div className="flex min-w-0 items-center gap-2">
-                                <span className="truncate">
-                                  Notes {formatGroupedIds(issue.noteIds)}
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={issue.timepos === null}
-                                  onClick={() => {
-                                    if (issue.timepos !== null) {
-                                      jumpToNoteTime(getTimeFromTimepos(issue.timepos));
-                                    }
-                                  }}
-                                  className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-neutral-300 transition-colors hover:border-indigo-500 hover:bg-indigo-600 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-950 disabled:text-neutral-700"
-                                >
-                                  Jump
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col gap-3">
-                  <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-neutral-400">
-                    <input
-                      type="checkbox"
-                      checked={shouldShowUndoneOperations}
-                      onChange={(event) => setShouldShowUndoneOperations(event.target.checked)}
-                      className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 accent-indigo-500"
-                    />
-                    Show Undone Operations
-                  </label>
-
-                  {operationHistory.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      No operations recorded yet
-                    </div>
-                  ) : visibleOperationHistory.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      Undone operations are hidden
-                    </div>
-                  ) : (
-                    <VirtualizedChangeList
-                      items={visibleOperationHistory}
-                      rowHeight={116}
-                      overscan={8}
-                      getKey={(entry) => entry.id}
-                      className="min-h-0 flex-1 pr-1"
-                      renderRow={(entry, _index, style) => {
-                        const isUndone = undoneOperationIds.has(entry.id);
-
-                        return (
-                          <div style={style} className="pb-2">
-                            <div className={`flex h-[108px] flex-col rounded-lg border p-3 ${isUndone ? 'border-neutral-800 bg-neutral-950/20 opacity-55' : 'border-neutral-800 bg-neutral-950/40'}`}>
-                              <div className="flex items-start justify-between gap-2">
-                                <div className={`min-w-0 truncate text-sm font-medium ${isUndone ? 'text-neutral-500' : 'text-neutral-200'}`}>
-                                  {entry.title}
-                                </div>
-                                <div className="flex shrink-0 items-center gap-1.5">
-                                  {isUndone && (
-                                    <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
-                                      Undone
-                                    </span>
-                                  )}
-                                  <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${isUndone ? 'border-neutral-700 bg-neutral-900 text-neutral-500' : operationCategoryStyles[entry.category]}`}>
-                                    {entry.category}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className={`mt-1 max-h-10 overflow-hidden break-words text-xs leading-5 ${isUndone ? 'text-neutral-600' : 'text-neutral-400'}`}>
-                                {entry.detail}
-                              </div>
-                              <div className="mt-auto flex items-center justify-between text-[11px] text-neutral-600">
-                                <span>#{entry.id}</span>
-                                <time dateTime={new Date(entry.timestamp).toISOString()}>
-                                  {formatHistoryTimestamp(entry.timestamp)}
-                                </time>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </aside>
+          <EditorLeftSidebar
+            isLeftPanelCompact={isLeftPanelCompact}
+            isLeftPanelContentVisible={isLeftPanelContentVisible}
+            toggleLeftPanelCompact={toggleLeftPanelCompact}
+            activeLeftPanel={activeLeftPanel}
+            setActiveLeftPanel={setActiveLeftPanel}
+            handleEditInfo={handleEditInfo}
+            handleClearCopiedNotes={handleClearCopiedNotes}
+            copiedNotesCount={copiedNotesCount}
+            currentParentInput={currentParentInput}
+            setCurrentParentInput={setCurrentParentInput}
+            currentParentNote={currentParentNote}
+            selectedSingleNote={selectedSingleNote}
+            canUseSelectedAsParent={canUseSelectedAsParent}
+            currentId={currentId}
+            selectedNoteType={selectedNoteType}
+            noteWidth={noteWidth}
+            formData={formData}
+            setFormData={setFormData}
+            illustrationPreview={illustrationPreview}
+            chartProjectFiles={chartProjectFiles}
+            handleConfirm={handleConfirm}
+            offset={offset}
+            updateOffset={updateOffset}
+            isOfficialChartFormat={isOfficialChartFormat}
+            bpmChangeGridClass={bpmChangeGridClass}
+            bpmChanges={bpmChanges}
+            changeTableJumpMarkerClass={changeTableJumpMarkerClass}
+            jumpToNoteTime={jumpToNoteTime}
+            getTimeFromTimepos={getTimeFromTimepos}
+            changeTableInputClass={changeTableInputClass}
+            updateBpmChange={updateBpmChange}
+            deleteBpmChange={deleteBpmChange}
+            addBpmChange={addBpmChange}
+            speedChangeGridClass={speedChangeGridClass}
+            speedChanges={speedChanges}
+            updateSpeedChange={updateSpeedChange}
+            deleteSpeedChange={deleteSpeedChange}
+            addSpeedChange={addSpeedChange}
+            selectedNoteIdSet={selectedNoteIdSet}
+            selectedNotesSorted={selectedNotesSorted}
+            curveNoteType={curveNoteType}
+            setCurveNoteType={setCurveNoteType}
+            notePropertyInputClass={notePropertyInputClass}
+            curveDensityInput={curveDensityInput}
+            setCurveDensityInput={setCurveDensityInput}
+            setCurveNotesMessage={setCurveNotesMessage}
+            hasValidCurveDensity={hasValidCurveDensity}
+            parsedCurveDensity={parsedCurveDensity}
+            curveEasingFamily={curveEasingFamily}
+            setCurveEasingFamily={setCurveEasingFamily}
+            curveEasingType={curveEasingType}
+            setCurveEasingType={setCurveEasingType}
+            handleGenerateCurveNotes={handleGenerateCurveNotes}
+            canGenerateCurveNotes={canGenerateCurveNotes}
+            curveNotesMessage={curveNotesMessage}
+            handleOrganizeNotes={handleOrganizeNotes}
+            notes={notes}
+            isOrganizingNotes={isOrganizingNotes}
+            recheckChartIssues={recheckChartIssues}
+            chartIssues={chartIssues}
+            shouldShowUndoneOperations={shouldShowUndoneOperations}
+            setShouldShowUndoneOperations={setShouldShowUndoneOperations}
+            operationHistory={operationHistory}
+            visibleOperationHistory={visibleOperationHistory}
+            undoneOperationIds={undoneOperationIds}
+          />
         )}
 
         {isPreviewMode && (
-          <aside className="w-64 shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col overflow-hidden">
-            <div className="border-b border-neutral-800 px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Preview Mode</div>
-            </div>
-            <div className="flex flex-col gap-4 p-4">
-              <div>
-                <div className="mb-2 text-xs font-medium text-neutral-400">Display Mode</div>
-                <div className="grid grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewDisplayMode('2d')}
-                    aria-pressed={previewDisplayMode === '2d'}
-                    className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${
-                      previewDisplayMode === '2d'
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-                    }`}
-                  >
-                    <Square className="h-4 w-4" />
-                    2D
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewDisplayMode('3d')}
-                    aria-pressed={previewDisplayMode === '3d'}
-                    className={`flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors ${
-                      previewDisplayMode === '3d'
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-                    }`}
-                  >
-                    <Box className="h-4 w-4" />
-                    3D
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
-                NSC and Note Appear Mode in Preview Mode may not be 100% accurate to the official game or other chart players.<br/><br/>Use direct preview via DR3FP for an 100% accurate preview in relation to DanceRail3.
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="preview-3d-tilt" className="text-xs font-medium text-neutral-400">
-                    3D Tilt Angle
-                  </label>
-                  <span className="text-xs tabular-nums text-neutral-500">
-                    {preview3DTiltDegrees.toFixed(1)}°
-                  </span>
-                </div>
-                <input
-                  id="preview-3d-tilt"
-                  type="range"
-                  min={MIN_PREVIEW_3D_TILT_DEGREES}
-                  max={MAX_PREVIEW_3D_TILT_DEGREES}
-                  step="0.1"
-                  value={preview3DTiltDegrees}
-                  onChange={(event) => setPreview3DTiltDegrees(Number(event.target.value))}
-                  disabled={previewDisplayMode !== '3d'}
-                  className="h-2 w-full accent-indigo-500 disabled:opacity-45"
-                />
-                <div className="flex justify-between text-[11px] text-neutral-600">
-                  <span>{MIN_PREVIEW_3D_TILT_DEGREES}°</span>
-                  <span>{MAX_PREVIEW_3D_TILT_DEGREES}°</span>
-                </div>
-              </div>
-            </div>
-          </aside>
+          <EditorPreviewSidebar
+            previewDisplayMode={previewDisplayMode}
+            setPreviewDisplayMode={setPreviewDisplayMode}
+            preview3DTiltDegrees={preview3DTiltDegrees}
+            setPreview3DTiltDegrees={setPreview3DTiltDegrees}
+          />
         )}
 
-        {/* Center - Canvas */}
-        <section 
-          ref={containerRef}
-          className="flex-1 bg-neutral-950 relative flex items-center justify-center overflow-hidden"
-          onWheel={handleWheel}
-        >
-          {!projectData ? (
-            <div className="text-neutral-500 z-10 flex flex-col items-center gap-4">
-              <div className="w-16 h-16 border-2 border-dashed border-neutral-700 rounded-full flex items-center justify-center">
-                <span className="text-2xl">🎵</span>
-              </div>
-              <p>{emptyCanvasMessage}</p>
-            </div>
-          ) : (
-            <EditorCanvas 
-              canvasRef={canvasRef}
-              containerRef={containerRef}
-              projectData={projectData}
-              bpmChanges={bpmChanges}
-              speedChanges={speedChanges}
-              gridZoom={gridZoom}
-              pixelsPerBeat={pixelsPerBeat}
-              currentTime={currentTime}
-              offset={offset}
-              stateRef={stateRef}
-              selectedNoteIds={selectedNoteIds}
-              selectionBox={selectionBox}
-              timeDisplayRef={timeDisplayRef}
-              progressBarRef={progressBarRef}
-              isDraggingProgress={isDraggingProgress}
-              audioRef={audioRef}
-              isPreviewMode={isPreviewMode}
-              onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={(event) => {
-                if (!selectionBox) {
-                  handleCanvasMouseUp(null);
-                  return;
-                }
-
-                const selectionPoint = getSelectionPointFromClient(event.clientX, event.clientY);
-                handleCanvasMouseUp(selectionPoint
-                  ? {
-                      ...selectionBox,
-                      endXPosition: selectionPoint.xPosition,
-                      endBeat: selectionPoint.beat,
-                    }
-                  : selectionBox);
-              }}
-              onMouseLeave={handleCanvasMouseLeave}
-              onContextMenu={handleContextMenu}
-            />
-          )}
-        </section>
+        <EditorCanvasStage
+          containerRef={containerRef}
+          handleWheel={handleWheel}
+          projectData={projectData}
+          emptyCanvasMessage={emptyCanvasMessage}
+          canvasRef={canvasRef}
+          bpmChanges={bpmChanges}
+          speedChanges={speedChanges}
+          gridZoom={gridZoom}
+          pixelsPerBeat={pixelsPerBeat}
+          currentTime={currentTime}
+          offset={offset}
+          stateRef={stateRef}
+          selectedNoteIds={selectedNoteIds}
+          selectionBox={selectionBox}
+          timeDisplayRef={timeDisplayRef}
+          progressBarRef={progressBarRef}
+          isDraggingProgress={isDraggingProgress}
+          audioRef={audioRef}
+          isPreviewMode={isPreviewMode}
+          handleCanvasMouseDown={handleCanvasMouseDown}
+          handleCanvasMouseMove={handleCanvasMouseMove}
+          handleCanvasMouseUp={handleCanvasMouseUp}
+          getSelectionPointFromClient={getSelectionPointFromClient}
+          handleCanvasMouseLeave={handleCanvasMouseLeave}
+          handleContextMenu={handleContextMenu}
+        />
 
         {/* Right Sidebar - Properties */}
         {!isPreviewMode && (
-        <aside className={`${isRightPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-l border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
-          <div className={`p-2 border-b border-neutral-800 flex ${isRightPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
-            <button
-              onClick={toggleRightPanelCompact}
-              className={`flex items-center gap-2 rounded text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors ${isRightPanelContentVisible ? 'px-2 py-1 text-xs font-medium' : 'p-1'}`}
-            >
-              {isRightPanelCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              {isRightPanelContentVisible && <span>Collapse Window</span>}
-            </button>
-          </div>
-          {isRightPanelContentVisible && (
-            <div className="p-4 flex flex-col gap-4 overflow-y-auto">
-              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Properties</div>
-              {selectedSingleNote ? (
-                <div className="flex flex-col gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedNoteIds([])}
-                    className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    <span>Deselect All</span>
-                  </button>
-
-                  <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-8 w-8 rounded border border-neutral-700"
-                        style={{ backgroundColor: NOTE_TYPES[selectedSingleNote.type]?.color || UNKNOWN_NOTE_TYPE.color }}
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-neutral-200">
-                          {NOTE_TYPES[selectedSingleNote.type]?.name || UNKNOWN_NOTE_TYPE.name}
-                        </div>
-                        <div className="text-xs text-neutral-500">ID {selectedSingleNote.id}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Type</span>
-                    <select
-                      value={selectedSingleNote.type}
-                      className={notePropertyInputClass}
-                      onChange={(e) => updateSelectedNote({ type: Number(e.target.value) })}
-                    >
-                      {AVAILABLE_NOTE_TYPES.map(type => (
-                        <option key={type} value={type}>
-                          {type} - {NOTE_TYPES[type]?.name || UNKNOWN_NOTE_TYPE.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Timepos (measure/decimal)</span>
-                    <CommitInput
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={Number(selectedNoteTimepos.toFixed(3))}
-                      className={notePropertyInputClass}
-                      onCommit={(value) => updateSelectedNote({ time: getTimeFromTimepos(Math.max(0, Number(value) || 0)) })}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">XPos</span>
-                    <CommitInput
-                      type="number"
-                      step="0.01"
-                      value={selectedSingleNote.lane}
-                      className={notePropertyInputClass}
-                      onCommit={(value) => {
-                        const lane = Number(value);
-                        if (!Number.isFinite(lane)) return;
-                        updateSelectedNote({ lane });
-                      }}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Width</span>
-                    <CommitInput
-                      type="number"
-                      min="0"
-                      max="16"
-                      step="0.01"
-                      value={selectedSingleNote.width}
-                      className={notePropertyInputClass}
-                      onCommit={(value) => {
-                        const parsedWidth = Number(value);
-                        const width = Number.isFinite(parsedWidth) ? Math.max(0, Math.min(16, parsedWidth)) : selectedSingleNote.width;
-                        updateSelectedNote({ width });
-                      }}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Parent ID</span>
-                    <div className="flex gap-2">
-                      <CommitInput
-                        type="number"
-                        min="0"
-                        value={selectedSingleNote.parentId ?? ''}
-                        placeholder="None"
-                        className={notePropertyInputClass}
-                        disabled={!canEditSelectedNoteParent}
-                        onCommit={(value) => {
-                          const trimmedValue = value.trim();
-                          updateSelectedNote({ parentId: trimmedValue === '' ? null : Math.max(0, Number(trimmedValue) || 0) });
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={!canEditSelectedNoteParent || !selectedParentNote}
-                        onClick={() => {
-                          if (selectedParentNote) {
-                            jumpToNoteTime(selectedParentNote.time);
-                          }
-                        }}
-                        className="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600"
-                      >
-                        Jump To
-                      </button>
-                    </div>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Speed</span>
-                    <CommitInput
-                      type="text"
-                      value={selectedSingleNote.speed ?? ''}
-                      placeholder="Default"
-                      className={notePropertyInputClass}
-                      onCommit={(value) => {
-                        const normalizedValue = value.replace(/\s+/g, '');
-                        updateSelectedNote({ speed: normalizedValue === '' ? undefined : normalizedValue });
-                      }}
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">AppearMode</span>
-                    <select
-                      value={selectedSingleNote.appearMode ?? 'none'}
-                      className={notePropertyInputClass}
-                      onChange={(e) => {
-                        const nextAppearMode = e.target.value;
-                        updateSelectedNote({
-                          appearMode: nextAppearMode === 'none'
-                            ? undefined
-                            : nextAppearMode as Note['appearMode'],
-                        });
-                      }}
-                    >
-                      {APPEAR_MODE_OPTIONS.map((appearMode) => (
-                        <option key={appearMode} value={appearMode}>
-                          {appearMode}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ) : (
-                selectedNoteIds.length > 1 ? (
-                  <div className="flex flex-col gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedNoteIds([])}
-                      className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      <span>Deselect All</span>
-                    </button>
-
-                    <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-                      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">Multiselect Functions</div>
-                      <div className="flex flex-col gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCopySelectedNotes}
-                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          <span>Copy</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDeleteSelectedNotes}
-                          className="flex w-full items-center justify-center gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 hover:text-white"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Delete</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleMirrorSelectedNotes}
-                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
-                        >
-                          <FlipHorizontal className="h-3.5 w-3.5" />
-                          <span>Mirror</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex-1 flex items-center justify-center text-sm text-neutral-600 border border-dashed border-neutral-800 rounded-lg p-4 text-center">
-                      {`${selectedNoteIds.length} notes selected`}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-                    <div className="text-sm font-medium text-neutral-200">Chart Summary</div>
-                    <div className="mt-3 flex flex-col divide-y divide-neutral-800 text-sm">
-                      <div className="flex items-center justify-between py-2 first:pt-0">
-                        <span className="text-neutral-400">Total Notes</span>
-                        <span className="font-mono text-neutral-100">{notes.length}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2">
-                        <span className="text-neutral-400">BPM Changes</span>
-                        <span className="font-mono text-neutral-100">{bpmChanges.length}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2 last:pb-0">
-                        <span className="text-neutral-400">Speed Changes</span>
-                        <span className="font-mono text-neutral-100">{speedChanges.length}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between border-t border-neutral-800 py-2 pt-4">
-                        <span className="text-neutral-400">Current BPM</span>
-                        <span className="font-mono text-neutral-100">{formatHistoryNumber(currentEditorBpm)}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2 last:pb-0">
-                        <span className="text-neutral-400">Current Speed</span>
-                        <span className="font-mono text-neutral-100">{formatHistoryNumber(currentEditorSpeed)}x</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2 last:pb-0">
-                        <span className="text-neutral-400">Current Distance</span>
-                        <span className="font-mono text-neutral-100">{currentEditorDistance.toFixed(3)}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between border-t border-neutral-800 py-2 pt-4">
-                        <span className="text-neutral-400">Current Combo</span>
-                        <span className="font-mono text-neutral-100">{currentEditorCombo}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2 last:pb-0">
-                        <span className="text-neutral-400">Current Score</span>
-                        <span className="font-mono text-neutral-100">{currentEditorScore}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-        </aside>
+        <EditorRightSidebar
+          isRightPanelCompact={isRightPanelCompact}
+          isRightPanelContentVisible={isRightPanelContentVisible}
+          toggleRightPanelCompact={toggleRightPanelCompact}
+          selectedSingleNote={selectedSingleNote}
+          setSelectedNoteIds={setSelectedNoteIds}
+          notePropertyInputClass={notePropertyInputClass}
+          updateSelectedNote={updateSelectedNote}
+          selectedNoteTimepos={selectedNoteTimepos}
+          getTimeFromTimepos={getTimeFromTimepos}
+          canEditSelectedNoteParent={canEditSelectedNoteParent}
+          selectedParentNote={selectedParentNote}
+          jumpToNoteTime={jumpToNoteTime}
+          selectedNoteIds={selectedNoteIds}
+          handleCopySelectedNotes={handleCopySelectedNotes}
+          handleDeleteSelectedNotes={handleDeleteSelectedNotes}
+          handleMirrorSelectedNotes={handleMirrorSelectedNotes}
+          notes={notes}
+          bpmChanges={bpmChanges}
+          speedChanges={speedChanges}
+          currentEditorBpm={currentEditorBpm}
+          currentEditorSpeed={currentEditorSpeed}
+          currentEditorDistance={currentEditorDistance}
+          currentEditorCombo={currentEditorCombo}
+          currentEditorScore={currentEditorScore}
+        />
         )}
       </main>
     </motion.div>
