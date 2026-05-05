@@ -5,7 +5,7 @@ import LandingPage from './components/LandingPage';
 import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 import { parseLevelText } from './utils/levelFormat';
 
-const DEFAULT_BPM_CHANGES: BpmChange[] = [{ timepos: 0, bpm: 120, timeSignature: '4/4' }];
+const DEFAULT_BPM_CHANGES: BpmChange[] = [{ timepos: 0, bpm: 180, timeSignature: '4/4' }];
 const DEFAULT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const EXAMPLES = [
   {
