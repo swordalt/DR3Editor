@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { Suspense, lazy, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
-import Editor from './Editor';
 import LandingPage from './components/LandingPage';
 import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 import { parseLevelText } from './utils/levelFormat';
+
+const Editor = lazy(() => import('./Editor'));
 
 const DEFAULT_BPM_CHANGES: BpmChange[] = [{ timepos: 0, bpm: 180, timeSignature: '4/4' }];
 const DEFAULT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
@@ -308,19 +309,27 @@ export default function App() {
           isExampleLoading={isExampleLoading}
         />
       ) : (
-        <Editor 
-          onBack={() => setView({ page: 'landing' })} 
-          mode={view.mode}
-          initialProjectData={initialProjectData}
-          notes={notes}
-          setNotes={setNotes}
-          bpmChanges={bpmChanges}
-          setBpmChanges={setBpmChanges}
-          speedChanges={speedChanges}
-          setSpeedChanges={setSpeedChanges}
-          offset={offset}
-          setOffset={setOffset}
-        />
+        <Suspense
+          fallback={(
+            <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm font-medium text-neutral-300">
+              Loading editor...
+            </div>
+          )}
+        >
+          <Editor
+            onBack={() => setView({ page: 'landing' })}
+            mode={view.mode}
+            initialProjectData={initialProjectData}
+            notes={notes}
+            setNotes={setNotes}
+            bpmChanges={bpmChanges}
+            setBpmChanges={setBpmChanges}
+            speedChanges={speedChanges}
+            setSpeedChanges={setSpeedChanges}
+            offset={offset}
+            setOffset={setOffset}
+          />
+        </Suspense>
       )}
     </AnimatePresence>
   );
