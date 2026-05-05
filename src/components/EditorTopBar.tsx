@@ -1,5 +1,5 @@
 import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react';
-import { ArrowLeft, ChevronDown, Download, Grid2x2, Grid2x2X, HelpCircle, Pause, Play, Settings } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pause, Play, Settings } from 'lucide-react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import type { BpmChange, ProjectData } from '../types/editorTypes';
@@ -12,6 +12,7 @@ interface EditorTopBarProps {
     className: string;
   };
   isXPositionGridEnabled: boolean;
+  isOutOfBoundsPlacementEnabled: boolean;
   isPlaying: boolean;
   isPlaybackSpeedMenuOpen: boolean;
   isHelpOpen: boolean;
@@ -34,6 +35,7 @@ interface EditorTopBarProps {
   togglePlay: () => void;
   handleSeekChange: (event: ChangeEvent<HTMLInputElement>) => void;
   setIsXPositionGridEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsOutOfBoundsPlacementEnabled: Dispatch<SetStateAction<boolean>>;
   setIsExportMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsPlaybackSpeedMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsPreviewMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -50,6 +52,7 @@ export default function EditorTopBar({
   projectData,
   tierBadge,
   isXPositionGridEnabled,
+  isOutOfBoundsPlacementEnabled,
   isPlaying,
   isPlaybackSpeedMenuOpen,
   isHelpOpen,
@@ -72,6 +75,7 @@ export default function EditorTopBar({
   togglePlay,
   handleSeekChange,
   setIsXPositionGridEnabled,
+  setIsOutOfBoundsPlacementEnabled,
   setIsExportMenuOpen,
   setIsPlaybackSpeedMenuOpen,
   setIsPreviewMenuOpen,
@@ -110,6 +114,16 @@ export default function EditorTopBar({
       <div className="flex-1 flex items-center justify-center px-4 max-w-xl gap-3">
         {projectData && (
           <>
+            <button
+              type="button"
+              onClick={() => setIsOutOfBoundsPlacementEnabled(prev => !prev)}
+              className={`shrink-0 p-2 rounded-lg transition-colors ${isOutOfBoundsPlacementEnabled ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'hover:bg-neutral-800 text-neutral-400 hover:text-white'}`}
+              title={isOutOfBoundsPlacementEnabled ? 'Disable out-of-bounds note placement' : 'Enable out-of-bounds note placement'}
+              aria-pressed={isOutOfBoundsPlacementEnabled}
+              aria-label={isOutOfBoundsPlacementEnabled ? 'Disable out-of-bounds note placement' : 'Enable out-of-bounds note placement'}
+            >
+              <MoveHorizontal className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={() => setIsXPositionGridEnabled(prev => !prev)}

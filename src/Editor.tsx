@@ -154,6 +154,7 @@ export default function Editor({
   );
   const [gridZoom, setGridZoom] = useState(initialEditorSettings.gridZoom);
   const [isXPositionGridEnabled, setIsXPositionGridEnabled] = useState(initialEditorSettings.isXPositionGridEnabled);
+  const [isOutOfBoundsPlacementEnabled, setIsOutOfBoundsPlacementEnabled] = useState(initialEditorSettings.isOutOfBoundsPlacementEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
@@ -254,6 +255,7 @@ export default function Editor({
       flickSoundVolume,
       gridZoom,
       isXPositionGridEnabled,
+      isOutOfBoundsPlacementEnabled,
       pixelsPerBeat,
       isPreviewCameraTiltEnabled,
       isPreviewCameraMovementEnabled,
@@ -272,6 +274,7 @@ export default function Editor({
     flickSoundVolume,
     gridZoom,
     isXPositionGridEnabled,
+    isOutOfBoundsPlacementEnabled,
     pixelsPerBeat,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -3611,10 +3614,16 @@ export default function Editor({
     laneWidth: number,
     laneCount: number,
     allowOutOfBounds = false,
+    snapToLaneGrid = false,
   ) => {
     const xPositionWidth = laneWidth / 2;
     const rawLane = (canvasX - gridStartX) / xPositionWidth;
     const xPositionCount = laneCount * 2;
+
+    if (snapToLaneGrid) {
+      const snappedLane = Math.round(rawLane / 2) * 2;
+      return allowOutOfBounds ? snappedLane : Math.max(0, Math.min(xPositionCount, snappedLane));
+    }
 
     if (isXPositionGridEnabled) {
       const snappedLane = Math.round(rawLane);
@@ -3675,6 +3684,7 @@ export default function Editor({
     const laneWidth = Math.min(60, width / (lanes + 2));
     const gridWidth = lanes * laneWidth;
     const startX = (width - gridWidth) / 2;
+    const canPlaceAtX = isOutOfBoundsPlacementEnabled || (clickX >= startX && clickX < startX + gridWidth);
 
     const hitLineY = height - 150;
     
@@ -3734,9 +3744,9 @@ export default function Editor({
       return;
     }
 
-    if (clickX >= startX && clickX < startX + gridWidth) {
+    if (canPlaceAtX) {
       pasteTargetRef.current = {
-        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes),
+        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled),
         time: snappedTime,
       };
     }
@@ -3766,8 +3776,8 @@ export default function Editor({
         return;
       }
 
-      if (clickX >= startX && clickX < startX + gridWidth) {
-        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes);
+      if (canPlaceAtX) {
+        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
         const newId = nextNoteIdRef.current++;
         const isHoldConnector = HOLD_CONNECTOR_TYPES.includes(selectedNoteType);
         const isHoldStart = HOLD_START_TYPES.includes(selectedNoteType);
@@ -3876,12 +3886,13 @@ export default function Editor({
     const laneWidth = Math.min(60, width / (lanes + 2));
     const gridWidth = lanes * laneWidth;
     const startX = (width - gridWidth) / 2;
+    const canPlaceAtX = isOutOfBoundsPlacementEnabled || (clickX >= startX && clickX < startX + gridWidth);
     const hitLineY = height - 150;
     const sortedChanges = timedBpmChanges;
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
 
-    if (clickX >= startX && clickX < startX + gridWidth) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes);
+    if (canPlaceAtX) {
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
 
@@ -3916,8 +3927,8 @@ export default function Editor({
       if (hoverPreviewRef.current !== null) {
         setHoverPreview(null);
       }
-    } else if (clickX >= startX && clickX < startX + gridWidth) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes);
+    } else if (canPlaceAtX) {
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
 
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
@@ -4787,8 +4798,17 @@ export default function Editor({
     deleteSpeedChange,
     addSpeedChange,
     selectedNoteIdSet,
+    curveStartIdInput,
+    setCurveStartIdInput,
+    curveEndIdInput,
+    setCurveEndIdInput,
+    curveIdSelectTarget,
+    setCurveIdSelectTarget,
+    curveStartNote,
+    curveEndNote,
     curveNoteType,
     setCurveNoteType,
+    timedBpmChanges,
     notePropertyInputClass,
     curveDensityInput,
     setCurveDensityInput,
@@ -4916,6 +4936,7 @@ export default function Editor({
       setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
       tierBadge={tierBadge}
       isXPositionGridEnabled={isXPositionGridEnabled}
+      isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
       isPlaying={isPlaying}
       isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
       isPreviewMode={isPreviewMode}
@@ -4936,6 +4957,7 @@ export default function Editor({
       togglePlay={togglePlay}
       handleSeekChange={handleSeekChange}
       setIsXPositionGridEnabled={setIsXPositionGridEnabled}
+      setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
       setIsExportMenuOpen={setIsExportMenuOpen}
       setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
       setIsPreviewMenuOpen={setIsPreviewMenuOpen}

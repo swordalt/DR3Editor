@@ -23,6 +23,7 @@ export interface EditorSettings {
   flickSoundVolume: number;
   gridZoom: number;
   isXPositionGridEnabled: boolean;
+  isOutOfBoundsPlacementEnabled: boolean;
   pixelsPerBeat: number;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
@@ -42,6 +43,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   flickSoundVolume: 1,
   gridZoom: 4,
   isXPositionGridEnabled: true,
+  isOutOfBoundsPlacementEnabled: false,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
   isPreviewCameraTiltEnabled: true,
   isPreviewCameraMovementEnabled: true,
@@ -140,6 +142,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isXPositionGridEnabled: typeof parsedSettings.isXPositionGridEnabled === 'boolean'
         ? parsedSettings.isXPositionGridEnabled
         : DEFAULT_EDITOR_SETTINGS.isXPositionGridEnabled,
+      isOutOfBoundsPlacementEnabled: typeof parsedSettings.isOutOfBoundsPlacementEnabled === 'boolean'
+        ? parsedSettings.isOutOfBoundsPlacementEnabled
+        : DEFAULT_EDITOR_SETTINGS.isOutOfBoundsPlacementEnabled,
       pixelsPerBeat: isValidPixelsPerBeat(parsedSettings.pixelsPerBeat)
         ? parsedSettings.pixelsPerBeat
         : DEFAULT_EDITOR_SETTINGS.pixelsPerBeat,

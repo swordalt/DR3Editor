@@ -1,7 +1,7 @@
 import { ArrowLeft, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import VirtualizedChangeList from './VirtualizedChangeList';
-import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
+import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent } from '../constants/editorConstants';
 import {
   CURVE_EASING_FAMILY_OPTIONS,
   CURVE_EASING_TYPE_OPTIONS,
@@ -13,7 +13,7 @@ import {
   formatNoteLane,
   operationCategoryStyles,
 } from '../editor/editorHistory';
-import { getBpmChangeTimepos } from '../utils/editorUtils';
+import { formatTime, getBpmChangeTimepos } from '../utils/editorUtils';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftCurvePanel(props: any) {
   const {
@@ -54,8 +54,17 @@ export default function EditorLeftCurvePanel(props: any) {
     deleteSpeedChange,
     addSpeedChange,
     selectedNoteIdSet,
+    curveStartIdInput,
+    setCurveStartIdInput,
+    curveEndIdInput,
+    setCurveEndIdInput,
+    curveIdSelectTarget,
+    setCurveIdSelectTarget,
+    curveStartNote,
+    curveEndNote,
     curveNoteType,
     setCurveNoteType,
+    timedBpmChanges,
     notePropertyInputClass,
     curveDensityInput,
     setCurveDensityInput,

@@ -58,6 +58,7 @@ export default function EditorLayout(props: any) {
     setIsPreviewNoteAppearModeEnabled,
     tierBadge,
     isXPositionGridEnabled,
+    isOutOfBoundsPlacementEnabled,
     isPlaying,
     isPlaybackSpeedMenuOpen,
     isPreviewMode,
@@ -78,6 +79,7 @@ export default function EditorLayout(props: any) {
     togglePlay,
     handleSeekChange,
     setIsXPositionGridEnabled,
+    setIsOutOfBoundsPlacementEnabled,
     setIsExportMenuOpen,
     setIsPlaybackSpeedMenuOpen,
     setIsPreviewMenuOpen,
@@ -183,6 +185,7 @@ export default function EditorLayout(props: any) {
         projectData={projectData}
         tierBadge={tierBadge}
         isXPositionGridEnabled={isXPositionGridEnabled}
+        isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
         isPlaying={isPlaying}
         isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
         isHelpOpen={isHelpOpen}
@@ -205,6 +208,7 @@ export default function EditorLayout(props: any) {
         togglePlay={togglePlay}
         handleSeekChange={handleSeekChange}
         setIsXPositionGridEnabled={setIsXPositionGridEnabled}
+        setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
         setIsExportMenuOpen={setIsExportMenuOpen}
         setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
         setIsPreviewMenuOpen={setIsPreviewMenuOpen}
