@@ -1,17 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion } from 'motion/react';
-import { FileText, Image, Info, Music } from 'lucide-react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
-import EditorModal from './components/EditorModal';
-import EditorCanvasStage from './components/EditorCanvasStage';
-import EditorOverlays from './components/EditorOverlays';
-import EditorTopBar from './components/EditorTopBar';
-import EditorPerformanceStats from './components/EditorPerformanceStats';
-import EditorLeftSidebar from './components/EditorLeftSidebar';
-import EditorPreviewSidebar from './components/EditorPreviewSidebar';
-import EditorRightSidebar from './components/EditorRightSidebar';
-import CommitInput from './components/CommitInput';
-import VirtualizedChangeList from './components/VirtualizedChangeList';
+import EditorLayout from './components/EditorLayout';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerClient';
@@ -32,9 +21,7 @@ import {
 } from './editor/editorHistory';
 import {
   MAX_PIXELS_PER_BEAT,
-  MAX_PREVIEW_3D_TILT_DEGREES,
   MIN_PIXELS_PER_BEAT,
-  MIN_PREVIEW_3D_TILT_DEGREES,
   type PreviewDisplayMode,
   type SelectionType,
   type StatisticsRefreshRate,
@@ -108,8 +95,10 @@ import {
   parsePreviewNoteSpeed,
 } from './editor/previewPlayback';
 import { SOUND_URLS, getHitSoundVolume, musicAudioGraphs, type MusicAudioGraph } from './editor/editorAudioAssets';
-import { formatByteSize, formatFileSize, getFileExtension } from './editor/editorFileHelpers';
+import { formatByteSize } from './editor/editorFileHelpers';
 import { getMirroredNoteLane } from './editor/editorNoteTransforms';
+import { buildChartProjectFiles } from './editor/chartProjectFiles';
+import { calculateChartStatistics } from './editor/chartStatistics';
 import {
   DR3FP_PREVIEW_RECEIVER_ORIGIN,
   DR3FP_PREVIEW_RECEIVER_POLL_MS,
@@ -4514,45 +4503,15 @@ export default function Editor({
       : notes.find((note) => note.id === selectedSingleNote.parentId) || null;
   const canEditSelectedNoteParent = selectedSingleNote ? canTypeHaveParent(selectedSingleNote.type) : false;
   const selectedNoteTimepos = selectedSingleNote ? getTimeposFromTime(selectedSingleNote.time) : 0;
-  const chartStatistics = useMemo(() => {
-    if (!shouldShowChartStatistics) {
-      return {
-        currentEditorBpm: 0,
-        currentEditorSpeed: 1,
-        currentEditorDistance: 0,
-        currentEditorCombo: 0,
-        currentEditorScore: 0,
-      };
-    }
-
-    const currentEditorTimepos = getTimeposFromTime(liveStatsTime);
-    const currentEditorBpm = getActiveChange(liveStatsTime, timedBpmChanges).bpm;
-    const sortedSpeedChanges = [...speedChanges].sort((a, b) => a.timepos - b.timepos);
-    const currentEditorSpeed = sortedSpeedChanges.reduce((activeSpeed, change) => (
-        change.timepos <= currentEditorTimepos
-          ? change.speedChange
-          : activeSpeed
-      ), 1);
-    const currentEditorDistanceIndex = buildSpeedDistanceIndex(sortedSpeedChanges.map(change => ({
-      timepos: getTimeFromTimepos(change.timepos),
-      speedChange: change.speedChange,
-    })));
-    const currentEditorDistance = getSpeedDistanceAtTimepos(liveStatsTime, currentEditorDistanceIndex);
-    const currentEditorCombo = notes.reduce((combo, note) => (
-      note.time <= liveStatsTime ? combo + 1 : combo
-    ), 0);
-    const currentEditorScore = notes.length > 0
-      ? Math.floor((3000000 / notes.length) * currentEditorCombo)
-      : 0;
-
-    return {
-      currentEditorBpm,
-      currentEditorSpeed,
-      currentEditorDistance,
-      currentEditorCombo,
-      currentEditorScore,
-    };
-  }, [getTimeFromTimepos, getTimeposFromTime, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
+  const chartStatistics = useMemo(() => calculateChartStatistics({
+    getTimeFromTimepos,
+    getTimeposFromTime,
+    liveStatsTime,
+    notes,
+    shouldShowChartStatistics,
+    speedChanges,
+    timedBpmChanges,
+  }), [getTimeFromTimepos, getTimeposFromTime, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
   const {
     currentEditorBpm,
     currentEditorSpeed,
@@ -4748,57 +4707,13 @@ export default function Editor({
   );
 
   const tierBadge = getTierBadge(projectData?.difficulty);
-  const chartProjectFiles = useMemo(() => {
-    if (!projectData) return [];
-
-    const songId = projectData.songId || 'level';
-    const difficulty = projectData.difficulty || '0';
-    const chartText = buildLevelText({
-      projectData,
-      notes,
-      bpmChanges,
-      speedChanges,
-      offset,
-    });
-    const firstBpm = [...bpmChanges]
-      .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))[0]?.bpm ?? projectData.bpm ?? 120;
-    const infoText = `${projectData.songName || ''}\n${projectData.songArtist || ''}\n${firstBpm}\n`;
-    const textEncoder = new TextEncoder();
-    const files = [
-      {
-        label: 'Chart File',
-        name: `${songId}.${difficulty}.txt`,
-        detail: formatByteSize(textEncoder.encode(chartText).byteLength),
-        Icon: FileText,
-      },
-      {
-        label: 'Info File',
-        name: 'info.txt',
-        detail: formatByteSize(textEncoder.encode(infoText).byteLength),
-        Icon: Info,
-      },
-    ];
-
-    if (projectData.songFile) {
-      files.push({
-        label: 'Audio',
-        name: projectData.songFile.name || `${songId}.${getFileExtension(projectData.songFile)}`,
-        detail: formatFileSize(projectData.songFile),
-        Icon: Music,
-      });
-    }
-
-    if (projectData.songIllustration) {
-      files.push({
-        label: 'Illustration',
-        name: projectData.songIllustration.name || `${songId}.${getFileExtension(projectData.songIllustration)}`,
-        detail: formatFileSize(projectData.songIllustration),
-        Icon: Image,
-      });
-    }
-
-    return files;
-  }, [bpmChanges, notes, offset, projectData, speedChanges]);
+  const chartProjectFiles = useMemo(() => buildChartProjectFiles({
+    projectData,
+    notes,
+    bpmChanges,
+    speedChanges,
+    offset,
+  }), [bpmChanges, notes, offset, projectData, speedChanges]);
 
   const jumpToNoteTime = (time: number) => {
     if (stateRef.current.isPlaying) {
@@ -4832,283 +4747,228 @@ export default function Editor({
     renderPausedTimelineAtFullFps();
   };
 
+  const leftSidebarProps = {
+    isLeftPanelCompact,
+    isLeftPanelContentVisible,
+    toggleLeftPanelCompact,
+    activeLeftPanel,
+    setActiveLeftPanel,
+    handleEditInfo,
+    handleClearCopiedNotes,
+    copiedNotesCount,
+    currentParentInput,
+    setCurrentParentInput,
+    currentParentNote,
+    selectedSingleNote,
+    canUseSelectedAsParent,
+    currentId,
+    selectedNoteType,
+    noteWidth,
+    formData,
+    setFormData,
+    illustrationPreview,
+    chartProjectFiles,
+    handleConfirm,
+    offset,
+    updateOffset,
+    isOfficialChartFormat,
+    bpmChangeGridClass,
+    bpmChanges,
+    changeTableJumpMarkerClass,
+    jumpToNoteTime,
+    getTimeFromTimepos,
+    changeTableInputClass,
+    updateBpmChange,
+    deleteBpmChange,
+    addBpmChange,
+    speedChangeGridClass,
+    speedChanges,
+    updateSpeedChange,
+    deleteSpeedChange,
+    addSpeedChange,
+    selectedNoteIdSet,
+    selectedNotesSorted,
+    curveNoteType,
+    setCurveNoteType,
+    notePropertyInputClass,
+    curveDensityInput,
+    setCurveDensityInput,
+    setCurveNotesMessage,
+    hasValidCurveDensity,
+    parsedCurveDensity,
+    curveEasingFamily,
+    setCurveEasingFamily,
+    curveEasingType,
+    setCurveEasingType,
+    handleGenerateCurveNotes,
+    canGenerateCurveNotes,
+    curveNotesMessage,
+    handleOrganizeNotes,
+    notes,
+    isOrganizingNotes,
+    recheckChartIssues,
+    chartIssues,
+    shouldShowUndoneOperations,
+    setShouldShowUndoneOperations,
+    operationHistory,
+    visibleOperationHistory,
+    undoneOperationIds,
+  };
+  const canvasStageProps = {
+    containerRef,
+    handleWheel,
+    projectData,
+    emptyCanvasMessage,
+    canvasRef,
+    bpmChanges,
+    speedChanges,
+    gridZoom,
+    pixelsPerBeat,
+    currentTime,
+    offset,
+    stateRef,
+    selectedNoteIds,
+    selectionBox,
+    timeDisplayRef,
+    progressBarRef,
+    isDraggingProgress,
+    audioRef,
+    isPreviewMode,
+    handleCanvasMouseDown,
+    handleCanvasMouseMove,
+    handleCanvasMouseUp,
+    getSelectionPointFromClient,
+    handleCanvasMouseLeave,
+    handleContextMenu,
+  };
+  const rightSidebarProps = {
+    isRightPanelCompact,
+    isRightPanelContentVisible,
+    toggleRightPanelCompact,
+    selectedSingleNote,
+    setSelectedNoteIds,
+    notePropertyInputClass,
+    updateSelectedNote,
+    selectedNoteTimepos,
+    getTimeFromTimepos,
+    canEditSelectedNoteParent,
+    selectedParentNote,
+    jumpToNoteTime,
+    selectedNoteIds,
+    handleCopySelectedNotes,
+    handleDeleteSelectedNotes,
+    handleMirrorSelectedNotes,
+    notes,
+    bpmChanges,
+    speedChanges,
+    currentEditorBpm,
+    currentEditorSpeed,
+    currentEditorDistance,
+    currentEditorCombo,
+    currentEditorScore,
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="h-screen overflow-hidden bg-neutral-950 text-neutral-50 flex flex-col font-sans"
-    >
-      {projectData?.audioUrl && (
-        <audio 
-          ref={audioRef} 
-          src={projectData.audioUrl} 
-          onLoadedMetadata={(e) => {
-            setDuration(e.currentTarget.duration);
-            applyAudioPlaybackSpeed(e.currentTarget, stateRef.current.playbackSpeed);
-          }}
-        />
-      )}
-
-      {/* Modal */}
-      <EditorModal 
-        isOpen={isModalOpen} 
-        onClose={() => {
-          if (mode === 'new') {
-            onBack();
-            return;
-          }
-          setIsModalOpen(false);
-        }}
-        onConfirm={() => {
-          if (!formData.songId.trim() || !formData.difficulty.trim() || !formData.songFile || !formData.songBpm) {
-            alert('Please fill in all required fields: Song ID, Difficulty, Audio File, and Song BPM.');
-            return;
-          }
-          handleConfirm();
-        }}
-        formData={formData}
-        setFormData={setFormData}
-      />
-
-      <EditorOverlays
-        isExitWarningOpen={isExitWarningOpen}
-        isSettingsOpen={isSettingsOpen}
-        isHelpOpen={isHelpOpen}
-        isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
-        isExitWarningEnabled={isExitWarningEnabled}
-        isScrollDirectionInverted={isScrollDirectionInverted}
-        isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
-        isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
-        selectionType={selectionType}
-        statisticsRefreshRate={statisticsRefreshRate}
-        musicVolume={musicVolume}
-        tapSoundVolume={tapSoundVolume}
-        flickSoundVolume={flickSoundVolume}
-        isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
-        isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
-        isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
-        isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
-        setIsExitWarningOpen={setIsExitWarningOpen}
-        setIsSettingsOpen={setIsSettingsOpen}
-        setIsHelpOpen={setIsHelpOpen}
-        setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
-        setIsExitWarningEnabled={setIsExitWarningEnabled}
-        setIsScrollDirectionInverted={setIsScrollDirectionInverted}
-        setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
-        setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
-        setSelectionType={setSelectionType}
-        setStatisticsRefreshRate={setStatisticsRefreshRate}
-        setMusicVolume={setMusicVolume}
-        setTapSoundVolume={setTapSoundVolume}
-        setFlickSoundVolume={setFlickSoundVolume}
-        setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
-        setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
-        setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
-        setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
-        onBack={onBack}
-      />
-
-      {/* Top Navigation Bar */}
-      <EditorTopBar
-        projectData={projectData}
-        tierBadge={tierBadge}
-        isXPositionGridEnabled={isXPositionGridEnabled}
-        isPlaying={isPlaying}
-        isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
-        isHelpOpen={isHelpOpen}
-        isSettingsOpen={isSettingsOpen}
-        isPreviewMode={isPreviewMode}
-        isExportMenuOpen={isExportMenuOpen}
-        isPreviewMenuOpen={isPreviewMenuOpen}
-        isExportDisabled={isExportDisabled}
-        hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
-        duration={duration}
-        currentTime={currentTime}
-        effectiveGridZoom={effectiveGridZoom}
-        pixelsPerBeat={pixelsPerBeat}
-        playbackSpeed={playbackSpeed}
-        bpmChanges={bpmChanges}
-        progressBarRef={progressBarRef}
-        timeDisplayRef={timeDisplayRef}
-        isDraggingProgress={isDraggingProgress}
-        openExitWarning={openExitWarning}
-        togglePlay={togglePlay}
-        handleSeekChange={handleSeekChange}
-        setIsXPositionGridEnabled={setIsXPositionGridEnabled}
-        setIsExportMenuOpen={setIsExportMenuOpen}
-        setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
-        setIsPreviewMenuOpen={setIsPreviewMenuOpen}
-        changePlaybackSpeed={changePlaybackSpeed}
-        openHelp={openHelp}
-        openSettings={openSettings}
-        togglePreviewMode={togglePreviewMode}
-        previewDr3Fp={previewDr3Fp}
-        exportDr3Viewer={exportDr3Viewer}
-        exportDr3Fp={exportDr3Fp}
-      />
-
-      {projectData && (
-        <EditorPerformanceStats
-          fps={fps}
-          renderedObjects={renderedObjects}
-          onMouseEnter={() => {
-            shouldCountRenderedObjectsRef.current = true;
-            setIsFpsCounterHovered(true);
-            drawGrid();
-            updateRenderedObjectsDisplay(true);
-          }}
-          onMouseLeave={() => {
-            shouldCountRenderedObjectsRef.current = false;
-            setIsFpsCounterHovered(false);
-            renderedObjectsRef.current = 0;
-            renderedObjectsDisplayLastUpdateRef.current = 0;
-            setRenderedObjects(0);
-          }}
-        />
-      )}
-
-      {/* Main Editor Area */}
-      <main className="flex-1 flex overflow-hidden min-h-0">
-        {/* Left Sidebar - General Functions */}
-        {!isPreviewMode && (
-          <EditorLeftSidebar
-            isLeftPanelCompact={isLeftPanelCompact}
-            isLeftPanelContentVisible={isLeftPanelContentVisible}
-            toggleLeftPanelCompact={toggleLeftPanelCompact}
-            activeLeftPanel={activeLeftPanel}
-            setActiveLeftPanel={setActiveLeftPanel}
-            handleEditInfo={handleEditInfo}
-            handleClearCopiedNotes={handleClearCopiedNotes}
-            copiedNotesCount={copiedNotesCount}
-            currentParentInput={currentParentInput}
-            setCurrentParentInput={setCurrentParentInput}
-            currentParentNote={currentParentNote}
-            selectedSingleNote={selectedSingleNote}
-            canUseSelectedAsParent={canUseSelectedAsParent}
-            currentId={currentId}
-            selectedNoteType={selectedNoteType}
-            noteWidth={noteWidth}
-            formData={formData}
-            setFormData={setFormData}
-            illustrationPreview={illustrationPreview}
-            chartProjectFiles={chartProjectFiles}
-            handleConfirm={handleConfirm}
-            offset={offset}
-            updateOffset={updateOffset}
-            isOfficialChartFormat={isOfficialChartFormat}
-            bpmChangeGridClass={bpmChangeGridClass}
-            bpmChanges={bpmChanges}
-            changeTableJumpMarkerClass={changeTableJumpMarkerClass}
-            jumpToNoteTime={jumpToNoteTime}
-            getTimeFromTimepos={getTimeFromTimepos}
-            changeTableInputClass={changeTableInputClass}
-            updateBpmChange={updateBpmChange}
-            deleteBpmChange={deleteBpmChange}
-            addBpmChange={addBpmChange}
-            speedChangeGridClass={speedChangeGridClass}
-            speedChanges={speedChanges}
-            updateSpeedChange={updateSpeedChange}
-            deleteSpeedChange={deleteSpeedChange}
-            addSpeedChange={addSpeedChange}
-            selectedNoteIdSet={selectedNoteIdSet}
-            selectedNotesSorted={selectedNotesSorted}
-            curveNoteType={curveNoteType}
-            setCurveNoteType={setCurveNoteType}
-            notePropertyInputClass={notePropertyInputClass}
-            curveDensityInput={curveDensityInput}
-            setCurveDensityInput={setCurveDensityInput}
-            setCurveNotesMessage={setCurveNotesMessage}
-            hasValidCurveDensity={hasValidCurveDensity}
-            parsedCurveDensity={parsedCurveDensity}
-            curveEasingFamily={curveEasingFamily}
-            setCurveEasingFamily={setCurveEasingFamily}
-            curveEasingType={curveEasingType}
-            setCurveEasingType={setCurveEasingType}
-            handleGenerateCurveNotes={handleGenerateCurveNotes}
-            canGenerateCurveNotes={canGenerateCurveNotes}
-            curveNotesMessage={curveNotesMessage}
-            handleOrganizeNotes={handleOrganizeNotes}
-            notes={notes}
-            isOrganizingNotes={isOrganizingNotes}
-            recheckChartIssues={recheckChartIssues}
-            chartIssues={chartIssues}
-            shouldShowUndoneOperations={shouldShowUndoneOperations}
-            setShouldShowUndoneOperations={setShouldShowUndoneOperations}
-            operationHistory={operationHistory}
-            visibleOperationHistory={visibleOperationHistory}
-            undoneOperationIds={undoneOperationIds}
-          />
-        )}
-
-        {isPreviewMode && (
-          <EditorPreviewSidebar
-            previewDisplayMode={previewDisplayMode}
-            setPreviewDisplayMode={setPreviewDisplayMode}
-            preview3DTiltDegrees={preview3DTiltDegrees}
-            setPreview3DTiltDegrees={setPreview3DTiltDegrees}
-          />
-        )}
-
-        <EditorCanvasStage
-          containerRef={containerRef}
-          handleWheel={handleWheel}
-          projectData={projectData}
-          emptyCanvasMessage={emptyCanvasMessage}
-          canvasRef={canvasRef}
-          bpmChanges={bpmChanges}
-          speedChanges={speedChanges}
-          gridZoom={gridZoom}
-          pixelsPerBeat={pixelsPerBeat}
-          currentTime={currentTime}
-          offset={offset}
-          stateRef={stateRef}
-          selectedNoteIds={selectedNoteIds}
-          selectionBox={selectionBox}
-          timeDisplayRef={timeDisplayRef}
-          progressBarRef={progressBarRef}
-          isDraggingProgress={isDraggingProgress}
-          audioRef={audioRef}
-          isPreviewMode={isPreviewMode}
-          handleCanvasMouseDown={handleCanvasMouseDown}
-          handleCanvasMouseMove={handleCanvasMouseMove}
-          handleCanvasMouseUp={handleCanvasMouseUp}
-          getSelectionPointFromClient={getSelectionPointFromClient}
-          handleCanvasMouseLeave={handleCanvasMouseLeave}
-          handleContextMenu={handleContextMenu}
-        />
-
-        {/* Right Sidebar - Properties */}
-        {!isPreviewMode && (
-        <EditorRightSidebar
-          isRightPanelCompact={isRightPanelCompact}
-          isRightPanelContentVisible={isRightPanelContentVisible}
-          toggleRightPanelCompact={toggleRightPanelCompact}
-          selectedSingleNote={selectedSingleNote}
-          setSelectedNoteIds={setSelectedNoteIds}
-          notePropertyInputClass={notePropertyInputClass}
-          updateSelectedNote={updateSelectedNote}
-          selectedNoteTimepos={selectedNoteTimepos}
-          getTimeFromTimepos={getTimeFromTimepos}
-          canEditSelectedNoteParent={canEditSelectedNoteParent}
-          selectedParentNote={selectedParentNote}
-          jumpToNoteTime={jumpToNoteTime}
-          selectedNoteIds={selectedNoteIds}
-          handleCopySelectedNotes={handleCopySelectedNotes}
-          handleDeleteSelectedNotes={handleDeleteSelectedNotes}
-          handleMirrorSelectedNotes={handleMirrorSelectedNotes}
-          notes={notes}
-          bpmChanges={bpmChanges}
-          speedChanges={speedChanges}
-          currentEditorBpm={currentEditorBpm}
-          currentEditorSpeed={currentEditorSpeed}
-          currentEditorDistance={currentEditorDistance}
-          currentEditorCombo={currentEditorCombo}
-          currentEditorScore={currentEditorScore}
-        />
-        )}
-      </main>
-    </motion.div>
+    <EditorLayout
+      mode={mode}
+      onBack={onBack}
+      isModalOpen={isModalOpen}
+      setIsModalOpen={setIsModalOpen}
+      formData={formData}
+      setFormData={setFormData}
+      handleConfirm={handleConfirm}
+      projectData={projectData}
+      audioRef={audioRef}
+      setDuration={setDuration}
+      stateRef={stateRef}
+      isExitWarningOpen={isExitWarningOpen}
+      isSettingsOpen={isSettingsOpen}
+      isHelpOpen={isHelpOpen}
+      isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
+      isExitWarningEnabled={isExitWarningEnabled}
+      isScrollDirectionInverted={isScrollDirectionInverted}
+      isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
+      isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
+      selectionType={selectionType}
+      statisticsRefreshRate={statisticsRefreshRate}
+      musicVolume={musicVolume}
+      tapSoundVolume={tapSoundVolume}
+      flickSoundVolume={flickSoundVolume}
+      isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
+      isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
+      isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
+      isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+      setIsExitWarningOpen={setIsExitWarningOpen}
+      setIsSettingsOpen={setIsSettingsOpen}
+      setIsHelpOpen={setIsHelpOpen}
+      setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
+      setIsExitWarningEnabled={setIsExitWarningEnabled}
+      setIsScrollDirectionInverted={setIsScrollDirectionInverted}
+      setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
+      setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
+      setSelectionType={setSelectionType}
+      setStatisticsRefreshRate={setStatisticsRefreshRate}
+      setMusicVolume={setMusicVolume}
+      setTapSoundVolume={setTapSoundVolume}
+      setFlickSoundVolume={setFlickSoundVolume}
+      setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
+      setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
+      setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
+      setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
+      tierBadge={tierBadge}
+      isXPositionGridEnabled={isXPositionGridEnabled}
+      isPlaying={isPlaying}
+      isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
+      isPreviewMode={isPreviewMode}
+      isExportMenuOpen={isExportMenuOpen}
+      isPreviewMenuOpen={isPreviewMenuOpen}
+      isExportDisabled={isExportDisabled}
+      hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
+      duration={duration}
+      currentTime={currentTime}
+      effectiveGridZoom={effectiveGridZoom}
+      pixelsPerBeat={pixelsPerBeat}
+      playbackSpeed={playbackSpeed}
+      bpmChanges={bpmChanges}
+      progressBarRef={progressBarRef}
+      timeDisplayRef={timeDisplayRef}
+      isDraggingProgress={isDraggingProgress}
+      openExitWarning={openExitWarning}
+      togglePlay={togglePlay}
+      handleSeekChange={handleSeekChange}
+      setIsXPositionGridEnabled={setIsXPositionGridEnabled}
+      setIsExportMenuOpen={setIsExportMenuOpen}
+      setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
+      setIsPreviewMenuOpen={setIsPreviewMenuOpen}
+      changePlaybackSpeed={changePlaybackSpeed}
+      openHelp={openHelp}
+      openSettings={openSettings}
+      togglePreviewMode={togglePreviewMode}
+      previewDr3Fp={previewDr3Fp}
+      exportDr3Viewer={exportDr3Viewer}
+      exportDr3Fp={exportDr3Fp}
+      fps={fps}
+      renderedObjects={renderedObjects}
+      onPerformanceStatsMouseEnter={() => {
+        shouldCountRenderedObjectsRef.current = true;
+        setIsFpsCounterHovered(true);
+        drawGrid();
+        updateRenderedObjectsDisplay(true);
+      }}
+      onPerformanceStatsMouseLeave={() => {
+        shouldCountRenderedObjectsRef.current = false;
+        setIsFpsCounterHovered(false);
+        renderedObjectsRef.current = 0;
+        renderedObjectsDisplayLastUpdateRef.current = 0;
+        setRenderedObjects(0);
+      }}
+      leftSidebarProps={leftSidebarProps}
+      previewDisplayMode={previewDisplayMode}
+      setPreviewDisplayMode={setPreviewDisplayMode}
+      preview3DTiltDegrees={preview3DTiltDegrees}
+      setPreview3DTiltDegrees={setPreview3DTiltDegrees}
+      canvasStageProps={canvasStageProps}
+      rightSidebarProps={rightSidebarProps}
+    />
   );
 }
