@@ -123,6 +123,12 @@ import {
   PREVIEW_3D_MAX_GRID_WIDTH_RATIO,
   PREVIEW_3D_NEAR_SPEED_MULTIPLIER,
 } from './editor/preview3DConstants';
+import {
+  DR3FP_PREVIEW_STATUS,
+  Dr3FpPreviewError,
+  createDr3FpPreviewFailureStatus,
+  type Dr3FpPreviewStatus,
+} from './editor/dr3FpPreviewStatus';
 
 export default function Editor({ 
   onBack, 
@@ -142,6 +148,7 @@ export default function Editor({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isDr3FpPreviewInfoOpen, setIsDr3FpPreviewInfoOpen] = useState(false);
+  const [dr3FpPreviewStatus, setDr3FpPreviewStatus] = useState<Dr3FpPreviewStatus>(DR3FP_PREVIEW_STATUS.idle);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isPlaybackSpeedMenuOpen, setIsPlaybackSpeedMenuOpen] = useState(false);
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
@@ -1209,11 +1216,12 @@ export default function Editor({
   };
 
   const handleEditInfo = () => {
+    const fallbackBpm = bpmChanges[0]?.bpm;
     setFormData({
       songId: projectData?.songId || '',
       songName: projectData?.songName || '',
       songArtist: projectData?.songArtist || '',
-      songBpm: projectData?.bpm?.toString() || '',
+      songBpm: projectData?.bpm?.toString() || (fallbackBpm ? fallbackBpm.toString() : ''),
       difficulty: projectData?.difficulty || '1',
       songFile: projectData?.songFile || null,
       songIllustration: projectData?.songIllustration || null,
@@ -4199,70 +4207,130 @@ export default function Editor({
   const waitForDr3FpPreviewReceiver = async (sessionId: string) => {
     const deadline = Date.now() + DR3FP_PREVIEW_RECEIVER_TIMEOUT_MS;
     const url = `${DR3FP_PREVIEW_RECEIVER_ORIGIN}/preview/${encodeURIComponent(sessionId)}/ready`;
+    let lastResponseStatus: number | null = null;
+    let lastErrorMessage = '';
 
     while (Date.now() < deadline) {
       try {
         const response = await fetch(url, { method: 'GET' });
+        lastResponseStatus = response.status;
         if (response.ok) {
           const body = await response.json();
           if (body?.ready === true && body?.version === 1) {
             return;
           }
+          lastErrorMessage = body?.ready === false
+            ? 'The receiver answered but was not ready before the timeout.'
+            : 'The receiver answered with an unexpected ready response.';
+        } else {
+          lastErrorMessage = `The receiver returned HTTP ${response.status}.`;
         }
-      } catch {
+      } catch (err) {
+        lastErrorMessage = err instanceof Error ? err.message : 'The receiver request failed.';
         // DR3FanmadeViewer may still be starting.
       }
 
       await new Promise(resolve => window.setTimeout(resolve, DR3FP_PREVIEW_RECEIVER_POLL_MS));
     }
 
-    throw new Error('DR3FanmadeViewer preview receiver did not become ready. If your browser reports ERR_BLOCKED_BY_CLIENT, allow requests to 127.0.0.1:27373 or disable ad blocking/privacy extensions for this editor page.');
+    throw new Dr3FpPreviewError(
+      'receiver',
+      lastResponseStatus === null
+        ? 'The editor could not reach the DR3FP local receiver at 127.0.0.1:27373.'
+        : 'The DR3FP local receiver responded, but it did not become ready for this preview session.',
+      lastErrorMessage || undefined,
+    );
   };
 
   const uploadDr3FpPreviewBundle = async (sessionId: string, zipBlob: Blob) => {
-    const response = await fetch(`${DR3FP_PREVIEW_RECEIVER_ORIGIN}/preview/${encodeURIComponent(sessionId)}/bundle`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/zip',
-      },
-      body: zipBlob,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${DR3FP_PREVIEW_RECEIVER_ORIGIN}/preview/${encodeURIComponent(sessionId)}/bundle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/zip',
+        },
+        body: zipBlob,
+      });
+    } catch (err) {
+      throw new Dr3FpPreviewError(
+        'upload',
+        'The editor lost contact with the DR3FP receiver while uploading the chart bundle.',
+        err instanceof Error ? err.message : undefined,
+      );
+    }
 
     if (!response.ok) {
-      throw new Error(`Preview upload failed: HTTP ${response.status}`);
+      throw new Dr3FpPreviewError(
+        'upload',
+        `DR3FP rejected the preview upload with HTTP ${response.status}.`,
+        response.statusText || undefined,
+      );
     }
 
     const body = await response.json().catch(() => null);
     if (body?.accepted !== true) {
-      throw new Error('Preview upload was not accepted by DR3FanmadeViewer.');
+      throw new Dr3FpPreviewError(
+        'upload',
+        'DR3FP received the upload request but did not accept the preview bundle.',
+        body ? JSON.stringify(body) : 'The receiver did not return a readable acceptance response.',
+      );
     }
   };
 
   const previewDr3Fp = async () => {
     if (!projectData || isExportDisabled) return;
 
+    setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.exporting);
     setIsDr3FpPreviewInfoOpen(true);
 
     try {
-      const { zipBuffer } = await createExportZipInWorker({
-        format: 'dr3-fp-preview',
-        projectData,
-        notes,
-        bpmChanges,
-        speedChanges,
-        offset,
-      });
+      let zipBuffer: ArrayBuffer;
+      try {
+        ({ zipBuffer } = await createExportZipInWorker({
+          format: 'dr3-fp-preview',
+          projectData,
+          notes,
+          bpmChanges,
+          speedChanges,
+          offset,
+        }));
+      } catch (err) {
+        throw new Dr3FpPreviewError(
+          'export',
+          'The preview ZIP could not be created from the current chart data.',
+          err instanceof Error ? err.message : undefined,
+        );
+      }
       const zipBlob = createZipBlobForSave(zipBuffer);
       const sessionId = crypto.randomUUID();
 
-      window.location.href = `dr3fp://preview?session=${encodeURIComponent(sessionId)}&version=1`;
+      setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.launching);
+      try {
+        window.location.href = `dr3fp://preview?session=${encodeURIComponent(sessionId)}&version=1`;
+      } catch (err) {
+        throw new Dr3FpPreviewError(
+          'launch',
+          'The browser blocked or could not hand off the preview link to DR3FP.',
+          err instanceof Error ? err.message : undefined,
+        );
+      }
 
+      setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.receiver);
       await waitForDr3FpPreviewReceiver(sessionId);
+      setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.uploading);
       await uploadDr3FpPreviewBundle(sessionId, zipBlob);
+      setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.complete);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Preview failed.';
       console.error('DR3FP preview failed', err);
-      window.alert(message);
+      if (err instanceof Dr3FpPreviewError) {
+        setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(err.kind, err.message, err.detail));
+      } else {
+        setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(
+          'upload',
+          err instanceof Error ? err.message : 'Preview failed.',
+        ));
+      }
     }
   };
 
@@ -4758,13 +4826,20 @@ export default function Editor({
   );
 
   const tierBadge = getTierBadge(projectData?.difficulty);
-  const chartProjectFiles = useMemo(() => buildChartProjectFiles({
-    projectData,
-    notes,
-    bpmChanges,
-    speedChanges,
-    offset,
-  }), [bpmChanges, notes, offset, projectData, speedChanges]);
+  const shouldBuildChartProjectFiles = !isPreviewMode && isLeftPanelContentVisible && activeLeftPanel === 'editInfo';
+  const chartProjectFiles = useMemo(() => {
+    if (!shouldBuildChartProjectFiles) {
+      return [];
+    }
+
+    return buildChartProjectFiles({
+      projectData,
+      notes,
+      bpmChanges,
+      speedChanges,
+      offset,
+    });
+  }, [bpmChanges, notes, offset, projectData, shouldBuildChartProjectFiles, speedChanges]);
 
   const jumpToNoteTime = (time: number) => {
     if (stateRef.current.isPlaying) {
@@ -4950,6 +5025,7 @@ export default function Editor({
       isSettingsOpen={isSettingsOpen}
       isHelpOpen={isHelpOpen}
       isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
+      dr3FpPreviewStatus={dr3FpPreviewStatus}
       isExitWarningEnabled={isExitWarningEnabled}
       isScrollDirectionInverted={isScrollDirectionInverted}
       isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}

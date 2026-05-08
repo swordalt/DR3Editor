@@ -1,8 +1,6 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
-import { AnimatePresence } from 'motion/react';
 import LandingPage from './components/LandingPage';
 import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
-import { parseLevelText } from './utils/levelFormat';
 
 const Editor = lazy(() => import('./Editor'));
 
@@ -120,7 +118,8 @@ export default function App() {
     fileInputRef.current?.click();
   };
 
-  const handleLevelImport = (text: string) => {
+  const handleLevelImport = async (text: string) => {
+    const { parseLevelText } = await import('./utils/levelFormat');
     const parsedLevel = parseLevelText(text);
 
     setNotes(parsedLevel.notes);
@@ -171,7 +170,7 @@ export default function App() {
       }
 
       const chartText = await chartFile.entry.async('text');
-      const parsedLevel = handleLevelImport(chartText);
+      const parsedLevel = await handleLevelImport(chartText);
       const nextBpmChanges = parsedLevel.bpmChanges.length > 0 ? parsedLevel.bpmChanges : getDefaultBpmChanges();
       const firstBpm = nextBpmChanges[0]?.bpm || 120;
       const zipBaseName = getZipBaseName(file.name);
@@ -245,8 +244,8 @@ export default function App() {
         void handleZipImport(file);
       } else if (file.name.toLowerCase().endsWith('.txt')) {
         const reader = new FileReader();
-        reader.onload = (e) => {
-          handleLevelImport(e.target?.result as string);
+        reader.onload = async (e) => {
+          await handleLevelImport(e.target?.result as string);
           setView({page: 'editor', mode: 'import'});
         };
         reader.readAsText(file);
@@ -294,7 +293,7 @@ export default function App() {
   };
 
   return (
-    <AnimatePresence mode="wait">
+    <>
       {view.page === 'landing' ? (
         <LandingPage
           fileInputRef={fileInputRef}
@@ -331,6 +330,6 @@ export default function App() {
           />
         </Suspense>
       )}
-    </AnimatePresence>
+    </>
   );
 }

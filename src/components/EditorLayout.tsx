@@ -29,6 +29,7 @@ export default function EditorLayout(props: any) {
     isSettingsOpen,
     isHelpOpen,
     isDr3FpPreviewInfoOpen,
+    dr3FpPreviewStatus,
     isExitWarningEnabled,
     isScrollDirectionInverted,
     isSelectionTypeMenuOpen,
@@ -147,6 +148,7 @@ export default function EditorLayout(props: any) {
         isSettingsOpen={isSettingsOpen}
         isHelpOpen={isHelpOpen}
         isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
+        dr3FpPreviewStatus={dr3FpPreviewStatus}
         isExitWarningEnabled={isExitWarningEnabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}

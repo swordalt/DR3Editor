@@ -1,7 +1,8 @@
 import { Fragment } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import type { Dr3FpPreviewFailureKind, Dr3FpPreviewStage, Dr3FpPreviewStatus } from '../editor/dr3FpPreviewStatus';
 import { EDITOR_KEYBIND_GROUPS } from '../editor/editorKeybinds';
 import {
   SELECTION_TYPE_OPTIONS,
@@ -16,6 +17,7 @@ interface EditorOverlaysProps {
   isSettingsOpen: boolean;
   isHelpOpen: boolean;
   isDr3FpPreviewInfoOpen: boolean;
+  dr3FpPreviewStatus: Dr3FpPreviewStatus;
   isExitWarningEnabled: boolean;
   isScrollDirectionInverted: boolean;
   isSelectionTypeMenuOpen: boolean;
@@ -48,6 +50,40 @@ interface EditorOverlaysProps {
   setIsPreviewNoteAppearModeEnabled: Dispatch<SetStateAction<boolean>>;
   onBack: () => void;
 }
+
+const DR3FP_PREVIEW_STAGE_LABELS: Record<Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>, string> = {
+  exporting: 'Build',
+  launching: 'Launch',
+  receiver: 'Receiver',
+  uploading: 'Upload',
+  complete: 'Done',
+};
+
+const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[] = [
+  'exporting',
+  'launching',
+  'receiver',
+  'uploading',
+  'complete',
+];
+
+const DR3FP_PREVIEW_FAILURE_GUIDANCE: Record<Dr3FpPreviewFailureKind, string[]> = {
+  export: [
+    'Check that the chart metadata and audio are still available, then try preview again.',
+  ],
+  launch: [
+    'Install or extract DR3FanmadePlayer, then open DR3FP once so Windows registers the dr3fp:// preview link.',
+    'If the browser asks whether it can open DR3FP, allow it.',
+  ],
+  receiver: [
+    'Leave DR3FP open and try preview again after it finishes starting.',
+    'If requests to 127.0.0.1:27373 are blocked, allow this editor page in privacy, ad blocking, or local-network browser settings.',
+  ],
+  upload: [
+    'Keep DR3FP open while the chart transfers, then try preview again.',
+    'If this repeats, update DR3FP to a build that supports preview receiver version 1.',
+  ],
+};
 
 interface SettingsToggleProps {
   label: string;
@@ -102,6 +138,7 @@ export default function EditorOverlays({
   isSettingsOpen,
   isHelpOpen,
   isDr3FpPreviewInfoOpen,
+  dr3FpPreviewStatus,
   isExitWarningEnabled,
   isScrollDirectionInverted,
   isSelectionTypeMenuOpen,
@@ -217,29 +254,103 @@ export default function EditorOverlays({
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">DR3FP Preview</p>
               <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
-                DR3FP should have opened with your chart
+                {dr3FpPreviewStatus.title}
               </h2>
+              <p className="mt-2 text-sm leading-6 text-neutral-400">
+                {dr3FpPreviewStatus.message}
+              </p>
             </div>
 
-            <div className="px-6 py-6">
-              <p className="text-sm leading-6 text-neutral-300">
-                If DR3FP did not open, download it from{' '}
-                <a
-                  href="https://github.com/swordalt/DanceRail3FanmadePlayer/releases"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-indigo-300 underline decoration-indigo-300/40 underline-offset-4 transition-colors hover:text-indigo-200"
-                >
-                  DanceRail3FanmadePlayer releases
-                </a>
-                , extract the files, and open the app at least once before using the DR3FP preview option here in the editor.
-                <br />
-                <br />
-                If it fails, try disabling request blockers (privacy extensions). If you get a browser notification about communicating with the local network, grant permission.
-                <br />
-                <br />
-                (Currently only for Windows. Uses a temporary local server to transfer files to DR3FP.)
-              </p>
+            <div className="space-y-5 px-6 py-6">
+              <div className="space-y-2">
+                {DR3FP_PREVIEW_STAGE_ORDER.map((stage, index) => {
+                  const currentIndex = DR3FP_PREVIEW_STAGE_ORDER.indexOf(
+                    dr3FpPreviewStatus.stage === 'failed'
+                      ? (
+                        dr3FpPreviewStatus.failureKind === 'export'
+                          ? 'exporting'
+                          : dr3FpPreviewStatus.failureKind === 'launch'
+                            ? 'launching'
+                            : dr3FpPreviewStatus.failureKind === 'receiver'
+                              ? 'receiver'
+                              : 'uploading'
+                      )
+                      : dr3FpPreviewStatus.stage === 'idle'
+                        ? 'exporting'
+                        : dr3FpPreviewStatus.stage,
+                  );
+                  const isActive = dr3FpPreviewStatus.stage !== 'complete'
+                    && dr3FpPreviewStatus.stage !== 'failed'
+                    && stage === dr3FpPreviewStatus.stage;
+                  const isComplete = dr3FpPreviewStatus.stage === 'complete' || index < currentIndex;
+                  const isFailed = dr3FpPreviewStatus.stage === 'failed' && index === currentIndex;
+
+                  return (
+                    <div
+                      key={stage}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
+                        isFailed
+                          ? 'border-red-400/30 bg-red-500/10 text-red-100'
+                          : isActive
+                            ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-100'
+                            : isComplete
+                              ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+                              : 'border-white/10 bg-white/[0.03] text-neutral-500'
+                      }`}
+                    >
+                      {isFailed ? (
+                        <XCircle className="h-4 w-4 shrink-0" />
+                      ) : isActive ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : isComplete ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      ) : (
+                        <span className="h-4 w-4 shrink-0 rounded-full border border-current opacity-50" />
+                      )}
+                      <span className="font-medium">{DR3FP_PREVIEW_STAGE_LABELS[stage]}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {dr3FpPreviewStatus.stage === 'failed' && dr3FpPreviewStatus.failureKind && (
+                <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
+                  <p className="text-sm font-semibold text-red-100">What happened</p>
+                  <p className="mt-2 text-sm leading-6 text-red-100/80">
+                    {dr3FpPreviewStatus.message}
+                  </p>
+                  {dr3FpPreviewStatus.detail && (
+                    <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs text-red-100/70">
+                      {dr3FpPreviewStatus.detail}
+                    </p>
+                  )}
+                  <p className="mt-4 text-sm font-semibold text-red-100">Try this</p>
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-red-100/80">
+                    {DR3FP_PREVIEW_FAILURE_GUIDANCE[dr3FpPreviewStatus.failureKind].map(item => (
+                      <li key={item} className="flex gap-2">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red-200/80" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {dr3FpPreviewStatus.failureKind === 'launch' && (
+                    <a
+                      href="https://github.com/swordalt/DanceRail3FanmadePlayer/releases"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 inline-flex text-sm font-medium text-red-100 underline decoration-red-100/40 underline-offset-4 transition-colors hover:text-white"
+                    >
+                      DanceRail3FanmadePlayer releases
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {dr3FpPreviewStatus.stage === 'complete' && (
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100/80">
+                  Switch to DR3FP to play the preview.
+                </div>
+              )}
             </div>
 
             <div className="border-t border-white/10 p-4">
@@ -248,7 +359,7 @@ export default function EditorOverlays({
                 onClick={() => setIsDr3FpPreviewInfoOpen(false)}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
               >
-                Got it
+                {dr3FpPreviewStatus.stage === 'failed' ? 'Close' : 'Done'}
               </button>
             </div>
           </motion.div>

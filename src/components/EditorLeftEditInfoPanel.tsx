@@ -120,6 +120,19 @@ export default function EditorLeftEditInfoPanel(props: any) {
                   <input type="text" value={formData.songArtist} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
                 </div>
                 <div>
+                  <label className="block text-xs text-neutral-400 mb-1">Song BPM *</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={formData.songBpm}
+                    required
+                    className={getMetadataInputClassName('songBpm')}
+                    onBlur={() => showMetadataFieldValidation('songBpm')}
+                    onKeyDown={(event) => handleMetadataFieldKeyDown('songBpm', event)}
+                    onChange={(e) => setFormData({...formData, songBpm: e.target.value})}
+                  />
+                </div>
+                <div>
                   <label className="block text-xs text-neutral-400 mb-1">Difficulty *</label>
                   <input
                     type="text"
