@@ -160,7 +160,7 @@ export function parseLevelText(text: string): ParsedLevelData {
 }
 
 export function buildLevelText(params: {
-  projectData: ProjectData;
+  projectData?: ProjectData | null;
   notes: Note[];
   bpmChanges: BpmChange[];
   speedChanges: SpeedChange[];

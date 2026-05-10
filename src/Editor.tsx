@@ -130,10 +130,20 @@ import {
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
 
+const getOffsetInSeconds = (offset: string | number) => {
+  const parsedOffset = parseFloat(offset.toString());
+  return Number.isFinite(parsedOffset) ? parsedOffset / 1000 : 0;
+};
+
+const getRequiredMetadataTouchedFields = () => Object.fromEntries(
+  METADATA_REQUIRED_FIELDS.map(field => [field, true]),
+) as MetadataTouchedFields;
+
 export default function Editor({ 
   onBack, 
   mode,
   initialProjectData = null,
+  initialChartFileName = null,
   notes,
   setNotes,
   bpmChanges,
@@ -222,7 +232,9 @@ export default function Editor({
     songFile: null as File | null,
     songIllustration: null as File | null,
   });
-  const [metadataTouchedFields, setMetadataTouchedFields] = useState<MetadataTouchedFields>({});
+  const [metadataTouchedFields, setMetadataTouchedFields] = useState<MetadataTouchedFields>(
+    () => (mode === 'import' ? getRequiredMetadataTouchedFields() : {}),
+  );
   const [illustrationPreview, setIllustrationPreview] = useState<string | null>(null);
 
   useEffect(() => {
@@ -312,6 +324,7 @@ export default function Editor({
   }, [formData.songIllustration]);
 
   const [projectData, setProjectData] = useState<ProjectData | null>(initialProjectData);
+  const [chartFileName, setChartFileName] = useState<string | null>(initialChartFileName);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [liveStatsTime, setLiveStatsTime] = useState(0);
@@ -322,6 +335,8 @@ export default function Editor({
   const [isFpsCounterHovered, setIsFpsCounterHovered] = useState(false);
   const [isPausedTimelineRendering, setIsPausedTimelineRendering] = useState(false);
   const effectiveGridZoom = isPreviewMode ? 0 : gridZoom;
+  const offsetInSeconds = getOffsetInSeconds(offset);
+  const audioTimelineDuration = duration > 0 ? Math.max(0, duration + offsetInSeconds) : 0;
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const musicAudioContextRef = useRef<AudioContext | null>(null);
@@ -582,6 +597,11 @@ export default function Editor({
   useEffect(() => {
     if (mode === 'new') {
       setIsModalOpen(true);
+      return;
+    }
+
+    if (mode === 'import') {
+      setMetadataTouchedFields(getRequiredMetadataTouchedFields());
     }
   }, [mode]);
 
@@ -699,6 +719,13 @@ export default function Editor({
 
     return getTimeAtBeat(currentMeasureBeat + measureDecimal * currentBeatsPerMeasure, timedBpmChanges);
   }, [timedBpmChanges]);
+
+  const chartTimelineDuration = useMemo(() => Math.max(
+    0,
+    ...notes.map(note => note.time),
+    ...speedChanges.map(change => getTimeFromTimepos(change.timepos)),
+  ), [getTimeFromTimepos, notes, speedChanges]);
+  const timelineDuration = Math.max(audioTimelineDuration, chartTimelineDuration);
 
   const recheckChartIssues = useCallback(() => {
     setChartIssues(findChartIssues(notes, getTimeposFromTime));
@@ -997,7 +1024,7 @@ export default function Editor({
   const preview3DZoomHeightCurve = useMemo(() => {
     const curveLength = Math.max(
       1,
-      Math.ceil(Math.max(duration, ...notes.map(note => note.time), 0)) + 3,
+      Math.ceil(Math.max(timelineDuration, ...notes.map(note => note.time), 0)) + 3,
     );
     const heightList = Array.from({ length: curveLength }, () => 0);
     const setHeight = (second: number, value: number) => {
@@ -1043,7 +1070,7 @@ export default function Editor({
     });
 
     return heightList;
-  }, [duration, notes]);
+  }, [notes, timelineDuration]);
   const previewCameraTiltSegments = useMemo(
     () => previewHoldConnectorSegments
       .map((segment) => {
@@ -1170,9 +1197,7 @@ export default function Editor({
   };
 
   const handleConfirm = () => {
-    setMetadataTouchedFields(Object.fromEntries(
-      METADATA_REQUIRED_FIELDS.map(field => [field, true]),
-    ) as MetadataTouchedFields);
+    setMetadataTouchedFields(getRequiredMetadataTouchedFields());
 
     if (hasInvalidMetadataFields(invalidMetadataFields)) {
       alert('Please enter a valid Song ID, Song BPM, Difficulty, and Audio File.');
@@ -1226,7 +1251,7 @@ export default function Editor({
       songFile: projectData?.songFile || null,
       songIllustration: projectData?.songIllustration || null,
     });
-    setMetadataTouchedFields({});
+    setMetadataTouchedFields(mode === 'import' ? getRequiredMetadataTouchedFields() : {});
     setActiveLeftPanel('editInfo');
   };
 
@@ -1336,7 +1361,10 @@ export default function Editor({
 
   const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     stopHitsounds();
-    const targetTime = parseFloat(e.target.value);
+    const rawTargetTime = parseFloat(e.target.value);
+    const targetTime = Number.isFinite(rawTargetTime)
+      ? Math.min(rawTargetTime, timelineDuration || rawTargetTime)
+      : 0;
 
     const sortedChanges = timedBpmChanges;
     const newTime = isPreviewMode
@@ -1356,7 +1384,6 @@ export default function Editor({
     hitSoundCursorRef.current = findHitSoundCursor(newTime);
     scheduledHitSoundKeysRef.current.clear();
     
-    const offsetInSeconds = parseFloat(offset.toString()) / 1000;
     if (audioRef.current) {
       audioRef.current.currentTime = Math.max(0, newTime - offsetInSeconds);
     }
@@ -1364,7 +1391,7 @@ export default function Editor({
       timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges, effectiveGridZoom);
     }
     renderPausedTimelineAtFullFps();
-  }, [projectData, offset, effectiveGridZoom, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges]);
+  }, [projectData, offsetInSeconds, effectiveGridZoom, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges, timelineDuration]);
 
   const stopHitsounds = () => {
     activeHitSounds.current.forEach(source => {
@@ -3538,7 +3565,7 @@ export default function Editor({
       const currentTime = getPlaybackTimeFromClock(audioRef.current, offsetInSeconds);
       const now = performance.now();
 
-      if (duration > 0 && currentTime >= duration) {
+      if (timelineDuration > 0 && currentTime >= timelineDuration) {
         void loopPlaybackToBeginning();
         drawGrid();
         updateRenderedObjectsDisplay();
@@ -3590,7 +3617,7 @@ export default function Editor({
     } else {
       requestRef.current = undefined;
     }
-  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, duration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -3681,6 +3708,8 @@ export default function Editor({
     const lane = allowOutOfBounds ? rawLane : Math.max(0, Math.min(xPositionCount, rawLane));
     return Number(lane.toFixed(3));
   };
+
+  const shouldSnapOutOfBoundsLanePlacement = isOutOfBoundsPlacementEnabled && isXPositionGridEnabled;
 
   const getSelectionPointFromClient = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -3794,7 +3823,7 @@ export default function Editor({
 
     if (canPlaceAtX) {
       pasteTargetRef.current = {
-        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled),
+        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement),
         time: snappedTime,
       };
     }
@@ -3825,7 +3854,7 @@ export default function Editor({
       }
 
       if (canPlaceAtX) {
-        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
+        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
         const newId = nextNoteIdRef.current++;
         const isHoldConnector = HOLD_CONNECTOR_TYPES.includes(selectedNoteType);
         const isHoldStart = HOLD_START_TYPES.includes(selectedNoteType);
@@ -3940,7 +3969,7 @@ export default function Editor({
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
 
     if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
 
@@ -3976,7 +4005,7 @@ export default function Editor({
         setHoverPreview(null);
       }
     } else if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, isOutOfBoundsPlacementEnabled);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
 
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
@@ -4103,13 +4132,11 @@ export default function Editor({
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
     const scrollDelta = isScrollDirectionInverted ? -e.deltaY : e.deltaY;
     const targetBeat = currentBeat + (scrollDelta / pixelsPerBeat);
-    const newTime = isPreviewMode
-      ? getTimeAtBeat(targetBeat, sortedChanges)
-      : getTimeAtBeat(snapBeatToMeasureDivision(targetBeat, gridZoom, sortedChanges), sortedChanges);
+    const newTime = getTimeAtBeat(targetBeat, sortedChanges);
     
     let clampedTime = Math.max(0, newTime);
-    if (audioRef.current && audioRef.current.duration && clampedTime > audioRef.current.duration) {
-      clampedTime = audioRef.current.duration;
+    if (timelineDuration > 0 && clampedTime > timelineDuration) {
+      clampedTime = timelineDuration;
     }
 
     resetPreviewJudgementState(clampedTime);
@@ -4838,8 +4865,9 @@ export default function Editor({
       bpmChanges,
       speedChanges,
       offset,
+      chartFileName,
     });
-  }, [bpmChanges, notes, offset, projectData, shouldBuildChartProjectFiles, speedChanges]);
+  }, [bpmChanges, chartFileName, notes, offset, projectData, shouldBuildChartProjectFiles, speedChanges]);
 
   const jumpToNoteTime = (time: number) => {
     if (stateRef.current.isPlaying) {
@@ -4847,8 +4875,8 @@ export default function Editor({
     }
 
     let clampedTime = Math.max(0, time);
-    if (audioRef.current && audioRef.current.duration && clampedTime > audioRef.current.duration) {
-      clampedTime = audioRef.current.duration;
+    if (timelineDuration > 0 && clampedTime > timelineDuration) {
+      clampedTime = timelineDuration;
     }
 
     setCurrentTime(clampedTime);
@@ -5066,7 +5094,7 @@ export default function Editor({
       isPreviewMenuOpen={isPreviewMenuOpen}
       isExportDisabled={isExportDisabled}
       hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
-      duration={duration}
+      duration={timelineDuration}
       currentTime={currentTime}
       effectiveGridZoom={effectiveGridZoom}
       pixelsPerBeat={pixelsPerBeat}

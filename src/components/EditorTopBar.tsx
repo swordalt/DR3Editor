@@ -146,7 +146,7 @@ export default function EditorTopBar({
                 ref={progressBarRef}
                 type="range"
                 min={0}
-                max={duration || 100}
+                max={Math.max(duration, currentTime, 0.01)}
                 step={0.01}
                 defaultValue={0}
                 onMouseDown={() => { isDraggingProgress.current = true; }}
@@ -289,12 +289,15 @@ export default function EditorTopBar({
                 </button>
                 <button
                   type="button"
+                  disabled={isExportDisabled}
                   onClick={() => {
+                    if (isExportDisabled) return;
                     setIsPreviewMenuOpen(false);
                     void previewDr3Fp();
                   }}
-                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
                   role="menuitem"
+                  title={isExportDisabled ? 'Song ID, difficulty, and audio are required before DR3FP preview.' : 'Preview in DR3FP'}
                 >
                   DR3FP
                 </button>

@@ -10,17 +10,19 @@ export const buildChartProjectFiles = ({
   bpmChanges,
   speedChanges,
   offset,
+  chartFileName,
 }: {
   projectData: ProjectData | null;
   notes: Note[];
   bpmChanges: BpmChange[];
   speedChanges: SpeedChange[];
   offset: string | number;
+  chartFileName?: string | null;
 }) => {
-  if (!projectData) return [];
+  if (!projectData && !chartFileName) return [];
 
-  const songId = projectData.songId || 'level';
-  const difficulty = projectData.difficulty || '0';
+  const songId = projectData?.songId || 'level';
+  const difficulty = projectData?.difficulty || '0';
   const chartText = buildLevelText({
     projectData,
     notes,
@@ -29,25 +31,28 @@ export const buildChartProjectFiles = ({
     offset,
   });
   const firstBpm = [...bpmChanges]
-    .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))[0]?.bpm ?? projectData.bpm ?? 120;
-  const infoText = `${projectData.songName || ''}\n${projectData.songArtist || ''}\n${firstBpm}\n`;
+    .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))[0]?.bpm ?? projectData?.bpm ?? 120;
+  const infoText = `${projectData?.songName || ''}\n${projectData?.songArtist || ''}\n${firstBpm}\n`;
   const textEncoder = new TextEncoder();
   const files = [
     {
       label: 'Chart File',
-      name: `${songId}.${difficulty}.txt`,
+      name: chartFileName || `${songId}.${difficulty}.txt`,
       detail: formatByteSize(textEncoder.encode(chartText).byteLength),
       Icon: FileText,
     },
-    {
+  ];
+
+  if (projectData) {
+    files.push({
       label: 'Info File',
       name: 'info.txt',
       detail: formatByteSize(textEncoder.encode(infoText).byteLength),
       Icon: Info,
-    },
-  ];
+    });
+  }
 
-  if (projectData.songFile) {
+  if (projectData?.songFile) {
     files.push({
       label: 'Audio',
       name: projectData.songFile.name || `${songId}.${getFileExtension(projectData.songFile)}`,
@@ -56,7 +61,7 @@ export const buildChartProjectFiles = ({
     });
   }
 
-  if (projectData.songIllustration) {
+  if (projectData?.songIllustration) {
     files.push({
       label: 'Illustration',
       name: projectData.songIllustration.name || `${songId}.${getFileExtension(projectData.songIllustration)}`,

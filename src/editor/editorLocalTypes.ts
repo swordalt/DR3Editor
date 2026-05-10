@@ -39,6 +39,7 @@ export interface EditorProps {
   onBack: () => void;
   mode?: EditorMode;
   initialProjectData?: ProjectData | null;
+  initialChartFileName?: string | null;
   notes: Note[];
   setNotes: Dispatch<SetStateAction<Note[]>>;
   bpmChanges: BpmChange[];
