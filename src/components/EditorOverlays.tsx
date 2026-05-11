@@ -19,6 +19,8 @@ interface EditorOverlaysProps {
   isDr3FpPreviewInfoOpen: boolean;
   dr3FpPreviewStatus: Dr3FpPreviewStatus;
   isExitWarningEnabled: boolean;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
@@ -36,6 +38,8 @@ interface EditorOverlaysProps {
   setIsHelpOpen: Dispatch<SetStateAction<boolean>>;
   setIsDr3FpPreviewInfoOpen: Dispatch<SetStateAction<boolean>>;
   setIsExitWarningEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsBackdropBlurDisabled: Dispatch<SetStateAction<boolean>>;
+  setIsAnimationDisabled: Dispatch<SetStateAction<boolean>>;
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -85,7 +89,7 @@ const DR3FP_PREVIEW_FAILURE_GUIDANCE: Record<Dr3FpPreviewFailureKind, string[]> 
   ],
 };
 
-type SettingsSectionId = 'editor' | 'preview' | 'audio';
+type SettingsSectionId = 'editor' | 'appearance' | 'preview' | 'audio';
 type HotkeyRow =
   | { kind: 'group'; groupTitle: string }
   | { kind: 'binding'; groupTitle: string; keys: readonly string[]; description: string };
@@ -270,6 +274,8 @@ export default function EditorOverlays({
   isDr3FpPreviewInfoOpen,
   dr3FpPreviewStatus,
   isExitWarningEnabled,
+  isBackdropBlurDisabled,
+  isAnimationDisabled,
   isScrollDirectionInverted,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
@@ -287,6 +293,8 @@ export default function EditorOverlays({
   setIsHelpOpen,
   setIsDr3FpPreviewInfoOpen,
   setIsExitWarningEnabled,
+  setIsBackdropBlurDisabled,
+  setIsAnimationDisabled,
   setIsScrollDirectionInverted,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
@@ -307,7 +315,36 @@ export default function EditorOverlays({
     setIsSelectionTypeMenuOpen(false);
   };
 
-  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'preview', 'audio'], []);
+  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'appearance', 'preview', 'audio'], []);
+  const overlayClassName = `fixed inset-0 flex items-center justify-center p-4 ${
+    isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/55 backdrop-blur-md'
+  } ${isAnimationDisabled ? 'app-animations-disabled' : ''}`;
+  const overlayMotionProps = isAnimationDisabled
+    ? {
+      initial: false as const,
+      animate: { opacity: 1 },
+      exit: undefined,
+      transition: { duration: 0 },
+    }
+    : {
+      initial: { opacity: 0 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+      transition: { duration: 0.2 },
+    };
+  const dialogMotionProps = isAnimationDisabled
+    ? {
+      initial: false as const,
+      animate: { opacity: 1, y: 0, scale: 1 },
+      exit: undefined,
+      transition: { duration: 0 },
+    }
+    : {
+      initial: { opacity: 0, y: 28, scale: 0.96 },
+      animate: { opacity: 1, y: 0, scale: 1 },
+      exit: { opacity: 0, y: 20, scale: 0.96 },
+      transition: { type: 'spring' as const, stiffness: 320, damping: 30 },
+    };
   const hotkeyRows = useMemo<HotkeyRow[]>(() => (
     EDITOR_KEYBIND_GROUPS.flatMap(group => [
       { kind: 'group' as const, groupTitle: group.title },
@@ -476,6 +513,37 @@ export default function EditorOverlays({
       );
     }
 
+    if (section === 'appearance') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Appearance</h3>
+              <p className="mt-1 text-xs text-neutral-500">Tune visual effects for smoother rendering on weaker devices.</p>
+            </div>
+          </div>
+
+          <SettingsToggle
+            label="Disable Blur Effects"
+            description="Replace blurred overlays with darker solid overlays to reduce GPU load on weaker devices."
+            isEnabled={isBackdropBlurDisabled}
+            ariaLabel="Toggle blur effect replacement"
+            onToggle={() => setIsBackdropBlurDisabled((current) => !current)}
+          />
+
+          <div className="mt-4">
+            <SettingsToggle
+              label="Disable Animations"
+              description="Remove interface transitions, button press scaling, menu animations, and dialog open or close motion."
+              isEnabled={isAnimationDisabled}
+              ariaLabel="Toggle interface animations"
+              onToggle={() => setIsAnimationDisabled((current) => !current)}
+            />
+          </div>
+        </section>
+      );
+    }
+
     if (section === 'preview') {
       return (
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -588,11 +656,8 @@ export default function EditorOverlays({
     <AnimatePresence>
       {isExitWarningOpen && (
         <motion.div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          className={`${overlayClassName} z-[70]`}
+          {...overlayMotionProps}
           onMouseDown={() => setIsExitWarningOpen(false)}
         >
           <motion.div
@@ -600,10 +665,7 @@ export default function EditorOverlays({
             aria-modal="true"
             aria-labelledby="exit-warning-title"
             className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
-            initial={{ opacity: 0, y: 28, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
@@ -640,11 +702,8 @@ export default function EditorOverlays({
 
       {isDr3FpPreviewInfoOpen && (
         <motion.div
-          className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          className={`${overlayClassName} z-[65]`}
+          {...overlayMotionProps}
           onMouseDown={() => setIsDr3FpPreviewInfoOpen(false)}
         >
           <motion.div
@@ -652,10 +711,7 @@ export default function EditorOverlays({
             aria-modal="true"
             aria-labelledby="dr3fp-preview-info-title"
             className="flex w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
-            initial={{ opacity: 0, y: 28, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
@@ -775,11 +831,8 @@ export default function EditorOverlays({
 
       {isSettingsOpen && (
         <motion.div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          className={`${overlayClassName} z-[60]`}
+          {...overlayMotionProps}
           onMouseDown={closeSettings}
         >
           <motion.div
@@ -787,10 +840,7 @@ export default function EditorOverlays({
             aria-modal="true"
             aria-labelledby="settings-title"
             className="flex max-h-[85vh] min-h-[22rem] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
-            initial={{ opacity: 0, y: 28, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
@@ -819,11 +869,8 @@ export default function EditorOverlays({
 
       {isHelpOpen && (
         <motion.div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          className={`${overlayClassName} z-[60]`}
+          {...overlayMotionProps}
           onMouseDown={() => setIsHelpOpen(false)}
         >
           <motion.div
@@ -831,10 +878,7 @@ export default function EditorOverlays({
             aria-modal="true"
             aria-labelledby="hotkeys-title"
             className="flex max-h-[85vh] min-h-[22rem] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
-            initial={{ opacity: 0, y: 28, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">

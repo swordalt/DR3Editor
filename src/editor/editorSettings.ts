@@ -15,6 +15,8 @@ export type PreviewDisplayMode = typeof PREVIEW_DISPLAY_MODE_OPTIONS[number];
 
 export interface EditorSettings {
   isExitWarningEnabled: boolean;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
@@ -35,6 +37,8 @@ export interface EditorSettings {
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isExitWarningEnabled: true,
+  isBackdropBlurDisabled: false,
+  isAnimationDisabled: false,
   isScrollDirectionInverted: false,
   selectionType: 'window',
   statisticsRefreshRate: '30fps',
@@ -118,6 +122,12 @@ export const loadEditorSettings = (): EditorSettings => {
       isExitWarningEnabled: typeof parsedSettings.isExitWarningEnabled === 'boolean'
         ? parsedSettings.isExitWarningEnabled
         : DEFAULT_EDITOR_SETTINGS.isExitWarningEnabled,
+      isBackdropBlurDisabled: typeof parsedSettings.isBackdropBlurDisabled === 'boolean'
+        ? parsedSettings.isBackdropBlurDisabled
+        : DEFAULT_EDITOR_SETTINGS.isBackdropBlurDisabled,
+      isAnimationDisabled: typeof parsedSettings.isAnimationDisabled === 'boolean'
+        ? parsedSettings.isAnimationDisabled
+        : DEFAULT_EDITOR_SETTINGS.isAnimationDisabled,
       isScrollDirectionInverted: typeof parsedSettings.isScrollDirectionInverted === 'boolean'
         ? parsedSettings.isScrollDirectionInverted
         : DEFAULT_EDITOR_SETTINGS.isScrollDirectionInverted,

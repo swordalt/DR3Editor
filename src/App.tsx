@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
 import LandingPage from './components/LandingPage';
+import { loadEditorSettings } from './editor/editorSettings';
 import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 
 const Editor = lazy(() => import('./Editor'));
@@ -106,6 +107,9 @@ const getDefaultBpmChanges = (): BpmChange[] => DEFAULT_BPM_CHANGES.map(change =
 const getDefaultSpeedChanges = (): SpeedChange[] => DEFAULT_SPEED_CHANGES.map(change => ({ ...change }));
 
 export default function App() {
+  const editorSettings = loadEditorSettings();
+  const isBackdropBlurDisabled = editorSettings.isBackdropBlurDisabled;
+  const isAnimationDisabled = editorSettings.isAnimationDisabled;
   const [view, setView] = useState<ViewState>({ page: 'landing' });
   const [notes, setNotes] = useState<Note[]>([]);
   const [bpmChanges, setBpmChanges] = useState<BpmChange[]>(DEFAULT_BPM_CHANGES);
@@ -415,6 +419,8 @@ export default function App() {
           onExampleSelect={handleExampleSelect}
           onFileChange={handleFileChange}
           isExampleLoading={isExampleLoading}
+          isBackdropBlurDisabled={isBackdropBlurDisabled}
+          isAnimationDisabled={isAnimationDisabled}
         />
       ) : (
         <Suspense
@@ -441,7 +447,7 @@ export default function App() {
         </Suspense>
       )}
       {zipImportDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 font-sans text-neutral-50 backdrop-blur-md">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 font-sans text-neutral-50 ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}>
           <div
             role="dialog"
             aria-modal="true"

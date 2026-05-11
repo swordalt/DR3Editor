@@ -29,6 +29,15 @@ input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
 }
 
+.app-animations-disabled *,
+.app-animations-disabled *::before,
+.app-animations-disabled *::after {
+  animation: none !important;
+  transition-duration: 0ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

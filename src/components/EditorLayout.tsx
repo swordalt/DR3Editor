@@ -31,6 +31,8 @@ export default function EditorLayout(props: any) {
     isDr3FpPreviewInfoOpen,
     dr3FpPreviewStatus,
     isExitWarningEnabled,
+    isBackdropBlurDisabled,
+    isAnimationDisabled,
     isScrollDirectionInverted,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
@@ -48,6 +50,8 @@ export default function EditorLayout(props: any) {
     setIsHelpOpen,
     setIsDr3FpPreviewInfoOpen,
     setIsExitWarningEnabled,
+    setIsBackdropBlurDisabled,
+    setIsAnimationDisabled,
     setIsScrollDirectionInverted,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
@@ -112,8 +116,8 @@ export default function EditorLayout(props: any) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="h-screen overflow-hidden bg-neutral-950 text-neutral-50 flex flex-col font-sans"
+      transition={{ duration: isAnimationDisabled ? 0 : 0.3 }}
+      className={`h-screen overflow-hidden bg-neutral-950 text-neutral-50 flex flex-col font-sans ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
     >
       {projectData?.audioUrl && (
         <audio 
@@ -129,6 +133,8 @@ export default function EditorLayout(props: any) {
       {/* Modal */}
       <EditorModal 
         isOpen={isModalOpen} 
+        isBackdropBlurDisabled={isBackdropBlurDisabled}
+        isAnimationDisabled={isAnimationDisabled}
         onClose={() => {
           if (mode === 'new') {
             onBack();
@@ -151,6 +157,8 @@ export default function EditorLayout(props: any) {
         isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
         dr3FpPreviewStatus={dr3FpPreviewStatus}
         isExitWarningEnabled={isExitWarningEnabled}
+        isBackdropBlurDisabled={isBackdropBlurDisabled}
+        isAnimationDisabled={isAnimationDisabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -168,6 +176,8 @@ export default function EditorLayout(props: any) {
         setIsHelpOpen={setIsHelpOpen}
         setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
         setIsExitWarningEnabled={setIsExitWarningEnabled}
+        setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
+        setIsAnimationDisabled={setIsAnimationDisabled}
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
@@ -229,6 +239,7 @@ export default function EditorLayout(props: any) {
         <EditorPerformanceStats
           fps={fps}
           renderedObjects={renderedObjects}
+          isBackdropBlurDisabled={isBackdropBlurDisabled}
           onMouseEnter={onPerformanceStatsMouseEnter}
           onMouseLeave={onPerformanceStatsMouseLeave}
         />

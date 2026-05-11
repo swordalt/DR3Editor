@@ -166,6 +166,8 @@ export default function Editor({
   const [isSelectionTypeMenuOpen, setIsSelectionTypeMenuOpen] = useState(false);
   const [isExitWarningOpen, setIsExitWarningOpen] = useState(false);
   const [isExitWarningEnabled, setIsExitWarningEnabled] = useState(initialEditorSettings.isExitWarningEnabled);
+  const [isBackdropBlurDisabled, setIsBackdropBlurDisabled] = useState(initialEditorSettings.isBackdropBlurDisabled);
+  const [isAnimationDisabled, setIsAnimationDisabled] = useState(initialEditorSettings.isAnimationDisabled);
   const [isScrollDirectionInverted, setIsScrollDirectionInverted] = useState(initialEditorSettings.isScrollDirectionInverted);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
@@ -276,6 +278,8 @@ export default function Editor({
   useEffect(() => {
     saveEditorSettings({
       isExitWarningEnabled,
+      isBackdropBlurDisabled,
+      isAnimationDisabled,
       isScrollDirectionInverted,
       selectionType,
       statisticsRefreshRate,
@@ -295,6 +299,8 @@ export default function Editor({
     });
   }, [
     isExitWarningEnabled,
+    isBackdropBlurDisabled,
+    isAnimationDisabled,
     isScrollDirectionInverted,
     selectionType,
     statisticsRefreshRate,
@@ -5106,6 +5112,8 @@ export default function Editor({
       isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
       dr3FpPreviewStatus={dr3FpPreviewStatus}
       isExitWarningEnabled={isExitWarningEnabled}
+      isBackdropBlurDisabled={isBackdropBlurDisabled}
+      isAnimationDisabled={isAnimationDisabled}
       isScrollDirectionInverted={isScrollDirectionInverted}
       isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
       isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -5123,6 +5131,8 @@ export default function Editor({
       setIsHelpOpen={setIsHelpOpen}
       setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
       setIsExitWarningEnabled={setIsExitWarningEnabled}
+      setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
+      setIsAnimationDisabled={setIsAnimationDisabled}
       setIsScrollDirectionInverted={setIsScrollDirectionInverted}
       setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
       setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}

@@ -14,6 +14,8 @@ interface LandingPageProps {
   onExampleSelect: (exampleId: string) => void;
   onFileChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   isExampleLoading?: boolean;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
 }
 
 export default function LandingPage({
@@ -24,6 +26,8 @@ export default function LandingPage({
   onExampleSelect,
   onFileChange,
   isExampleLoading = false,
+  isBackdropBlurDisabled,
+  isAnimationDisabled,
 }: LandingPageProps) {
   const [isExampleMenuOpen, setIsExampleMenuOpen] = React.useState(false);
   const [isFormatModalOpen, setIsFormatModalOpen] = React.useState(false);
@@ -41,7 +45,7 @@ export default function LandingPage({
   return (
     <div
       key="landing"
-      className="min-h-screen bg-neutral-950 text-neutral-50 flex flex-col items-center justify-center p-6 font-sans selection:bg-indigo-500/30 animate-[fade-in_300ms_ease-out]"
+      className={`min-h-screen bg-neutral-950 text-neutral-50 flex flex-col items-center justify-center p-6 font-sans selection:bg-indigo-500/30 animate-[fade-in_300ms_ease-out] ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
     >
       <div
         className="max-w-2xl w-full flex flex-col items-center text-center space-y-12 animate-[rise-in_500ms_ease-out]"
@@ -143,7 +147,7 @@ export default function LandingPage({
 
       {isFormatModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-[fade-in_180ms_ease-out]"
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fade-in_180ms_ease-out] ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
           onMouseDown={() => setIsFormatModalOpen(false)}
         >
           <div
