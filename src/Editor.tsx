@@ -358,6 +358,7 @@ export default function Editor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
+  const resizeRenderFrameRef = useRef<number>();
   const hitSoundSchedulerIntervalRef = useRef<number>();
   const pausedTimelineRenderTimeoutRef = useRef<number>();
   const pausedTimelineRenderUntilRef = useRef(0);
@@ -406,11 +407,7 @@ export default function Editor({
   }, []);
 
   const updateProgressBarValue = (time: number, force = false) => {
-    if (
-      progressBarRef.current
-      && !isDraggingProgress.current
-      && (force || isProgressBarInteractive.current)
-    ) {
+    if (progressBarRef.current && (force || !isDraggingProgress.current)) {
       progressBarRef.current.value = time.toString();
     }
   };
@@ -1422,6 +1419,17 @@ export default function Editor({
     scheduledHitSoundKeysRef.current.clear();
   };
 
+  const resetHitSoundScheduler = (time: number, stopActiveSounds = false) => {
+    if (stopActiveSounds) {
+      stopHitsounds();
+    } else {
+      scheduledHitSoundKeysRef.current.clear();
+    }
+
+    lastPlayedTimeRef.current = time;
+    hitSoundCursorRef.current = findHitSoundCursor(time);
+  };
+
   const findHitSoundCursor = (time: number) => {
     const events = hitSoundEventsRef.current;
     let low = 0;
@@ -1448,10 +1456,8 @@ export default function Editor({
     stateRef.current.currentTime = syncedTime;
     stateRef.current.playbackStartTime = syncedTime;
     stateRef.current.playbackStartPerformanceTime = now;
-    stateRef.current.playbackAudioClockReadyTime = now;
-    lastPlayedTimeRef.current = syncedTime;
-    hitSoundCursorRef.current = findHitSoundCursor(syncedTime);
-    scheduledHitSoundKeysRef.current.clear();
+    stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+    resetHitSoundScheduler(syncedTime, true);
   };
 
   const scheduleHitSoundsThrough = useCallback((currentTime: number, activePlaybackSpeed: number) => {
@@ -3282,6 +3288,10 @@ export default function Editor({
         ctx.setLineDash([]);
       }
 
+      if (isPreviewMode) {
+        countRenderedObject();
+      }
+
       if (!isPreviewMode) {
         // Draw note ID
         ctx.fillStyle = '#ffffff';
@@ -3620,6 +3630,36 @@ export default function Editor({
     renderedObjectsDisplayLastUpdateRef.current = now;
     setRenderedObjects(renderedObjectsRef.current);
   }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const drawResizedCanvas = () => {
+      if (resizeRenderFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(resizeRenderFrameRef.current);
+      }
+
+      resizeRenderFrameRef.current = window.requestAnimationFrame(() => {
+        resizeRenderFrameRef.current = undefined;
+        drawGrid();
+        updateRenderedObjectsDisplay(true);
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(drawResizedCanvas);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeRenderFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(resizeRenderFrameRef.current);
+        resizeRenderFrameRef.current = undefined;
+      }
+    };
+  }, [drawGrid, updateRenderedObjectsDisplay]);
 
   const update = useCallback(() => {
     if (stateRef.current.isPlaying && audioRef.current) {

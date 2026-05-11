@@ -90,6 +90,7 @@ interface VirtualizedListProps<T> {
   items: T[];
   estimateSize: number;
   getKey: (item: T, index: number) => string;
+  getItemClassName?: (item: T, index: number) => string;
   renderItem: (item: T, index: number) => ReactNode;
   className?: string;
   overscan?: number;
@@ -99,6 +100,7 @@ function VirtualizedList<T>({
   items,
   estimateSize,
   getKey,
+  getItemClassName,
   renderItem,
   className = '',
   overscan = 2,
@@ -199,7 +201,7 @@ function VirtualizedList<T>({
             <div
               key={getKey(item, index)}
               ref={(node) => setItemRef(index, node)}
-              className="absolute left-0 right-0 pb-5"
+              className={`absolute left-0 right-0 pb-5 ${getItemClassName?.(item, index) ?? ''}`}
               style={{ transform: `translateY(${offsets[index]}px)` }}
             >
               {renderItem(item, index)}
@@ -396,7 +398,7 @@ export default function EditorOverlays({
             />
           </div>
 
-          <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
+          <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isSelectionTypeMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">
               <p className="text-sm font-medium text-white">Selection Type</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
@@ -445,7 +447,7 @@ export default function EditorOverlays({
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
+          <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isStatisticsRefreshRateMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">
               <p className="text-sm font-medium text-white">Statistics Refresh Rate</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
@@ -792,6 +794,11 @@ export default function EditorOverlays({
               items={settingsSections}
               estimateSize={360}
               getKey={(section) => section}
+              getItemClassName={(section) => (
+                section === 'editor' && (isSelectionTypeMenuOpen || isStatisticsRefreshRateMenuOpen)
+                  ? 'z-20'
+                  : 'z-0'
+              )}
               renderItem={(section) => renderSettingsSection(section)}
               className="px-6 py-6"
             />
