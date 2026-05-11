@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { EditorFormData } from '../types/editorTypes';
+import { translations } from '../lang';
 import {
   getInvalidMetadataFields,
   hasInvalidMetadataFields,
@@ -34,6 +35,7 @@ export default function EditorModal({
   handleMetadataFieldKeyDown,
 }: EditorModalProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const text = translations;
   const isConfirmDisabled = hasInvalidMetadataFields(getInvalidMetadataFields(formData));
   const getInputClassName = (field: MetadataField) => (
     `w-full p-3 bg-neutral-800 rounded-lg border outline-none transition-colors ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
@@ -62,13 +64,13 @@ export default function EditorModal({
           >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white">
-                New Project Details
+                {text.modal.newProjectDetails}
               </h2>
             </div>
             <div className="space-y-4">
               <input
                 type="text"
-                placeholder="Song ID *"
+                placeholder={text.modal.songIdRequired}
                 value={formData.songId}
                 required
                 className={getInputClassName('songId')}
@@ -76,12 +78,12 @@ export default function EditorModal({
                 onKeyDown={(event) => handleMetadataFieldKeyDown('songId', event)}
                 onChange={(e) => setFormData({...formData, songId: e.target.value})}
               />
-              <input type="text" placeholder="Song Name" value={formData.songName} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
-              <input type="text" placeholder="Song Artist" value={formData.songArtist} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
+              <input type="text" placeholder={text.modal.songName} value={formData.songName} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
+              <input type="text" placeholder={text.modal.songArtist} value={formData.songArtist} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
               <input
                 type="text"
                 inputMode="decimal"
-                placeholder="Song BPM *"
+                placeholder={text.modal.songBpmRequired}
                 value={formData.songBpm}
                 required
                 className={getInputClassName('songBpm')}
@@ -92,7 +94,7 @@ export default function EditorModal({
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="Difficulty *"
+                placeholder={text.modal.difficultyRequired}
                 value={formData.difficulty}
                 required
                 className={getInputClassName('difficulty')}
@@ -107,7 +109,7 @@ export default function EditorModal({
                   onBlur={() => showMetadataFieldValidation('songFile')}
                   className={`p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border transition-colors w-full text-left ${invalidMetadataFields.songFile ? 'border-red-500' : 'border-neutral-700'}`}
                 >
-                  {formData.songFile ? formData.songFile.name : 'Select Audio File *'}
+                  {formData.songFile ? formData.songFile.name : text.modal.selectAudioRequired}
                 </button>
                 <input 
                   type="file" 
@@ -121,14 +123,14 @@ export default function EditorModal({
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <button onClick={onClose} className="w-full p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg font-semibold transition-colors">
-                  Return to Landing
+                  {text.modal.returnToLanding}
                 </button>
                 <button
                   onClick={onConfirm}
                   disabled={isConfirmDisabled}
                   className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  Confirm
+                  {text.common.confirm}
                 </button>
               </div>
             </div>

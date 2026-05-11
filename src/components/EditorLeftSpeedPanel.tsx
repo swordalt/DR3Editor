@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
+import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftSpeedPanel(props: any) {
   const {
@@ -80,6 +81,7 @@ export default function EditorLeftSpeedPanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const text = translations;
 
   return (
     <>
@@ -89,13 +91,13 @@ export default function EditorLeftSpeedPanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Speed Changes</div>
+                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.speedChanges}</div>
               </div>
               <div className="flex flex-col overflow-hidden flex-1 pr-1 pb-4 min-h-0">
                 <div className={`${speedChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
-                  <div>ID</div>
-                  <div>Timepos</div>
-                  <div>Speed</div>
+                  <div>{text.sidebar.id}</div>
+                  <div>{text.sidebar.timepos}</div>
+                  <div>{text.sidebar.speed}</div>
                   <div />
                 </div>
                 <VirtualizedChangeList
@@ -133,7 +135,7 @@ export default function EditorLeftSpeedPanel(props: any) {
                     </div>
                   )}
                 />
-                <button onClick={addSpeedChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">Add Speed Change</button>
+                <button onClick={addSpeedChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">{text.sidebar.addSpeedChange}</button>
               </div>
             </div>
           )}

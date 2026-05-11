@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { translations } from '../lang';
 
 interface PreviewSettingToggleProps {
   label: string;
@@ -74,6 +75,8 @@ export default function EditorPreviewSidebar({
   setIsPreviewNoteSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewNoteAppearModeEnabled: Dispatch<SetStateAction<boolean>>;
 }) {
+  const text = translations;
+
   return (
     <aside className={`${isLeftPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
       <div className={`p-2 border-b border-neutral-800 flex ${isLeftPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
@@ -82,42 +85,42 @@ export default function EditorPreviewSidebar({
           className={`flex items-center gap-2 rounded text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors ${isLeftPanelContentVisible ? 'px-2 py-1 text-xs font-medium' : 'p-1'}`}
         >
           {isLeftPanelCompact ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-          {isLeftPanelContentVisible && <span>Collapse Window</span>}
+          {isLeftPanelContentVisible && <span>{text.sidebar.collapseWindow}</span>}
         </button>
       </div>
       {isLeftPanelContentVisible && (
       <div className="flex flex-col gap-4 overflow-y-auto p-4">
-        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Preview Mode</div>
+        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.previewMode}</div>
         <PreviewSettingToggle
-          label="Camera Tilt"
-          description="Apply camera rotation if hold notes are present."
+          label={text.sidebar.cameraTilt}
+          description={text.sidebar.cameraTiltDescription}
           isEnabled={isPreviewCameraTiltEnabled}
-          ariaLabel="Toggle preview camera tilt"
+          ariaLabel={text.sidebar.togglePreviewCameraTilt}
           onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
         />
         <PreviewSettingToggle
-          label="Camera Movement"
-          description="Apply camera movement based on pink holds."
+          label={text.sidebar.cameraMovement}
+          description={text.sidebar.cameraMovementDescription}
           isEnabled={isPreviewCameraMovementEnabled}
-          ariaLabel="Toggle preview camera movement"
+          ariaLabel={text.sidebar.togglePreviewCameraMovement}
           onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
         />
         <PreviewSettingToggle
-          label="Note Speed Changes"
-          description="Apply note speed changes."
+          label={text.sidebar.noteSpeedChanges}
+          description={text.sidebar.noteSpeedChangesDescription}
           isEnabled={isPreviewNoteSpeedChangesEnabled}
-          ariaLabel="Toggle preview note speed changes"
+          ariaLabel={text.sidebar.togglePreviewNoteSpeedChanges}
           onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
         />
         <PreviewSettingToggle
-          label="Note Appear Mode"
-          description="Apply note appear mode."
+          label={text.sidebar.noteAppearMode}
+          description={text.sidebar.noteAppearModeDescription}
           isEnabled={isPreviewNoteAppearModeEnabled}
-          ariaLabel="Toggle preview note appear mode"
+          ariaLabel={text.sidebar.togglePreviewNoteAppearMode}
           onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
         />
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
-          Will not be 100% accurate to the official game. Use DR3FP Preview for a fully accurate chart preview.
+          {text.sidebar.previewAccuracyNotice}
         </div>
       </div>
       )}

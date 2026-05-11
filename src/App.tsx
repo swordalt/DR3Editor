@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
 import LandingPage from './components/LandingPage';
 import { loadEditorSettings } from './editor/editorSettings';
+import { translations } from './lang';
 import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 
 const Editor = lazy(() => import('./Editor'));
@@ -39,6 +40,7 @@ const EXAMPLES = [
 ] as const;
 const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'webm']);
 const IMAGE_EXTENSIONS = new Set(['avif', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
+const text = translations;
 
 const getFileExtension = (fileName: string) => {
   const extension = fileName.split('.').pop()?.toLowerCase();
@@ -248,8 +250,8 @@ export default function App() {
     try {
       const { chartFiles, audioFiles, imageFiles, infoFile } = await getZipImportEntries(file);
       const missingMessages = [
-        ...(chartFiles.length === 0 ? ['No chart .txt file was found in this bundle.'] : []),
-        ...(audioFiles.length === 0 ? ['No supported audio file was found in this bundle.'] : []),
+        ...(chartFiles.length === 0 ? [text.importDialog.missingChartFile] : []),
+        ...(audioFiles.length === 0 ? [text.importDialog.missingAudioFile] : []),
       ];
       const needsSelection = chartFiles.length > 1 || audioFiles.length > 1 || imageFiles.length > 1;
 
@@ -272,7 +274,7 @@ export default function App() {
 
       const chartFile = chartFiles[0] ?? null;
       if (!chartFile) {
-        throw new Error('No chart file found in ZIP.');
+        throw new Error(text.importDialog.noChartFileInZip);
       }
 
       await importResolvedZip({
@@ -296,7 +298,7 @@ export default function App() {
           selectedChartId: '',
           selectedAudioId: '',
           selectedImageId: '',
-          messages: ['This chart bundle could not be read.'],
+          messages: [text.importDialog.unreadableBundle],
           canImport: false,
         });
         return;
@@ -342,7 +344,7 @@ export default function App() {
       console.error(error);
       setZipImportDialog({
         ...dialogState,
-        messages: ['The selected files could not be imported.'],
+        messages: [text.importDialog.selectedFilesFailed],
         canImport: false,
       });
     }
@@ -399,7 +401,7 @@ export default function App() {
       });
     } catch (error) {
       console.error(error);
-      alert('The example project could not be loaded.');
+      alert(text.landing.exampleLoadFailed);
     } finally {
       setIsExampleLoading(false);
     }
@@ -426,7 +428,7 @@ export default function App() {
         <Suspense
           fallback={(
             <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm font-medium text-neutral-300">
-              Loading editor...
+              {text.app.loadingEditor}
             </div>
           )}
         >
@@ -456,7 +458,7 @@ export default function App() {
           >
             <div className="border-b border-neutral-800 px-6 py-5">
               <h2 id="zip-import-title" className="text-xl font-bold text-white">
-                Resolve Imported Files
+                {text.importDialog.title}
               </h2>
               <p className="mt-1 text-sm text-neutral-400">
                 {zipImportDialog.sourceFile.name}
@@ -474,7 +476,7 @@ export default function App() {
 
               {zipImportDialog.chartFiles.length > 1 && (
                 <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">Chart File</span>
+                  <span className="font-medium text-neutral-300">{text.importDialog.chartFile}</span>
                   <select
                     value={zipImportDialog.selectedChartId}
                     onChange={(event) => setZipImportDialog(current => current ? {
@@ -492,7 +494,7 @@ export default function App() {
 
               {zipImportDialog.audioFiles.length > 1 && (
                 <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">Audio File</span>
+                  <span className="font-medium text-neutral-300">{text.importDialog.audioFile}</span>
                   <select
                     value={zipImportDialog.selectedAudioId}
                     onChange={(event) => setZipImportDialog(current => current ? {
@@ -510,7 +512,7 @@ export default function App() {
 
               {zipImportDialog.imageFiles.length > 1 && (
                 <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">Illustration File</span>
+                  <span className="font-medium text-neutral-300">{text.importDialog.illustrationFile}</span>
                   <select
                     value={zipImportDialog.selectedImageId}
                     onChange={(event) => setZipImportDialog(current => current ? {
@@ -533,14 +535,14 @@ export default function App() {
                 onClick={() => setZipImportDialog(null)}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
               >
-                Cancel
+                {text.importDialog.cancel}
               </button>
               <button
                 type="button"
                 onClick={() => { void handleConfirmZipImportDialog(); }}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
               >
-                Confirm
+                {text.importDialog.confirm}
               </button>
             </div>
           </div>

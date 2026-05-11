@@ -5,6 +5,7 @@ import EditorLeftBpmPanel from './EditorLeftBpmPanel';
 import EditorLeftSpeedPanel from './EditorLeftSpeedPanel';
 import EditorLeftCurvePanel from './EditorLeftCurvePanel';
 import EditorLeftUtilityPanel from './EditorLeftUtilityPanel';
+import { translations } from '../lang';
 
 export default function EditorLeftSidebar(props: any) {
   const {
@@ -12,6 +13,7 @@ export default function EditorLeftSidebar(props: any) {
     isLeftPanelContentVisible,
     toggleLeftPanelCompact,
   } = props;
+  const text = translations;
 
   return (
     <aside className={`${isLeftPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
@@ -21,7 +23,7 @@ export default function EditorLeftSidebar(props: any) {
           className={`flex items-center gap-2 rounded text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors ${isLeftPanelContentVisible ? 'px-2 py-1 text-xs font-medium' : 'p-1'}`}
         >
           {isLeftPanelCompact ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-          {isLeftPanelContentVisible && <span>Collapse Window</span>}
+          {isLeftPanelContentVisible && <span>{text.sidebar.collapseWindow}</span>}
         </button>
       </div>
 

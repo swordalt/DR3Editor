@@ -11,6 +11,7 @@ import {
   type StatisticsRefreshRate,
 } from '../editor/editorSettings';
 import { SELECTION_TYPE_LABELS } from '../editor/editorViewConstants';
+import { translations } from '../lang';
 
 interface EditorOverlaysProps {
   isExitWarningOpen: boolean;
@@ -47,13 +48,7 @@ interface EditorOverlaysProps {
   onBack: () => void;
 }
 
-const DR3FP_PREVIEW_STAGE_LABELS: Record<Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>, string> = {
-  exporting: 'Build',
-  launching: 'Launch',
-  receiver: 'Receiver',
-  uploading: 'Upload',
-  complete: 'Done',
-};
+const DR3FP_PREVIEW_STAGE_LABELS = translations.status.dr3FpStages;
 
 const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[] = [
   'exporting',
@@ -63,23 +58,7 @@ const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[]
   'complete',
 ];
 
-const DR3FP_PREVIEW_FAILURE_GUIDANCE: Record<Dr3FpPreviewFailureKind, string[]> = {
-  export: [
-    'Check that the chart metadata and audio are still available, then try preview again.',
-  ],
-  launch: [
-    'Install or extract DR3FanmadePlayer, then open DR3FP once so Windows registers the dr3fp:// preview link.',
-    'If the browser asks whether it can open DR3FP, allow it.',
-  ],
-  receiver: [
-    'Leave DR3FP open and try preview again after it finishes starting.',
-    'If requests to 127.0.0.1:27373 are blocked, allow this editor page in privacy, ad blocking, or local-network browser settings.',
-  ],
-  upload: [
-    'Keep DR3FP open while the chart transfers, then try preview again.',
-    'If this repeats, update DR3FP to a build that supports preview receiver version 1.',
-  ],
-};
+const DR3FP_PREVIEW_FAILURE_GUIDANCE = translations.status.dr3FpFailureGuidance;
 
 type SettingsSectionId = 'editor' | 'appearance' | 'audio';
 type HotkeyRow =
@@ -295,6 +274,7 @@ export default function EditorOverlays({
   setFlickSoundVolume,
   onBack,
 }: EditorOverlaysProps) {
+  const text = translations;
   const closeSettings = () => {
     setIsSettingsOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
@@ -375,34 +355,34 @@ export default function EditorOverlays({
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white">Editor</h3>
-              <p className="mt-1 text-xs text-neutral-500">Control editor behavior and navigation safeguards.</p>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.editor}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.settingsDescription}</p>
             </div>
           </div>
 
           <SettingsToggle
-            label="Back to Landing warning"
-            description="Show a confirmation popup before leaving the editor and discarding unexported work."
+            label={text.overlays.backToLandingWarning}
+            description={text.overlays.backToLandingWarningDescription}
             isEnabled={isExitWarningEnabled}
-            ariaLabel="Toggle Back to Landing warning"
+            ariaLabel={text.overlays.toggleBackToLandingWarning}
             onToggle={() => setIsExitWarningEnabled((current) => !current)}
           />
 
           <div className="mt-4">
             <SettingsToggle
-              label="Invert Scroll Direction"
-              description="Reverse mouse wheel scrolling when moving through the editor canvas."
+              label={text.overlays.invertScrollDirection}
+              description={text.overlays.invertScrollDirectionDescription}
               isEnabled={isScrollDirectionInverted}
-              ariaLabel="Toggle inverted canvas scroll direction"
+              ariaLabel={text.overlays.toggleInvertScrollDirection}
               onToggle={() => setIsScrollDirectionInverted((current) => !current)}
             />
           </div>
 
           <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isSelectionTypeMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">
-              <p className="text-sm font-medium text-white">Selection Type</p>
+              <p className="text-sm font-medium text-white">{text.overlays.selectionType}</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
-                Choose how middle-drag selection boxes collect notes.
+                {text.overlays.selectionTypeDescription}
               </p>
             </div>
             <div className="relative">
@@ -449,9 +429,9 @@ export default function EditorOverlays({
 
           <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isStatisticsRefreshRateMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">
-              <p className="text-sm font-medium text-white">Statistics Refresh Rate</p>
+              <p className="text-sm font-medium text-white">{text.overlays.statisticsRefreshRate}</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
-                Limit how often live statistics update in the properties window.
+                {text.overlays.statisticsRefreshRateDescription}
               </p>
             </div>
             <div className="relative">
@@ -504,25 +484,25 @@ export default function EditorOverlays({
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white">Appearance</h3>
-              <p className="mt-1 text-xs text-neutral-500">Tune visual effects for smoother rendering on weaker devices.</p>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.appearance}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.appearanceDescription}</p>
             </div>
           </div>
 
           <SettingsToggle
-            label="Disable Blur Effects"
-            description="Replace blurred overlays with darker solid overlays to reduce GPU load on weaker devices."
+            label={text.overlays.disableBlurEffects}
+            description={text.overlays.disableBlurEffectsDescription}
             isEnabled={isBackdropBlurDisabled}
-            ariaLabel="Toggle blur effect replacement"
+            ariaLabel={text.overlays.toggleBlurEffects}
             onToggle={() => setIsBackdropBlurDisabled((current) => !current)}
           />
 
           <div className="mt-4">
             <SettingsToggle
-              label="Disable Animations"
-              description="Remove interface transitions, button press scaling, menu animations, and dialog open or close motion."
+              label={text.overlays.disableAnimations}
+              description={text.overlays.disableAnimationsDescription}
               isEnabled={isAnimationDisabled}
-              ariaLabel="Toggle interface animations"
+              ariaLabel={text.overlays.toggleAnimations}
               onToggle={() => setIsAnimationDisabled((current) => !current)}
             />
           </div>
@@ -534,15 +514,15 @@ export default function EditorOverlays({
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">Audio</h3>
-            <p className="mt-1 text-xs text-neutral-500">Balance music playback and editor hit sounds.</p>
+            <h3 className="text-sm font-semibold text-white">{text.overlays.audio}</h3>
+            <p className="mt-1 text-xs text-neutral-500">{text.overlays.audioDescription}</p>
           </div>
         </div>
 
         <div className="space-y-5">
           <label className="block">
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">Music volume</span>
+              <span className="text-neutral-300">{text.overlays.musicVolume}</span>
               <span className="font-mono text-xs text-neutral-500">{Math.round(musicVolume * 100)}%</span>
             </div>
             <input
@@ -558,7 +538,7 @@ export default function EditorOverlays({
 
           <label className="block">
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">Taps volume</span>
+              <span className="text-neutral-300">{text.overlays.tapsVolume}</span>
               <span className="font-mono text-xs text-neutral-500">{Math.round(tapSoundVolume * 100)}%</span>
             </div>
             <input
@@ -568,14 +548,14 @@ export default function EditorOverlays({
               step="0.01"
               value={tapSoundVolume}
               onChange={(e) => setTapSoundVolume(Number(e.target.value))}
-              aria-label="Taps volume"
+              aria-label={text.overlays.tapsVolume}
               className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
             />
           </label>
 
           <label className="block">
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">Flicks volume</span>
+              <span className="text-neutral-300">{text.overlays.flicksVolume}</span>
               <span className="font-mono text-xs text-neutral-500">{Math.round(flickSoundVolume * 100)}%</span>
             </div>
             <input
@@ -585,7 +565,7 @@ export default function EditorOverlays({
               step="0.01"
               value={flickSoundVolume}
               onChange={(e) => setFlickSoundVolume(Number(e.target.value))}
-              aria-label="Flicks volume"
+              aria-label={text.overlays.flicksVolume}
               className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
             />
           </label>
@@ -611,13 +591,13 @@ export default function EditorOverlays({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-400/80">Warning</p>
-              <h2 id="exit-warning-title" className="mt-2 text-2xl font-semibold text-white">Leave the editor?</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-400/80">{text.overlays.warning}</p>
+              <h2 id="exit-warning-title" className="mt-2 text-2xl font-semibold text-white">{text.overlays.leaveEditor}</h2>
             </div>
 
             <div className="px-6 py-6">
               <p className="text-sm leading-6 text-neutral-300">
-                All unsaved or unexported work will be lost if you go back to the landing page.
+                {text.overlays.leaveEditorDescription}
               </p>
             </div>
 
@@ -629,13 +609,13 @@ export default function EditorOverlays({
                 }}
                 className="flex-1 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-400"
               >
-                Quit
+                {text.overlays.quit}
               </button>
               <button
                 onClick={() => setIsExitWarningOpen(false)}
                 className="flex-1 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:bg-white/[0.08]"
               >
-                Cancel
+                {text.common.cancel}
               </button>
             </div>
           </motion.div>
@@ -657,7 +637,7 @@ export default function EditorOverlays({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">DR3FP Preview</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">{text.overlays.dr3FpPreview}</p>
               <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
                 {dr3FpPreviewStatus.title}
               </h2>
@@ -720,7 +700,7 @@ export default function EditorOverlays({
 
               {dr3FpPreviewStatus.stage === 'failed' && dr3FpPreviewStatus.failureKind && (
                 <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
-                  <p className="text-sm font-semibold text-red-100">What happened</p>
+                  <p className="text-sm font-semibold text-red-100">{text.overlays.whatHappened}</p>
                   <p className="mt-2 text-sm leading-6 text-red-100/80">
                     {dr3FpPreviewStatus.message}
                   </p>
@@ -729,7 +709,7 @@ export default function EditorOverlays({
                       {dr3FpPreviewStatus.detail}
                     </p>
                   )}
-                  <p className="mt-4 text-sm font-semibold text-red-100">Try this</p>
+                  <p className="mt-4 text-sm font-semibold text-red-100">{text.overlays.tryThis}</p>
                   <ul className="mt-2 space-y-2 text-sm leading-6 text-red-100/80">
                     {DR3FP_PREVIEW_FAILURE_GUIDANCE[dr3FpPreviewStatus.failureKind].map(item => (
                       <li key={item} className="flex gap-2">
@@ -745,7 +725,7 @@ export default function EditorOverlays({
                       rel="noreferrer"
                       className="mt-4 inline-flex text-sm font-medium text-red-100 underline decoration-red-100/40 underline-offset-4 transition-colors hover:text-white"
                     >
-                      DanceRail3FanmadePlayer releases
+                      {text.overlays.dr3FpReleases}
                     </a>
                   )}
                 </div>
@@ -753,7 +733,7 @@ export default function EditorOverlays({
 
               {dr3FpPreviewStatus.stage === 'complete' && (
                 <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100/80">
-                  Switch to DR3FP to play the preview.
+                  {text.overlays.switchToDr3Fp}
                 </div>
               )}
             </div>
@@ -764,7 +744,7 @@ export default function EditorOverlays({
                 onClick={() => setIsDr3FpPreviewInfoOpen(false)}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
               >
-                {dr3FpPreviewStatus.stage === 'failed' ? 'Close' : 'Done'}
+                {dr3FpPreviewStatus.stage === 'failed' ? text.common.close : text.common.done}
               </button>
             </div>
           </motion.div>
@@ -786,8 +766,8 @@ export default function EditorOverlays({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">Editor</p>
-              <h2 id="settings-title" className="mt-2 text-2xl font-semibold text-white">Settings</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.editor}</p>
+              <h2 id="settings-title" className="mt-2 text-2xl font-semibold text-white">{text.editor.settings}</h2>
             </div>
 
             <VirtualizedList
@@ -807,7 +787,7 @@ export default function EditorOverlays({
                 onClick={closeSettings}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
               >
-                Close
+                {text.common.close}
               </button>
             </div>
           </motion.div>
@@ -829,8 +809,8 @@ export default function EditorOverlays({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">Editor</p>
-              <h2 id="hotkeys-title" className="mt-2 text-2xl font-semibold text-white">Hotkeys</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.editor}</p>
+              <h2 id="hotkeys-title" className="mt-2 text-2xl font-semibold text-white">{text.editor.hotkeys}</h2>
             </div>
 
             <VirtualizedList
@@ -845,7 +825,7 @@ export default function EditorOverlays({
                 onClick={() => setIsHelpOpen(false)}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
               >
-                Close
+                {text.common.close}
               </button>
             </div>
           </motion.div>

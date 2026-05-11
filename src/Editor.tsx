@@ -129,11 +129,13 @@ import {
   createDr3FpPreviewFailureStatus,
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
+import { translations } from './lang';
 
 const getOffsetInSeconds = (offset: string | number) => {
   const parsedOffset = parseFloat(offset.toString());
   return Number.isFinite(parsedOffset) ? parsedOffset / 1000 : 0;
 };
+const text = translations;
 
 const getRequiredMetadataTouchedFields = () => Object.fromEntries(
   METADATA_REQUIRED_FIELDS.map(field => [field, true]),
@@ -4773,8 +4775,8 @@ export default function Editor({
   const changeTableMarkerClass = 'inline-flex h-6 w-full items-center justify-center rounded border border-neutral-700 bg-neutral-900 font-mono text-[10px] font-semibold text-neutral-400';
   const changeTableJumpMarkerClass = `${changeTableMarkerClass} cursor-pointer transition-colors hover:border-indigo-500 hover:bg-indigo-500/10 hover:text-indigo-200 focus:border-indigo-500 focus:outline-none`;
   const emptyCanvasMessage = mode === 'import'
-    ? 'Provide the music file in Chart Metadata to start editing this imported chart.'
-    : 'Fill in project details in Chart Metadata to start editing.';
+    ? text.editor.emptyImportedChart
+    : text.editor.emptyNewChart;
   const updateSelectedNote = (updates: Partial<Note>) => {
     if (!selectedSingleNote) return;
 

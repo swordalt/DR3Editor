@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { formatTime, getBpmChangeTimepos } from '../utils/editorUtils';
+import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftCurvePanel(props: any) {
   const {
@@ -89,6 +90,7 @@ export default function EditorLeftCurvePanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const text = translations;
 
   return (
     <>
@@ -98,11 +100,11 @@ export default function EditorLeftCurvePanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Curve Notes</div>
+                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.curveNotes}</div>
               </div>
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
                 <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Start ID</span>
+                  <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.startId}</span>
                   <div className="flex gap-2">
                     <input
                       type="number"
@@ -129,7 +131,7 @@ export default function EditorLeftCurvePanel(props: any) {
                           : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
                       }`}
                     >
-                      {curveIdSelectTarget === 'start' ? 'Cancel' : 'Select'}
+                      {curveIdSelectTarget === 'start' ? text.common.cancel : text.common.select}
                     </button>
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">
@@ -142,7 +144,7 @@ export default function EditorLeftCurvePanel(props: any) {
                 </label>
 
                 <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">End ID</span>
+                  <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.endId}</span>
                   <div className="flex gap-2">
                     <input
                       type="number"
@@ -169,7 +171,7 @@ export default function EditorLeftCurvePanel(props: any) {
                           : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
                       }`}
                     >
-                      {curveIdSelectTarget === 'end' ? 'Cancel' : 'Select'}
+                      {curveIdSelectTarget === 'end' ? text.common.cancel : text.common.select}
                     </button>
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">
@@ -182,7 +184,7 @@ export default function EditorLeftCurvePanel(props: any) {
                 </label>
 
                 <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Type</span>
+                  <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.type}</span>
                   <select
                     value={curveNoteType}
                     className={notePropertyInputClass}
@@ -200,7 +202,7 @@ export default function EditorLeftCurvePanel(props: any) {
                 </label>
 
                 <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">Density</span>
+                  <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.density}</span>
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 text-sm text-neutral-400">1/</span>
                     <input
@@ -226,7 +228,7 @@ export default function EditorLeftCurvePanel(props: any) {
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs text-neutral-400">Easing</span>
+                    <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.easing}</span>
                     <select
                       value={curveEasingFamily}
                       className={`${notePropertyInputClass} min-w-0`}
@@ -244,7 +246,7 @@ export default function EditorLeftCurvePanel(props: any) {
                   </label>
 
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs text-neutral-400">Type</span>
+                    <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.type}</span>
                     <select
                       value={curveEasingType}
                       className={`${notePropertyInputClass} min-w-0`}
@@ -269,7 +271,7 @@ export default function EditorLeftCurvePanel(props: any) {
                   disabled={!canGenerateCurveNotes}
                   className="mt-1 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  Generate Curve Notes
+                  {text.sidebar.generateCurveNotes}
                 </button>
 
                 <p className="text-xs leading-5 text-neutral-500">

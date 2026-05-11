@@ -1,5 +1,6 @@
 import React from 'react';
 import { Ban, ChevronDown, FilePlus, FileText, Upload, X } from 'lucide-react';
+import { translations } from '../lang';
 
 interface ExampleOption {
   id: string;
@@ -31,6 +32,7 @@ export default function LandingPage({
 }: LandingPageProps) {
   const [isExampleMenuOpen, setIsExampleMenuOpen] = React.useState(false);
   const [isFormatModalOpen, setIsFormatModalOpen] = React.useState(false);
+  const text = translations;
 
   const handleExampleSelect = (exampleId: string) => {
     setIsExampleMenuOpen(false);
@@ -63,10 +65,10 @@ export default function LandingPage({
             </div>
           </div>
           <h1 className="text-5xl font-bold tracking-tight text-white">
-            DanceRail3 <span className="text-indigo-400">Editor</span>
+            {text.app.namePrefix} <span className="text-indigo-400">{text.app.nameSuffix}</span>
           </h1>
           <p className="text-lg text-neutral-400 max-w-md mx-auto">
-            A versatile web-based chart making & editing tool for the rhythm game DanceRail3.
+            {text.app.description}
           </p>
         </div>
 
@@ -77,8 +79,8 @@ export default function LandingPage({
           >
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <FilePlus className="w-10 h-10 text-indigo-400 mb-4 group-hover:scale-110 transition-transform duration-300" />
-            <span className="text-lg font-semibold text-white">New Project</span>
-            <span className="text-sm text-neutral-400 mt-2">Import an audio file and start charting.</span>
+            <span className="text-lg font-semibold text-white">{text.landing.newProject}</span>
+            <span className="text-sm text-neutral-400 mt-2">{text.landing.newProjectDescription}</span>
           </button>
 
           <button
@@ -87,8 +89,8 @@ export default function LandingPage({
           >
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <Upload className="w-10 h-10 text-emerald-400 mb-4 group-hover:scale-110 transition-transform duration-300" />
-            <span className="text-lg font-semibold text-white">Import Project</span>
-            <span className="text-sm text-neutral-400 mt-2">Import existing chart data or project.</span>
+            <span className="text-lg font-semibold text-white">{text.landing.importProject}</span>
+            <span className="text-sm text-neutral-400 mt-2">{text.landing.importProjectDescription}</span>
           </button>
 
           <div className="relative sm:col-span-2">
@@ -101,7 +103,7 @@ export default function LandingPage({
               className="group relative flex h-12 w-full cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 px-5 text-sm font-semibold text-white outline-none transition-[background-color,border-color,transform] hover:scale-[1.01] hover:border-sky-500/50 hover:bg-neutral-800/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100 disabled:active:scale-100"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-              <span className="relative">{isExampleLoading ? 'Loading...' : 'Example Projects'}</span>
+              <span className="relative">{isExampleLoading ? text.landing.loading : text.landing.exampleProjects}</span>
               <ChevronDown className={`relative h-4 w-4 text-sky-400 transition-transform duration-200 ${isExampleMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -127,7 +129,7 @@ export default function LandingPage({
             {isExampleMenuOpen && (
               <button
                 type="button"
-                aria-label="Close example menu"
+                aria-label={text.landing.closeExampleMenu}
                 tabIndex={-1}
                 onClick={() => setIsExampleMenuOpen(false)}
                 className="fixed inset-0 z-10 cursor-default bg-transparent"
@@ -159,12 +161,12 @@ export default function LandingPage({
           >
               <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
                 <h2 id="chart-format-title" className="text-xl font-bold text-white">
-                  Choose Chart Format
+                  {text.landing.chooseChartFormat}
                 </h2>
                 <button
                   type="button"
                   onClick={() => setIsFormatModalOpen(false)}
-                  aria-label="Close chart format dialog"
+                  aria-label={text.landing.closeChartFormatDialog}
                   className="rounded-lg p-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
                 >
                   <X className="h-5 w-5" />
@@ -181,8 +183,8 @@ export default function LandingPage({
                     <FileText className="h-5 w-5" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block font-semibold text-white">Official Format</span>
-                    <span className="mt-1 block text-sm text-neutral-400">Use the official DanceRail3 chart format.</span>
+                    <span className="block font-semibold text-white">{text.landing.officialFormat}</span>
+                    <span className="mt-1 block text-sm text-neutral-400">{text.landing.officialFormatDescription}</span>
                   </span>
                 </button>
 
@@ -196,8 +198,8 @@ export default function LandingPage({
                     <Ban className="h-5 w-5" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block font-semibold text-neutral-300">DR3Custom Format</span>
-                    <span className="mt-1 block text-sm text-neutral-500">Not available yet.</span>
+                    <span className="block font-semibold text-neutral-300">{text.landing.customFormat}</span>
+                    <span className="mt-1 block text-sm text-neutral-500">{text.landing.notAvailableYet}</span>
                   </span>
                 </button>
               </div>

@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
+import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftMainPanel(props: any) {
   const {
@@ -80,36 +81,37 @@ export default function EditorLeftMainPanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const text = translations;
 
   return (
     <>
       {isLeftPanelContentVisible && activeLeftPanel === 'main' && (
             <div className="p-4 flex flex-col gap-4 h-full overflow-y-auto min-h-0">
-              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">General Functions</div>
+              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.generalFunctions}</div>
               <div className="flex flex-col gap-2 flex-1">
                 <button 
                   onClick={handleEditInfo}
                   className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
                 >
-                  Info & Files
+                  {text.sidebar.infoAndFiles}
                 </button>
                 <button onClick={() => setActiveLeftPanel('bpmTiming')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  BPM / Timing
+                  {text.sidebar.bpmTiming}
                 </button>
                 <button onClick={() => setActiveLeftPanel('speedChanges')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Speed Changes
+                  {text.sidebar.speedChanges}
                 </button>
                 <button onClick={() => setActiveLeftPanel('curveNotes')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Curve Notes
+                  {text.sidebar.curveNotes}
                 </button>
                 <button onClick={() => setActiveLeftPanel('organize')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Organize Notes
+                  {text.sidebar.organizeNotes}
                 </button>
                 <button onClick={() => setActiveLeftPanel('history')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Operation History
+                  {text.sidebar.operationHistory}
                 </button>
                 <button onClick={() => setActiveLeftPanel('chartIssues')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  Chart Issues
+                  {text.sidebar.chartIssues}
                 </button>
               </div>
               
@@ -120,15 +122,15 @@ export default function EditorLeftMainPanel(props: any) {
                   disabled={copiedNotesCount === 0}
                   className="mb-4 w-full px-3 py-2 text-sm text-neutral-300 bg-neutral-800 hover:bg-neutral-700 hover:text-white disabled:bg-neutral-900 disabled:text-neutral-600 rounded-lg transition-colors"
                 >
-                  Clear Clipboard
+                  {text.sidebar.clearClipboard}
                 </button>
                 <div className="mb-4 border-t border-neutral-800 pt-4">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Current Parent</div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">{text.sidebar.currentParent}</div>
                   <input
                     type="number"
                     min="0"
                     value={currentParentInput}
-                    placeholder="Auto"
+                    placeholder={text.sidebar.auto}
                     className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none"
                     onChange={(e) => setCurrentParentInput(e.target.value)}
                   />
@@ -144,7 +146,7 @@ export default function EditorLeftMainPanel(props: any) {
                       onClick={() => setCurrentParentInput('')}
                       className="flex-1 px-2 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors"
                     >
-                      Auto
+                      {text.sidebar.auto}
                     </button>
                     <button
                       onClick={() => {
@@ -155,7 +157,7 @@ export default function EditorLeftMainPanel(props: any) {
                       disabled={!canUseSelectedAsParent}
                       className="flex-1 px-2 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:text-neutral-600 rounded transition-colors"
                     >
-                      Use Selected
+                      {text.sidebar.useSelected}
                     </button>
                   </div>
                   <div className="text-xs text-neutral-500 mt-2">
@@ -164,7 +166,7 @@ export default function EditorLeftMainPanel(props: any) {
                 </div>
 
                 <div className="pt-4 border-t border-neutral-800">
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Selected Note</div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">{text.sidebar.selectedNote}</div>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded shadow-sm border border-neutral-700 flex items-center justify-center" style={{ backgroundColor: NOTE_TYPES[selectedNoteType]?.color || '#3b82f6' }}>
                   </div>

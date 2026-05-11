@@ -1,3 +1,5 @@
+import { translations } from '../lang';
+
 export type Dr3FpPreviewStage = 'idle' | 'exporting' | 'launching' | 'receiver' | 'uploading' | 'complete' | 'failed';
 
 export type Dr3FpPreviewFailureKind = 'export' | 'launch' | 'receiver' | 'upload';
@@ -25,33 +27,33 @@ export class Dr3FpPreviewError extends Error {
 export const DR3FP_PREVIEW_STATUS: Record<Exclude<Dr3FpPreviewStage, 'failed'>, Dr3FpPreviewStatus> = {
   idle: {
     stage: 'idle',
-    title: 'Ready to preview in DR3FP',
-    message: 'Start DR3FP preview from the Preview menu.',
+    title: translations.dr3FpStatus.idle.title,
+    message: translations.dr3FpStatus.idle.message,
   },
   exporting: {
     stage: 'exporting',
-    title: 'Building preview bundle',
-    message: 'Packaging the current chart and audio for DR3FP.',
+    title: translations.dr3FpStatus.exporting.title,
+    message: translations.dr3FpStatus.exporting.message,
   },
   launching: {
     stage: 'launching',
-    title: 'Opening DR3FP',
-    message: 'Sending the preview session to the DR3FP app.',
+    title: translations.dr3FpStatus.launching.title,
+    message: translations.dr3FpStatus.launching.message,
   },
   receiver: {
     stage: 'receiver',
-    title: 'Waiting for DR3FP',
-    message: 'DR3FP is starting its local preview receiver.',
+    title: translations.dr3FpStatus.receiver.title,
+    message: translations.dr3FpStatus.receiver.message,
   },
   uploading: {
     stage: 'uploading',
-    title: 'Transferring chart',
-    message: 'Uploading the preview bundle to the DR3FP receiver.',
+    title: translations.dr3FpStatus.uploading.title,
+    message: translations.dr3FpStatus.uploading.message,
   },
   complete: {
     stage: 'complete',
-    title: 'Preview sent',
-    message: 'DR3FP accepted the chart bundle.',
+    title: translations.dr3FpStatus.complete.title,
+    message: translations.dr3FpStatus.complete.message,
   },
 };
 
@@ -62,13 +64,7 @@ export const createDr3FpPreviewFailureStatus = (
 ): Dr3FpPreviewStatus => ({
   stage: 'failed',
   failureKind: kind,
-  title: kind === 'export'
-    ? 'Preview bundle could not be built'
-    : kind === 'launch'
-      ? 'DR3FP could not be opened'
-      : kind === 'receiver'
-        ? 'DR3FP did not become ready'
-        : 'Preview upload failed',
+  title: translations.dr3FpStatus.failures[kind],
   message,
   detail,
 });

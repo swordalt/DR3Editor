@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
+import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftUtilityPanel(props: any) {
   const {
@@ -80,6 +81,7 @@ export default function EditorLeftUtilityPanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const text = translations;
 
   return (
     <>
@@ -90,7 +92,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-                  {activeLeftPanel === 'organize' ? 'Organize' : activeLeftPanel === 'chartIssues' ? 'Chart Issues' : 'History'}
+                  {activeLeftPanel === 'organize' ? text.sidebar.organize : activeLeftPanel === 'chartIssues' ? text.sidebar.chartIssues : text.sidebar.history}
                 </div>
               </div>
               {activeLeftPanel === 'organize' ? (
@@ -101,7 +103,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                     disabled={notes.length === 0 || isOrganizingNotes}
                     className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                   >
-                    {isOrganizingNotes ? 'Organizing...' : 'Organize Notes'}
+                    {isOrganizingNotes ? 'Organizing...' : text.sidebar.organizeNotes}
                   </button>
                   <p className="mt-2 text-xs leading-5 text-neutral-500">
                     Reassigns note IDs from earliest to latest timepos, then left to right by xpos. Notes sharing the same timepos and xpos keep their original ID order, and parent links are remapped to stay grouped with their children.
@@ -114,7 +116,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                     onClick={recheckChartIssues}
                     className="w-full shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
                   >
-                    Recheck Chart Issues
+                    {text.sidebar.recheckChartIssues}
                   </button>
 
                   <div className="shrink-0 rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
@@ -123,7 +125,7 @@ export default function EditorLeftUtilityPanel(props: any) {
 
                   {chartIssues.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      No chart issues found
+                      {text.sidebar.noChartIssuesFound}
                     </div>
                   ) : (
                     <VirtualizedChangeList
@@ -150,7 +152,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                               <span>#{issue.id}</span>
                               <div className="flex min-w-0 items-center gap-2">
                                 <span className="truncate">
-                                  Notes {formatGroupedIds(issue.noteIds)}
+                                  {text.sidebar.notes} {formatGroupedIds(issue.noteIds)}
                                 </span>
                                 <button
                                   type="button"
@@ -162,7 +164,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                                   }}
                                   className="shrink-0 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-neutral-300 transition-colors hover:border-indigo-500 hover:bg-indigo-600 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-950 disabled:text-neutral-700"
                                 >
-                                  Jump
+                                  {text.sidebar.jump}
                                 </button>
                               </div>
                             </div>
@@ -181,16 +183,16 @@ export default function EditorLeftUtilityPanel(props: any) {
                       onChange={(event) => setShouldShowUndoneOperations(event.target.checked)}
                       className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 accent-indigo-500"
                     />
-                    Show Undone Operations
+                    {text.sidebar.showUndoneOperations}
                   </label>
 
                   {operationHistory.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      No operations recorded yet
+                      {text.sidebar.noOperationsRecorded}
                     </div>
                   ) : visibleOperationHistory.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-800 p-4 text-center text-sm text-neutral-600">
-                      Undone operations are hidden
+                      {text.sidebar.undoneOperationsHidden}
                     </div>
                   ) : (
                     <VirtualizedChangeList
@@ -212,7 +214,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                                 <div className="flex shrink-0 items-center gap-1.5">
                                   {isUndone && (
                                     <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
-                                      Undone
+                                      {text.sidebar.undone}
                                     </span>
                                   )}
                                   <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${isUndone ? 'border-neutral-700 bg-neutral-900 text-neutral-500' : operationCategoryStyles[entry.category]}`}>

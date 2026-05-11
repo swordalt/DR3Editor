@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
+import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftBpmPanel(props: any) {
   const {
@@ -80,6 +81,7 @@ export default function EditorLeftBpmPanel(props: any) {
     visibleOperationHistory,
     undoneOperationIds,
   } = props;
+  const text = translations;
 
   return (
     <>
@@ -89,11 +91,11 @@ export default function EditorLeftBpmPanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">BPM / Timing</div>
+                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.bpmTiming}</div>
               </div>
               <div className="flex flex-col gap-4 overflow-hidden flex-1 pr-1 pb-4 min-h-0">
                 <div className="shrink-0">
-                  <label className="block text-xs text-neutral-400 mb-1">Offset (ms)</label>
+                  <label className="block text-xs text-neutral-400 mb-1">{text.sidebar.offsetMs}</label>
                   <CommitInput type="number" value={offset} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onCommit={(val) => {
                     if (val === '-' || val === "") updateOffset(val);
                     else {
@@ -105,15 +107,15 @@ export default function EditorLeftBpmPanel(props: any) {
                 <div className="flex flex-1 min-h-0 flex-col">
                   {!isOfficialChartFormat && (
                     <p className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
-                      Export currently only supports BPM changes with 4/4 time signatures.
+                      {text.sidebar.exportTimeSignatureNotice}
                     </p>
                   )}
-                  <label className="block shrink-0 text-xs text-neutral-400 mb-1">BPM Changes</label>
+                  <label className="block shrink-0 text-xs text-neutral-400 mb-1">{text.sidebar.bpmChanges}</label>
                   <div className={`${bpmChangeGridClass} pb-2 text-left text-sm text-neutral-500`}>
-                    <div>ID</div>
-                    <div>Timepos</div>
-                    <div>BPM</div>
-                    {!isOfficialChartFormat && <div>Sig</div>}
+                    <div>{text.sidebar.id}</div>
+                    <div>{text.sidebar.timepos}</div>
+                    <div>{text.sidebar.bpm}</div>
+                    {!isOfficialChartFormat && <div>{text.sidebar.signature}</div>}
                     <div />
                   </div>
                   <VirtualizedChangeList
@@ -155,7 +157,7 @@ export default function EditorLeftBpmPanel(props: any) {
                       </div>
                     )}
                   />
-                  <button onClick={addBpmChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">Add BPM Change</button>
+                  <button onClick={addBpmChange} className="w-full shrink-0 p-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-sm mt-2 transition-colors">{text.sidebar.addBpmChange}</button>
                 </div>
               </div>
             </div>
