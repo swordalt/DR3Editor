@@ -104,10 +104,6 @@ export default function EditorLayout(props: any) {
     onPerformanceStatsMouseEnter,
     onPerformanceStatsMouseLeave,
     leftSidebarProps,
-    previewDisplayMode,
-    setPreviewDisplayMode,
-    preview3DTiltDegrees,
-    setPreview3DTiltDegrees,
     canvasStageProps,
     rightSidebarProps,
   } = props;
@@ -167,10 +163,6 @@ export default function EditorLayout(props: any) {
         musicVolume={musicVolume}
         tapSoundVolume={tapSoundVolume}
         flickSoundVolume={flickSoundVolume}
-        isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
-        isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
-        isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
-        isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
         setIsExitWarningOpen={setIsExitWarningOpen}
         setIsSettingsOpen={setIsSettingsOpen}
         setIsHelpOpen={setIsHelpOpen}
@@ -186,10 +178,6 @@ export default function EditorLayout(props: any) {
         setMusicVolume={setMusicVolume}
         setTapSoundVolume={setTapSoundVolume}
         setFlickSoundVolume={setFlickSoundVolume}
-        setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
-        setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
-        setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
-        setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
         onBack={onBack}
       />
 
@@ -254,19 +242,27 @@ export default function EditorLayout(props: any) {
 
         {isPreviewMode && (
           <EditorPreviewSidebar
-            previewDisplayMode={previewDisplayMode}
-            setPreviewDisplayMode={setPreviewDisplayMode}
-            preview3DTiltDegrees={preview3DTiltDegrees}
-            setPreview3DTiltDegrees={setPreview3DTiltDegrees}
+            isLeftPanelCompact={leftSidebarProps.isLeftPanelCompact}
+            isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
+            toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
+            isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
+            isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
+            isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
+            isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+            setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
+            setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
+            setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
+            setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
           />
         )}
 
         <EditorCanvasStage {...canvasStageProps} />
 
         {/* Right Sidebar - Properties */}
-        {!isPreviewMode && (
-        <EditorRightSidebar {...rightSidebarProps} />
-        )}
+        <EditorRightSidebar
+          {...rightSidebarProps}
+          isPreviewMode={isPreviewMode}
+        />
       </main>
     </motion.div>
   );

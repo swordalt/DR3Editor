@@ -29,10 +29,6 @@ interface EditorOverlaysProps {
   musicVolume: number;
   tapSoundVolume: number;
   flickSoundVolume: number;
-  isPreviewCameraTiltEnabled: boolean;
-  isPreviewCameraMovementEnabled: boolean;
-  isPreviewNoteSpeedChangesEnabled: boolean;
-  isPreviewNoteAppearModeEnabled: boolean;
   setIsExitWarningOpen: Dispatch<SetStateAction<boolean>>;
   setIsSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setIsHelpOpen: Dispatch<SetStateAction<boolean>>;
@@ -48,10 +44,6 @@ interface EditorOverlaysProps {
   setMusicVolume: Dispatch<SetStateAction<number>>;
   setTapSoundVolume: Dispatch<SetStateAction<number>>;
   setFlickSoundVolume: Dispatch<SetStateAction<number>>;
-  setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsPreviewNoteSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsPreviewNoteAppearModeEnabled: Dispatch<SetStateAction<boolean>>;
   onBack: () => void;
 }
 
@@ -89,7 +81,7 @@ const DR3FP_PREVIEW_FAILURE_GUIDANCE: Record<Dr3FpPreviewFailureKind, string[]> 
   ],
 };
 
-type SettingsSectionId = 'editor' | 'appearance' | 'preview' | 'audio';
+type SettingsSectionId = 'editor' | 'appearance' | 'audio';
 type HotkeyRow =
   | { kind: 'group'; groupTitle: string }
   | { kind: 'binding'; groupTitle: string; keys: readonly string[]; description: string };
@@ -284,10 +276,6 @@ export default function EditorOverlays({
   musicVolume,
   tapSoundVolume,
   flickSoundVolume,
-  isPreviewCameraTiltEnabled,
-  isPreviewCameraMovementEnabled,
-  isPreviewNoteSpeedChangesEnabled,
-  isPreviewNoteAppearModeEnabled,
   setIsExitWarningOpen,
   setIsSettingsOpen,
   setIsHelpOpen,
@@ -303,10 +291,6 @@ export default function EditorOverlays({
   setMusicVolume,
   setTapSoundVolume,
   setFlickSoundVolume,
-  setIsPreviewCameraTiltEnabled,
-  setIsPreviewCameraMovementEnabled,
-  setIsPreviewNoteSpeedChangesEnabled,
-  setIsPreviewNoteAppearModeEnabled,
   onBack,
 }: EditorOverlaysProps) {
   const closeSettings = () => {
@@ -315,7 +299,7 @@ export default function EditorOverlays({
     setIsSelectionTypeMenuOpen(false);
   };
 
-  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'appearance', 'preview', 'audio'], []);
+  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'appearance', 'audio'], []);
   const overlayClassName = `fixed inset-0 flex items-center justify-center p-4 ${
     isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/55 backdrop-blur-md'
   } ${isAnimationDisabled ? 'app-animations-disabled' : ''}`;
@@ -538,50 +522,6 @@ export default function EditorOverlays({
               isEnabled={isAnimationDisabled}
               ariaLabel="Toggle interface animations"
               onToggle={() => setIsAnimationDisabled((current) => !current)}
-            />
-          </div>
-        </section>
-      );
-    }
-
-    if (section === 'preview') {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-white">Preview Mode</h3>
-              <p className="mt-1 text-xs text-neutral-500">Choose which chart effects are simulated during preview playback.</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <SettingsToggle
-              label="Camera Tilt"
-              description="Rotate the preview camera while active hold connectors pass through the judgement line."
-              isEnabled={isPreviewCameraTiltEnabled}
-              ariaLabel="Toggle preview camera tilt"
-              onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
-            />
-            <SettingsToggle
-              label="Camera Movement"
-              description="Move the preview camera horizontally along pink hold paths."
-              isEnabled={isPreviewCameraMovementEnabled}
-              ariaLabel="Toggle preview camera movement"
-              onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
-            />
-            <SettingsToggle
-              label="Note Speed Changes"
-              description="Apply per-note speed multipliers and speed curves in preview mode."
-              isEnabled={isPreviewNoteSpeedChangesEnabled}
-              ariaLabel="Toggle preview note speed changes"
-              onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
-            />
-            <SettingsToggle
-              label="Note Appear Mode"
-              description="Apply note appear modes such as side entry, fly-down, and proximity visibility."
-              isEnabled={isPreviewNoteAppearModeEnabled}
-              ariaLabel="Toggle preview note appear mode"
-              onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
             />
           </div>
         </section>

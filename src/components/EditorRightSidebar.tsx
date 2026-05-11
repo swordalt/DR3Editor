@@ -9,6 +9,7 @@ export default function EditorRightSidebar(props: any) {
   const {
     isRightPanelCompact,
     isRightPanelContentVisible,
+    isPreviewMode,
     toggleRightPanelCompact,
     selectedSingleNote,
     setSelectedNoteIds,
@@ -46,7 +47,21 @@ export default function EditorRightSidebar(props: any) {
           {isRightPanelContentVisible && (
             <div className="p-4 flex flex-col gap-4 overflow-y-auto">
               <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Properties</div>
-              {selectedSingleNote ? (
+              {isPreviewMode ? (
+                <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+                  <div className="text-sm font-medium text-neutral-200">Preview Statistics</div>
+                  <div className="mt-3 flex flex-col divide-y divide-neutral-800 text-sm">
+                    <div className="flex items-center justify-between py-2 first:pt-0">
+                      <span className="text-neutral-400">Current Distance</span>
+                      <span className="font-mono text-neutral-100">{currentEditorDistance.toFixed(3)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2 last:pb-0">
+                      <span className="text-neutral-400">Current Score</span>
+                      <span className="font-mono text-neutral-100">{currentEditorScore}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : selectedSingleNote ? (
                 <div className="flex flex-col gap-3">
                   <button
                     type="button"
