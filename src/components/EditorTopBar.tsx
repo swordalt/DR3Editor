@@ -31,6 +31,7 @@ interface EditorTopBarProps {
   progressBarRef: RefObject<HTMLInputElement | null>;
   timeDisplayRef: RefObject<HTMLDivElement | null>;
   isDraggingProgress: RefObject<boolean>;
+  isProgressBarInteractive: RefObject<boolean>;
   openExitWarning: () => void;
   togglePlay: () => void;
   handleSeekChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -71,6 +72,7 @@ export default function EditorTopBar({
   progressBarRef,
   timeDisplayRef,
   isDraggingProgress,
+  isProgressBarInteractive,
   openExitWarning,
   togglePlay,
   handleSeekChange,
@@ -149,10 +151,28 @@ export default function EditorTopBar({
                 max={Math.max(duration, currentTime, 0.01)}
                 step={0.01}
                 defaultValue={0}
-                onMouseDown={() => { isDraggingProgress.current = true; }}
-                onMouseUp={() => { isDraggingProgress.current = false; }}
-                onTouchStart={() => { isDraggingProgress.current = true; }}
-                onTouchEnd={() => { isDraggingProgress.current = false; }}
+                onMouseEnter={() => { isProgressBarInteractive.current = true; }}
+                onMouseLeave={() => {
+                  if (!isDraggingProgress.current) {
+                    isProgressBarInteractive.current = false;
+                  }
+                }}
+                onMouseDown={() => {
+                  isDraggingProgress.current = true;
+                  isProgressBarInteractive.current = true;
+                }}
+                onMouseUp={() => {
+                  isDraggingProgress.current = false;
+                  isProgressBarInteractive.current = true;
+                }}
+                onTouchStart={() => {
+                  isDraggingProgress.current = true;
+                  isProgressBarInteractive.current = true;
+                }}
+                onTouchEnd={() => {
+                  isDraggingProgress.current = false;
+                  isProgressBarInteractive.current = false;
+                }}
                 onChange={handleSeekChange}
                 className="min-w-0 flex-1 h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />

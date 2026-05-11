@@ -365,6 +365,7 @@ export default function Editor({
   const timeDisplayRef = useRef<HTMLDivElement>(null);
   const progressBarRef = useRef<HTMLInputElement>(null);
   const isDraggingProgress = useRef(false);
+  const isProgressBarInteractive = useRef(false);
   const pendingDragUpdateRef = useRef<PendingDragUpdate | null>(null);
   const dragStartNoteRef = useRef<Note | null>(null);
   const copiedNotesRef = useRef<CopiedNote[]>([]);
@@ -397,6 +398,16 @@ export default function Editor({
     }
     previewJudgementCursorTimeRef.current = time;
   }, []);
+
+  const updateProgressBarValue = (time: number, force = false) => {
+    if (
+      progressBarRef.current
+      && !isDraggingProgress.current
+      && (force || isProgressBarInteractive.current)
+    ) {
+      progressBarRef.current.value = time.toString();
+    }
+  };
 
   const renderPausedTimelineAtFullFps = useCallback(() => {
     pausedTimelineRenderUntilRef.current = performance.now() + PAUSED_TIMELINE_RENDER_DURATION_MS;
@@ -1422,6 +1433,21 @@ export default function Editor({
     return low;
   };
 
+  const syncPlaybackToAudioClock = (audio: HTMLAudioElement, offsetInSeconds: number, fallbackTime: number) => {
+    const now = performance.now();
+    const syncedTime = !audio.paused && !audio.seeking
+      ? Math.max(0, audio.currentTime + offsetInSeconds)
+      : fallbackTime;
+
+    stateRef.current.currentTime = syncedTime;
+    stateRef.current.playbackStartTime = syncedTime;
+    stateRef.current.playbackStartPerformanceTime = now;
+    stateRef.current.playbackAudioClockReadyTime = now;
+    lastPlayedTimeRef.current = syncedTime;
+    hitSoundCursorRef.current = findHitSoundCursor(syncedTime);
+    scheduledHitSoundKeysRef.current.clear();
+  };
+
   const scheduleHitSoundsThrough = useCallback((currentTime: number, activePlaybackSpeed: number) => {
     const events = hitSoundEventsRef.current;
     const lookaheadSeconds = document.hidden
@@ -1581,9 +1607,7 @@ export default function Editor({
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges, effectiveGridZoom);
     }
-    if (progressBarRef.current && !isDraggingProgress.current) {
-      progressBarRef.current.value = loopStartTime.toString();
-    }
+    updateProgressBarValue(loopStartTime, true);
 
     applyAudioPlaybackSpeed(audio, activePlaybackSpeed);
 
@@ -1594,7 +1618,13 @@ export default function Editor({
         playTimeoutRef.current = undefined;
         if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
           applyAudioPlaybackSpeed(audioRef.current, stateRef.current.playbackSpeed);
-          audioRef.current.play().catch(() => {});
+          audioRef.current.play()
+            .then(() => {
+              if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
+                syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, loopStartTime + offsetInSeconds);
+              }
+            })
+            .catch(() => {});
         }
       }, (offsetInSeconds / activePlaybackSpeed) * 1000);
       isLoopingPlaybackRef.current = false;
@@ -1604,6 +1634,9 @@ export default function Editor({
     await seekAudioToTime(audio, -offsetInSeconds);
     if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
       await audio.play().catch(() => {});
+      if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
+        syncPlaybackToAudioClock(audio, offsetInSeconds, loopStartTime);
+      }
     }
     isLoopingPlaybackRef.current = false;
   }, [effectiveGridZoom, offset, projectData, resetPreviewJudgementState]);
@@ -1645,12 +1678,11 @@ export default function Editor({
       if (timeDisplayRef.current) {
         timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges, effectiveGridZoom);
       }
-      if (progressBarRef.current && !isDraggingProgress.current) {
-        progressBarRef.current.value = snappedTime.toString();
-      }
+      updateProgressBarValue(snappedTime, true);
     } else {
       const playRequestId = playRequestIdRef.current + 1;
       playRequestIdRef.current = playRequestId;
+      stopHitsounds();
       const playbackStartTime = Math.max(0, stateRef.current.currentTime);
       resetPreviewJudgementState(playbackStartTime, isPreviewMode);
       const musicContext = setupMusicGain();
@@ -1666,15 +1698,34 @@ export default function Editor({
       if (offsetInSeconds > 0) {
         // Delay music: Editor starts at current time, Music starts playing after offsetInSeconds past audio seek point
         const audioStartTime = playbackStartTime - offsetInSeconds;
-        audioRef.current.currentTime = Math.max(0, audioStartTime);
-        const audioDelaySeconds = Math.max(0, -audioStartTime) / stateRef.current.playbackSpeed;
-        playTimeoutRef.current = window.setTimeout(() => {
-          playTimeoutRef.current = undefined;
-          if (playRequestIdRef.current === playRequestId && audioRef.current) {
-            applyAudioPlaybackSpeed(audioRef.current, stateRef.current.playbackSpeed);
-            audioRef.current.play().catch(() => {});
+        if (audioStartTime < 0) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          const audioDelaySeconds = -audioStartTime / stateRef.current.playbackSpeed;
+          playTimeoutRef.current = window.setTimeout(() => {
+            playTimeoutRef.current = undefined;
+            if (playRequestIdRef.current === playRequestId && audioRef.current) {
+              applyAudioPlaybackSpeed(audioRef.current, stateRef.current.playbackSpeed);
+              audioRef.current.play()
+                .then(() => {
+                  if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
+                    syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, offsetInSeconds);
+                  }
+                })
+                .catch(() => {});
+            }
+          }, audioDelaySeconds * 1000);
+        } else {
+          await seekAudioToTime(audioRef.current, audioStartTime);
+          if (playRequestIdRef.current !== playRequestId) {
+            return;
           }
-        }, audioDelaySeconds * 1000);
+          await audioRef.current.play().catch(() => {});
+          if (playRequestIdRef.current !== playRequestId) {
+            return;
+          }
+          syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, playbackStartTime);
+        }
       } else {
         // Advance music: Start music early
         await seekAudioToTime(audioRef.current, playbackStartTime - offsetInSeconds);
@@ -1682,14 +1733,22 @@ export default function Editor({
           return;
         }
         await audioRef.current.play().catch(() => {});
+        if (playRequestIdRef.current !== playRequestId) {
+          return;
+        }
+        syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, playbackStartTime);
       }
       if (playRequestIdRef.current !== playRequestId) {
         return;
       }
-      stateRef.current.playbackStartTime = playbackStartTime;
-      stateRef.current.playbackStartPerformanceTime = performance.now();
-      stateRef.current.playbackAudioClockReadyTime = stateRef.current.playbackStartPerformanceTime + AUDIO_CLOCK_HANDOFF_DELAY_MS;
-      stateRef.current.currentTime = playbackStartTime;
+      if (!audioRef.current.paused && !audioRef.current.seeking) {
+        syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, playbackStartTime);
+      } else {
+        stateRef.current.playbackStartTime = playbackStartTime;
+        stateRef.current.playbackStartPerformanceTime = performance.now();
+        stateRef.current.playbackAudioClockReadyTime = stateRef.current.playbackStartPerformanceTime + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+        stateRef.current.currentTime = playbackStartTime;
+      }
       stateRef.current.isPlaying = true;
       
       setIsPlaying(true);
@@ -2141,9 +2200,7 @@ export default function Editor({
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTime(time, sortedChanges, effectiveGridZoom);
     }
-    if (progressBarRef.current && !isDraggingProgress.current) {
-      progressBarRef.current.value = time.toString();
-    }
+    updateProgressBarValue(time);
 
     const currentBeat = getBeatAtTime(time, sortedChanges);
     const hitLineY = height - 150;
@@ -3709,8 +3766,6 @@ export default function Editor({
     return Number(lane.toFixed(3));
   };
 
-  const shouldSnapOutOfBoundsLanePlacement = isOutOfBoundsPlacementEnabled && isXPositionGridEnabled;
-
   const getSelectionPointFromClient = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -3823,7 +3878,7 @@ export default function Editor({
 
     if (canPlaceAtX) {
       pasteTargetRef.current = {
-        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement),
+        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled),
         time: snappedTime,
       };
     }
@@ -3854,7 +3909,7 @@ export default function Editor({
       }
 
       if (canPlaceAtX) {
-        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
+        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
         const newId = nextNoteIdRef.current++;
         const isHoldConnector = HOLD_CONNECTOR_TYPES.includes(selectedNoteType);
         const isHoldStart = HOLD_START_TYPES.includes(selectedNoteType);
@@ -3969,7 +4024,7 @@ export default function Editor({
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
 
     if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
 
@@ -4005,7 +4060,7 @@ export default function Editor({
         setHoverPreview(null);
       }
     } else if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled, shouldSnapOutOfBoundsLanePlacement);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
 
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
@@ -4154,9 +4209,7 @@ export default function Editor({
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges, effectiveGridZoom);
     }
-    if (progressBarRef.current && !isDraggingProgress.current) {
-      progressBarRef.current.value = clampedTime.toString();
-    }
+    updateProgressBarValue(clampedTime, true);
     renderPausedTimelineAtFullFps();
   };
 
@@ -4895,9 +4948,7 @@ export default function Editor({
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges, effectiveGridZoom);
     }
-    if (progressBarRef.current && !isDraggingProgress.current) {
-      progressBarRef.current.value = clampedTime.toString();
-    }
+    updateProgressBarValue(clampedTime, true);
     renderPausedTimelineAtFullFps();
   };
 
@@ -5103,6 +5154,7 @@ export default function Editor({
       progressBarRef={progressBarRef}
       timeDisplayRef={timeDisplayRef}
       isDraggingProgress={isDraggingProgress}
+      isProgressBarInteractive={isProgressBarInteractive}
       openExitWarning={openExitWarning}
       togglePlay={togglePlay}
       handleSeekChange={handleSeekChange}

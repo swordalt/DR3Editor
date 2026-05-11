@@ -79,6 +79,7 @@ export default function EditorLayout(props: any) {
     progressBarRef,
     timeDisplayRef,
     isDraggingProgress,
+    isProgressBarInteractive,
     openExitWarning,
     togglePlay,
     handleSeekChange,
@@ -206,6 +207,7 @@ export default function EditorLayout(props: any) {
         progressBarRef={progressBarRef}
         timeDisplayRef={timeDisplayRef}
         isDraggingProgress={isDraggingProgress}
+        isProgressBarInteractive={isProgressBarInteractive}
         openExitWarning={openExitWarning}
         togglePlay={togglePlay}
         handleSeekChange={handleSeekChange}

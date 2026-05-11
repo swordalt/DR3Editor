@@ -1,5 +1,5 @@
-import { Fragment } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { CheckCircle2, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Dr3FpPreviewFailureKind, Dr3FpPreviewStage, Dr3FpPreviewStatus } from '../editor/dr3FpPreviewStatus';
@@ -84,6 +84,136 @@ const DR3FP_PREVIEW_FAILURE_GUIDANCE: Record<Dr3FpPreviewFailureKind, string[]> 
     'If this repeats, update DR3FP to a build that supports preview receiver version 1.',
   ],
 };
+
+type SettingsSectionId = 'editor' | 'preview' | 'audio';
+type HotkeyRow =
+  | { kind: 'group'; groupTitle: string }
+  | { kind: 'binding'; groupTitle: string; keys: readonly string[]; description: string };
+
+interface VirtualizedListProps<T> {
+  items: T[];
+  estimateSize: number;
+  getKey: (item: T, index: number) => string;
+  renderItem: (item: T, index: number) => ReactNode;
+  className?: string;
+  overscan?: number;
+}
+
+function VirtualizedList<T>({
+  items,
+  estimateSize,
+  getKey,
+  renderItem,
+  className = '',
+  overscan = 2,
+}: VirtualizedListProps<T>) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [itemSizes, setItemSizes] = useState(() => new Map<number, number>());
+  const containerObserverRef = useRef<ResizeObserver | null>(null);
+  const itemObserverRef = useRef<ResizeObserver | null>(null);
+  const itemNodesRef = useRef(new Map<Element, number>());
+
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerObserverRef.current?.disconnect();
+    containerObserverRef.current = null;
+
+    if (!node) return;
+
+    setViewportHeight(node.clientHeight);
+    const observer = new ResizeObserver(([entry]) => {
+      setViewportHeight(entry.contentRect.height);
+    });
+    observer.observe(node);
+    containerObserverRef.current = observer;
+  }, []);
+
+  const setItemRef = useCallback((index: number, node: HTMLDivElement | null) => {
+    if (!itemObserverRef.current) {
+      itemObserverRef.current = new ResizeObserver((entries) => {
+        setItemSizes((currentSizes) => {
+          let didChange = false;
+          const nextSizes = new Map(currentSizes);
+
+          entries.forEach((entry) => {
+            const itemIndex = itemNodesRef.current.get(entry.target);
+            if (itemIndex === undefined) return;
+
+            const measuredHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+            if (nextSizes.get(itemIndex) !== measuredHeight) {
+              nextSizes.set(itemIndex, measuredHeight);
+              didChange = true;
+            }
+          });
+
+          return didChange ? nextSizes : currentSizes;
+        });
+      });
+    }
+
+    itemNodesRef.current.forEach((itemIndex, element) => {
+      if (itemIndex === index) {
+        itemObserverRef.current?.unobserve(element);
+        itemNodesRef.current.delete(element);
+      }
+    });
+
+    if (node) {
+      itemNodesRef.current.set(node, index);
+      itemObserverRef.current.observe(node);
+    }
+  }, []);
+
+  const offsets = useMemo(() => {
+    const nextOffsets = new Array<number>(items.length + 1);
+    nextOffsets[0] = 0;
+
+    for (let index = 0; index < items.length; index += 1) {
+      nextOffsets[index + 1] = nextOffsets[index] + (itemSizes.get(index) ?? estimateSize);
+    }
+
+    return nextOffsets;
+  }, [estimateSize, itemSizes, items.length]);
+
+  const totalHeight = offsets[items.length] ?? 0;
+  const firstVisibleIndex = offsets.findIndex((offset, index) => (
+    index < items.length && offset + (itemSizes.get(index) ?? estimateSize) >= scrollTop
+  ));
+  const visibleStartIndex = Math.max(0, (firstVisibleIndex === -1 ? 0 : firstVisibleIndex) - overscan);
+  let visibleEndIndex = visibleStartIndex;
+  while (
+    visibleEndIndex < items.length
+    && offsets[visibleEndIndex] <= scrollTop + viewportHeight + overscan * estimateSize
+  ) {
+    visibleEndIndex += 1;
+  }
+  visibleEndIndex = Math.min(items.length, visibleEndIndex + overscan);
+
+  return (
+    <div
+      ref={setContainerRef}
+      className={`flex-1 overflow-y-auto ${className}`}
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <div className="relative" style={{ height: totalHeight }}>
+        {items.slice(visibleStartIndex, visibleEndIndex).map((item, sliceIndex) => {
+          const index = visibleStartIndex + sliceIndex;
+
+          return (
+            <div
+              key={getKey(item, index)}
+              ref={(node) => setItemRef(index, node)}
+              className="absolute left-0 right-0 pb-5"
+              style={{ transform: `translateY(${offsets[index]}px)` }}
+            >
+              {renderItem(item, index)}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface SettingsToggleProps {
   label: string;
@@ -175,6 +305,283 @@ export default function EditorOverlays({
     setIsSettingsOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
     setIsSelectionTypeMenuOpen(false);
+  };
+
+  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'preview', 'audio'], []);
+  const hotkeyRows = useMemo<HotkeyRow[]>(() => (
+    EDITOR_KEYBIND_GROUPS.flatMap(group => [
+      { kind: 'group' as const, groupTitle: group.title },
+      ...group.bindings.map(binding => ({
+        kind: 'binding' as const,
+        groupTitle: group.title,
+        keys: binding.keys,
+        description: binding.description,
+      })),
+    ])
+  ), []);
+
+  const renderHotkeyRow = (row: HotkeyRow) => {
+    if (row.kind === 'group') {
+      return (
+        <h3 className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white">
+          {row.groupTitle}
+        </h3>
+      );
+    }
+
+    return (
+      <div className="grid gap-3 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
+        <div className="flex flex-wrap items-center gap-2">
+          {row.keys.map((key, index) => (
+            <Fragment key={`${row.groupTitle}-${key}-${index}`}>
+              {index > 0 && <span className="text-xs text-neutral-600">+</span>}
+              <kbd className="rounded-lg border border-white/10 bg-neutral-900 px-2 py-1 font-mono text-xs font-semibold text-neutral-200 shadow-inner shadow-black/30">
+                {key}
+              </kbd>
+            </Fragment>
+          ))}
+        </div>
+        <p className="text-sm leading-6 text-neutral-300">{row.description}</p>
+      </div>
+    );
+  };
+
+  const renderSettingsSection = (section: SettingsSectionId) => {
+    if (section === 'editor') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Editor</h3>
+              <p className="mt-1 text-xs text-neutral-500">Control editor behavior and navigation safeguards.</p>
+            </div>
+          </div>
+
+          <SettingsToggle
+            label="Back to Landing warning"
+            description="Show a confirmation popup before leaving the editor and discarding unexported work."
+            isEnabled={isExitWarningEnabled}
+            ariaLabel="Toggle Back to Landing warning"
+            onToggle={() => setIsExitWarningEnabled((current) => !current)}
+          />
+
+          <div className="mt-4">
+            <SettingsToggle
+              label="Invert Scroll Direction"
+              description="Reverse mouse wheel scrolling when moving through the editor canvas."
+              isEnabled={isScrollDirectionInverted}
+              ariaLabel="Toggle inverted canvas scroll direction"
+              onToggle={() => setIsScrollDirectionInverted((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
+            <div className="mb-3">
+              <p className="text-sm font-medium text-white">Selection Type</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Choose how middle-drag selection boxes collect notes.
+              </p>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStatisticsRefreshRateMenuOpen(false);
+                  setIsSelectionTypeMenuOpen(current => !current);
+                }}
+                className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
+                aria-haspopup="menu"
+                aria-expanded={isSelectionTypeMenuOpen}
+              >
+                <span>{SELECTION_TYPE_LABELS[selectionType]}</span>
+                <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isSelectionTypeMenuOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {isSelectionTypeMenuOpen && (
+                <div
+                  className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  role="menu"
+                >
+                  {SELECTION_TYPE_OPTIONS.map((nextSelectionType) => (
+                    <button
+                      key={nextSelectionType}
+                      type="button"
+                      onClick={() => {
+                        setSelectionType(nextSelectionType);
+                        setIsSelectionTypeMenuOpen(false);
+                      }}
+                      className={`w-full rounded px-3 py-2 text-left text-sm transition-colors ${
+                        selectionType === nextSelectionType
+                          ? 'bg-indigo-500/20 text-indigo-200'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                      }`}
+                      role="menuitem"
+                    >
+                      {SELECTION_TYPE_LABELS[nextSelectionType]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
+            <div className="mb-3">
+              <p className="text-sm font-medium text-white">Statistics Refresh Rate</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Limit how often live statistics update in the properties window.
+              </p>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionTypeMenuOpen(false);
+                  setIsStatisticsRefreshRateMenuOpen(current => !current);
+                }}
+                className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left font-mono text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
+                aria-haspopup="menu"
+                aria-expanded={isStatisticsRefreshRateMenuOpen}
+              >
+                <span>{statisticsRefreshRate}</span>
+                <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isStatisticsRefreshRateMenuOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {isStatisticsRefreshRateMenuOpen && (
+                <div
+                  className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  role="menu"
+                >
+                  {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
+                    <button
+                      key={refreshRate}
+                      type="button"
+                      onClick={() => {
+                        setStatisticsRefreshRate(refreshRate);
+                        setIsStatisticsRefreshRateMenuOpen(false);
+                      }}
+                      className={`w-full rounded px-3 py-2 text-left font-mono text-sm transition-colors ${
+                        statisticsRefreshRate === refreshRate
+                          ? 'bg-indigo-500/20 text-indigo-200'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                      }`}
+                      role="menuitem"
+                    >
+                      {refreshRate}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    if (section === 'preview') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Preview Mode</h3>
+              <p className="mt-1 text-xs text-neutral-500">Choose which chart effects are simulated during preview playback.</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <SettingsToggle
+              label="Camera Tilt"
+              description="Rotate the preview camera while active hold connectors pass through the judgement line."
+              isEnabled={isPreviewCameraTiltEnabled}
+              ariaLabel="Toggle preview camera tilt"
+              onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
+            />
+            <SettingsToggle
+              label="Camera Movement"
+              description="Move the preview camera horizontally along pink hold paths."
+              isEnabled={isPreviewCameraMovementEnabled}
+              ariaLabel="Toggle preview camera movement"
+              onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
+            />
+            <SettingsToggle
+              label="Note Speed Changes"
+              description="Apply per-note speed multipliers and speed curves in preview mode."
+              isEnabled={isPreviewNoteSpeedChangesEnabled}
+              ariaLabel="Toggle preview note speed changes"
+              onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
+            />
+            <SettingsToggle
+              label="Note Appear Mode"
+              description="Apply note appear modes such as side entry, fly-down, and proximity visibility."
+              isEnabled={isPreviewNoteAppearModeEnabled}
+              ariaLabel="Toggle preview note appear mode"
+              onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
+            />
+          </div>
+        </section>
+      );
+    }
+
+    return (
+      <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Audio</h3>
+            <p className="mt-1 text-xs text-neutral-500">Balance music playback and editor hit sounds.</p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <label className="block">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-neutral-300">Music volume</span>
+              <span className="font-mono text-xs text-neutral-500">{Math.round(musicVolume * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.01"
+              value={musicVolume}
+              onChange={(e) => setMusicVolume(Number(e.target.value))}
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-neutral-300">Taps volume</span>
+              <span className="font-mono text-xs text-neutral-500">{Math.round(tapSoundVolume * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.01"
+              value={tapSoundVolume}
+              onChange={(e) => setTapSoundVolume(Number(e.target.value))}
+              aria-label="Taps volume"
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-neutral-300">Flicks volume</span>
+              <span className="font-mono text-xs text-neutral-500">{Math.round(flickSoundVolume * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.01"
+              value={flickSoundVolume}
+              onChange={(e) => setFlickSoundVolume(Number(e.target.value))}
+              aria-label="Flicks volume"
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+            />
+          </label>
+        </div>
+      </section>
+    );
   };
 
   return (
@@ -391,276 +798,13 @@ export default function EditorOverlays({
               <h2 id="settings-title" className="mt-2 text-2xl font-semibold text-white">Settings</h2>
             </div>
 
-            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-6">
-              <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="mb-5 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">Editor</h3>
-                    <p className="mt-1 text-xs text-neutral-500">Control editor behavior and navigation safeguards.</p>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-white">Back to Landing warning</p>
-                      <p className="mt-1 text-xs leading-5 text-neutral-500">
-                        Show a confirmation popup before leaving the editor and discarding unexported work.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={isExitWarningEnabled}
-                      aria-label="Toggle Back to Landing warning"
-                      onClick={() => setIsExitWarningEnabled((current) => !current)}
-                      className={`relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border transition-colors ${
-                        isExitWarningEnabled
-                          ? 'border-emerald-300/40 bg-emerald-500/90'
-                          : 'border-white/10 bg-neutral-800'
-                      }`}
-                    >
-                      <span className="sr-only">Back to Landing warning</span>
-                      <span
-                        className={`absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-transform ${
-                          isExitWarningEnabled ? 'translate-x-7' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-white">Invert Scroll Direction</p>
-                      <p className="mt-1 text-xs leading-5 text-neutral-500">
-                        Reverse mouse wheel scrolling when moving through the editor canvas.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={isScrollDirectionInverted}
-                      aria-label="Toggle inverted canvas scroll direction"
-                      onClick={() => setIsScrollDirectionInverted((current) => !current)}
-                      className={`relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border transition-colors ${
-                        isScrollDirectionInverted
-                          ? 'border-emerald-300/40 bg-emerald-500/90'
-                          : 'border-white/10 bg-neutral-800'
-                      }`}
-                    >
-                      <span className="sr-only">Invert Scroll Direction</span>
-                      <span
-                        className={`absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-transform ${
-                          isScrollDirectionInverted ? 'translate-x-7' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-white">Selection Type</p>
-                    <p className="mt-1 text-xs leading-5 text-neutral-500">
-                      Choose how middle-drag selection boxes collect notes.
-                    </p>
-                  </div>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsStatisticsRefreshRateMenuOpen(false);
-                        setIsSelectionTypeMenuOpen(current => !current);
-                      }}
-                      className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
-                      aria-haspopup="menu"
-                      aria-expanded={isSelectionTypeMenuOpen}
-                    >
-                      <span>{SELECTION_TYPE_LABELS[selectionType]}</span>
-                      <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isSelectionTypeMenuOpen ? 'rotate-90' : ''}`} />
-                    </button>
-                    {isSelectionTypeMenuOpen && (
-                      <div
-                        className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
-                        role="menu"
-                      >
-                        {SELECTION_TYPE_OPTIONS.map((nextSelectionType) => (
-                          <button
-                            key={nextSelectionType}
-                            type="button"
-                            onClick={() => {
-                              setSelectionType(nextSelectionType);
-                              setIsSelectionTypeMenuOpen(false);
-                            }}
-                            className={`w-full rounded px-3 py-2 text-left text-sm transition-colors ${
-                              selectionType === nextSelectionType
-                                ? 'bg-indigo-500/20 text-indigo-200'
-                                : 'text-neutral-200 hover:bg-neutral-800'
-                            }`}
-                            role="menuitem"
-                          >
-                            {SELECTION_TYPE_LABELS[nextSelectionType]}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-white">Statistics Refresh Rate</p>
-                    <p className="mt-1 text-xs leading-5 text-neutral-500">
-                      Limit how often live statistics update in the properties window.
-                    </p>
-                  </div>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSelectionTypeMenuOpen(false);
-                        setIsStatisticsRefreshRateMenuOpen(current => !current);
-                      }}
-                      className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left font-mono text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
-                      aria-haspopup="menu"
-                      aria-expanded={isStatisticsRefreshRateMenuOpen}
-                    >
-                      <span>{statisticsRefreshRate}</span>
-                      <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isStatisticsRefreshRateMenuOpen ? 'rotate-90' : ''}`} />
-                    </button>
-                    {isStatisticsRefreshRateMenuOpen && (
-                      <div
-                        className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
-                        role="menu"
-                      >
-                        {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
-                          <button
-                            key={refreshRate}
-                            type="button"
-                            onClick={() => {
-                              setStatisticsRefreshRate(refreshRate);
-                              setIsStatisticsRefreshRateMenuOpen(false);
-                            }}
-                            className={`w-full rounded px-3 py-2 text-left font-mono text-sm transition-colors ${
-                              statisticsRefreshRate === refreshRate
-                                ? 'bg-indigo-500/20 text-indigo-200'
-                                : 'text-neutral-200 hover:bg-neutral-800'
-                            }`}
-                            role="menuitem"
-                          >
-                            {refreshRate}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="mb-5 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">Preview Mode</h3>
-                    <p className="mt-1 text-xs text-neutral-500">Choose which chart effects are simulated during preview playback.</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <SettingsToggle
-                    label="Camera Tilt"
-                    description="Rotate the preview camera while active hold connectors pass through the judgement line."
-                    isEnabled={isPreviewCameraTiltEnabled}
-                    ariaLabel="Toggle preview camera tilt"
-                    onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
-                  />
-                  <SettingsToggle
-                    label="Camera Movement"
-                    description="Move the preview camera horizontally along pink hold paths."
-                    isEnabled={isPreviewCameraMovementEnabled}
-                    ariaLabel="Toggle preview camera movement"
-                    onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
-                  />
-                  <SettingsToggle
-                    label="Note Speed Changes"
-                    description="Apply per-note speed multipliers and speed curves in preview mode."
-                    isEnabled={isPreviewNoteSpeedChangesEnabled}
-                    ariaLabel="Toggle preview note speed changes"
-                    onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
-                  />
-                  <SettingsToggle
-                    label="Note Appear Mode"
-                    description="Apply note appear modes such as side entry, fly-down, and proximity visibility."
-                    isEnabled={isPreviewNoteAppearModeEnabled}
-                    ariaLabel="Toggle preview note appear mode"
-                    onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
-                  />
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="mb-5 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">Audio</h3>
-                    <p className="mt-1 text-xs text-neutral-500">Balance music playback and editor hit sounds.</p>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <label className="block">
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-neutral-300">Music volume</span>
-                      <span className="font-mono text-xs text-neutral-500">{Math.round(musicVolume * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      value={musicVolume}
-                      onChange={(e) => setMusicVolume(Number(e.target.value))}
-                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-neutral-300">Taps volume</span>
-                      <span className="font-mono text-xs text-neutral-500">{Math.round(tapSoundVolume * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      value={tapSoundVolume}
-                      onChange={(e) => setTapSoundVolume(Number(e.target.value))}
-                      aria-label="Taps volume"
-                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-neutral-300">Flicks volume</span>
-                      <span className="font-mono text-xs text-neutral-500">{Math.round(flickSoundVolume * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      value={flickSoundVolume}
-                      onChange={(e) => setFlickSoundVolume(Number(e.target.value))}
-                      aria-label="Flicks volume"
-                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-                    />
-                  </label>
-                </div>
-              </section>
-            </div>
-
+            <VirtualizedList
+              items={settingsSections}
+              estimateSize={360}
+              getKey={(section) => section}
+              renderItem={(section) => renderSettingsSection(section)}
+              className="px-6 py-6"
+            />
             <div className="border-t border-white/10 p-4">
               <button
                 onClick={closeSettings}
@@ -698,34 +842,13 @@ export default function EditorOverlays({
               <h2 id="hotkeys-title" className="mt-2 text-2xl font-semibold text-white">Hotkeys</h2>
             </div>
 
-            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-6">
-              {EDITOR_KEYBIND_GROUPS.map(group => (
-                <section key={group.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <h3 className="mb-4 text-sm font-semibold text-white">{group.title}</h3>
-                  <div className="space-y-3">
-                    {group.bindings.map(binding => (
-                      <div
-                        key={`${group.title}-${binding.keys.join('-')}`}
-                        className="grid gap-3 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 sm:grid-cols-[13rem_minmax(0,1fr)]"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          {binding.keys.map((key, index) => (
-                            <Fragment key={key}>
-                              {index > 0 && <span className="text-xs text-neutral-600">+</span>}
-                              <kbd className="rounded-lg border border-white/10 bg-neutral-900 px-2 py-1 font-mono text-xs font-semibold text-neutral-200 shadow-inner shadow-black/30">
-                                {key}
-                              </kbd>
-                            </Fragment>
-                          ))}
-                        </div>
-                        <p className="text-sm leading-6 text-neutral-300">{binding.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-
+            <VirtualizedList
+              items={hotkeyRows}
+              estimateSize={86}
+              getKey={(row, index) => row.kind === 'group' ? `group-${row.groupTitle}` : `binding-${row.groupTitle}-${row.keys.join('-')}-${index}`}
+              renderItem={(row) => renderHotkeyRow(row)}
+              className="px-6 py-6"
+            />
             <div className="border-t border-white/10 p-4">
               <button
                 onClick={() => setIsHelpOpen(false)}
@@ -740,3 +863,4 @@ export default function EditorOverlays({
     </AnimatePresence>
   );
 }
+
