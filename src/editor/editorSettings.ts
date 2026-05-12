@@ -26,6 +26,7 @@ export interface EditorSettings {
   gridZoom: number;
   isXPositionGridEnabled: boolean;
   isOutOfBoundsPlacementEnabled: boolean;
+  isPreviewPrecomputeEnabled: boolean;
   pixelsPerBeat: number;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
@@ -48,6 +49,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   gridZoom: 4,
   isXPositionGridEnabled: true,
   isOutOfBoundsPlacementEnabled: false,
+  isPreviewPrecomputeEnabled: true,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
   isPreviewCameraTiltEnabled: true,
   isPreviewCameraMovementEnabled: true,
@@ -155,6 +157,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isOutOfBoundsPlacementEnabled: typeof parsedSettings.isOutOfBoundsPlacementEnabled === 'boolean'
         ? parsedSettings.isOutOfBoundsPlacementEnabled
         : DEFAULT_EDITOR_SETTINGS.isOutOfBoundsPlacementEnabled,
+      isPreviewPrecomputeEnabled: typeof parsedSettings.isPreviewPrecomputeEnabled === 'boolean'
+        ? parsedSettings.isPreviewPrecomputeEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewPrecomputeEnabled,
       pixelsPerBeat: isValidPixelsPerBeat(parsedSettings.pixelsPerBeat)
         ? parsedSettings.pixelsPerBeat
         : DEFAULT_EDITOR_SETTINGS.pixelsPerBeat,

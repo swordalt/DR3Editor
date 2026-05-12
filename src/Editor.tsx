@@ -75,16 +75,16 @@ import type {
   PreviewHoldConnectorSegment,
   PreviewNoteRenderEntry,
   PreviewNoteSpeed,
+  SpeedDistancePoint,
 } from './editor/editorLocalTypes';
 import { getTierBadge } from './editor/editorMetadata';
 import { getBeatAtTimepos, getBeatsPerMeasureAtBeat, getCurveSnapBeatsBetween, getIndicatorKeyAtBeat, snapBeatToMeasureDivision } from './editor/editorTiming';
 import {
   buildPreviewCameraTiltIntervals,
-  buildPreviewComboTimes,
   buildSpeedDistanceIndex,
   comparePreviewNoteRenderEntries,
   findFirstPreviewJudgementNoteIndex,
-  getPreviewCameraTiltDegrees,
+  getPreviewCameraRotationRadians,
   getPreviewCameraXPositionOffset,
   getPreviewComboAtTime,
   getPreviewConnectorSegmentsInDistanceRange,
@@ -98,7 +98,7 @@ import { SOUND_URLS, getHitSoundVolume, musicAudioGraphs, type MusicAudioGraph }
 import { formatByteSize } from './editor/editorFileHelpers';
 import { getMirroredNoteLane } from './editor/editorNoteTransforms';
 import { buildChartProjectFiles } from './editor/chartProjectFiles';
-import { calculateChartStatistics } from './editor/chartStatistics';
+import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
 import {
   METADATA_REQUIRED_FIELDS,
   getInvalidMetadataFields,
@@ -127,6 +127,7 @@ import {
   DR3FP_PREVIEW_STATUS,
   Dr3FpPreviewError,
   createDr3FpPreviewFailureStatus,
+  type Dr3FpPreviewLogEntry,
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
 import { translations } from './lang';
@@ -137,9 +138,152 @@ const getOffsetInSeconds = (offset: string | number) => {
 };
 const text = translations;
 
+const createDr3FpPreviewLogEntry = (message: string, detail?: string): Dr3FpPreviewLogEntry => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  time: new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }),
+  message,
+  detail,
+});
+
 const getRequiredMetadataTouchedFields = () => Object.fromEntries(
   METADATA_REQUIRED_FIELDS.map(field => [field, true]),
 ) as MetadataTouchedFields;
+
+const PREVIEW_CONNECTOR_GROUP_EPSILON = 0.000001;
+
+const arePreviewConnectorValuesEqual = (a: number, b: number) => (
+  Math.abs(a - b) <= PREVIEW_CONNECTOR_GROUP_EPSILON
+);
+
+const getPreviewConnectorGroupKey = (segment: PreviewHoldConnectorSegment) => [
+  getConnectorFill(segment.note.type),
+  segment.parentTimepos.toFixed(6),
+  segment.noteTimepos.toFixed(6),
+  segment.parentPlaybackTime.toFixed(6),
+  segment.notePlaybackTime.toFixed(6),
+  segment.parentDistance.toFixed(6),
+  segment.noteDistance.toFixed(6),
+].join('|');
+
+const buildGroupedPreviewHoldConnectorSegments = (
+  segments: PreviewHoldConnectorSegment[],
+): PreviewHoldConnectorSegment[] => {
+  const segmentsByGroupKey = new Map<string, PreviewHoldConnectorSegment[]>();
+
+  segments.forEach((segment) => {
+    const groupKey = getPreviewConnectorGroupKey(segment);
+    const matchingSegments = segmentsByGroupKey.get(groupKey);
+    if (matchingSegments) {
+      matchingSegments.push(segment);
+    } else {
+      segmentsByGroupKey.set(groupKey, [segment]);
+    }
+  });
+
+  const groupedSegments: PreviewHoldConnectorSegment[] = [];
+
+  segmentsByGroupKey.forEach((matchingSegments) => {
+    const sortedSegments = [...matchingSegments].sort((a, b) => (
+      (a.parentNote.lane - b.parentNote.lane)
+      || (a.note.lane - b.note.lane)
+      || (a.note.id - b.note.id)
+    ));
+    let activeGroup: PreviewHoldConnectorSegment[] = [];
+    let activeParentRight = 0;
+    let activeNoteRight = 0;
+
+    const flushActiveGroup = () => {
+      if (activeGroup.length < 2) {
+        groupedSegments.push(...activeGroup);
+      } else {
+        const firstSegment = activeGroup[0];
+        const parentLane = activeGroup[0].parentNote.lane;
+        const noteLane = activeGroup[0].note.lane;
+        const parentRight = activeGroup.reduce(
+          (right, segment) => Math.max(right, segment.parentNote.lane + segment.parentNote.width),
+          parentLane,
+        );
+        const noteRight = activeGroup.reduce(
+          (right, segment) => Math.max(right, segment.note.lane + segment.note.width),
+          noteLane,
+        );
+        const minDistance = activeGroup.reduce(
+          (minimumDistance, segment) => Math.min(minimumDistance, segment.minDistance),
+          firstSegment.minDistance,
+        );
+        const maxDistance = activeGroup.reduce(
+          (maximumDistance, segment) => Math.max(maximumDistance, segment.maxDistance),
+          firstSegment.maxDistance,
+        );
+
+        groupedSegments.push({
+          ...firstSegment,
+          parentNote: {
+            ...firstSegment.parentNote,
+            lane: parentLane,
+            width: parentRight - parentLane,
+          },
+          note: {
+            ...firstSegment.note,
+            lane: noteLane,
+            width: noteRight - noteLane,
+          },
+          minDistance,
+          maxDistance,
+          groupedSegments: activeGroup,
+        });
+      }
+
+      activeGroup = [];
+      activeParentRight = 0;
+      activeNoteRight = 0;
+    };
+
+    sortedSegments.forEach((segment) => {
+      if (activeGroup.length === 0) {
+        activeGroup = [segment];
+        activeParentRight = segment.parentNote.lane + segment.parentNote.width;
+        activeNoteRight = segment.note.lane + segment.note.width;
+        return;
+      }
+
+      const isParentContiguous = arePreviewConnectorValuesEqual(segment.parentNote.lane, activeParentRight);
+      const isNoteContiguous = arePreviewConnectorValuesEqual(segment.note.lane, activeNoteRight);
+
+      if (!isParentContiguous || !isNoteContiguous) {
+        flushActiveGroup();
+        activeGroup = [segment];
+      } else {
+        activeGroup.push(segment);
+      }
+
+      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
+      activeNoteRight = segment.note.lane + segment.note.width;
+    });
+
+    flushActiveGroup();
+  });
+
+  return groupedSegments.sort((a, b) => (
+    (a.minDistance - b.minDistance)
+    || (a.maxDistance - b.maxDistance)
+    || (a.note.id - b.note.id)
+  ));
+};
+
+interface PreviewModePrecomputeCache {
+  notes: Note[];
+  speedChanges: SpeedChange[];
+  bpmChanges: BpmChange[];
+  playbackSpeedDistanceIndex: SpeedDistancePoint[];
+  cameraTiltSegments: PreviewCameraTiltSegment[];
+  chartStatisticsIndex: ChartStatisticsIndex;
+  cameraTiltIntervals: PreviewCameraTiltInterval[];
+}
 
 export default function Editor({ 
   onBack, 
@@ -161,6 +305,7 @@ export default function Editor({
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isDr3FpPreviewInfoOpen, setIsDr3FpPreviewInfoOpen] = useState(false);
   const [dr3FpPreviewStatus, setDr3FpPreviewStatus] = useState<Dr3FpPreviewStatus>(DR3FP_PREVIEW_STATUS.idle);
+  const [dr3FpPreviewLogs, setDr3FpPreviewLogs] = useState<Dr3FpPreviewLogEntry[]>([]);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isPlaybackSpeedMenuOpen, setIsPlaybackSpeedMenuOpen] = useState(false);
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
@@ -182,9 +327,16 @@ export default function Editor({
     )),
     [flickSoundVolume, tapSoundVolume],
   );
+  const addDr3FpPreviewLog = useCallback((message: string, detail?: string) => {
+    setDr3FpPreviewLogs(currentLogs => [
+      ...currentLogs,
+      createDr3FpPreviewLogEntry(message, detail),
+    ]);
+  }, []);
   const [gridZoom, setGridZoom] = useState(initialEditorSettings.gridZoom);
   const [isXPositionGridEnabled, setIsXPositionGridEnabled] = useState(initialEditorSettings.isXPositionGridEnabled);
   const [isOutOfBoundsPlacementEnabled, setIsOutOfBoundsPlacementEnabled] = useState(initialEditorSettings.isOutOfBoundsPlacementEnabled);
+  const [isPreviewPrecomputeEnabled, setIsPreviewPrecomputeEnabled] = useState(initialEditorSettings.isPreviewPrecomputeEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
@@ -291,6 +443,7 @@ export default function Editor({
       gridZoom,
       isXPositionGridEnabled,
       isOutOfBoundsPlacementEnabled,
+      isPreviewPrecomputeEnabled,
       pixelsPerBeat,
       isPreviewCameraTiltEnabled,
       isPreviewCameraMovementEnabled,
@@ -312,6 +465,7 @@ export default function Editor({
     gridZoom,
     isXPositionGridEnabled,
     isOutOfBoundsPlacementEnabled,
+    isPreviewPrecomputeEnabled,
     pixelsPerBeat,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -386,10 +540,13 @@ export default function Editor({
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
   const previewComboTimesRef = useRef<number[]>([]);
+  const previewModePrecomputeCacheRef = useRef<PreviewModePrecomputeCache | null>(null);
+  const previewChartStatisticsIndexRef = useRef<ChartStatisticsIndex | null>(null);
+  const previewPlaybackSpeedDistanceIndexRef = useRef<SpeedDistancePoint[]>([]);
   const previewCameraTiltSegmentsRef = useRef<PreviewCameraTiltSegment[]>([]);
   const previewCameraTiltIntervalsRef = useRef<PreviewCameraTiltInterval[]>([]);
   const previewJudgementCursorTimeRef = useRef(0);
-  const previewTiltAngleRef = useRef(0);
+  const previewCameraRotationRadiansRef = useRef(0);
   const previewTiltTimestampRef = useRef(0);
   const preview3DCameraScaleRef = useRef(1);
   const preview3DCameraYOffsetRef = useRef(0);
@@ -764,6 +921,18 @@ export default function Editor({
     dragStartNoteRef.current = null;
   }, []);
 
+  const speedDistanceIndex = useMemo(
+    () => buildSpeedDistanceIndex(speedChanges),
+    [speedChanges],
+  );
+  const previewPlaybackSpeedDistanceIndex = useMemo(
+    () => buildSpeedDistanceIndex(speedChanges.map(change => ({
+      ...change,
+      timepos: getTimeFromTimepos(change.timepos),
+    }))),
+    [getTimeFromTimepos, speedChanges],
+  );
+
   const togglePreviewMode = useCallback(() => {
     setIsPreviewMode(current => {
       const nextPreviewMode = !current;
@@ -783,9 +952,45 @@ export default function Editor({
       resetPreviewJudgementState(previewStartTime, enteringPreviewDuringPlayback);
 
       if (nextPreviewMode) {
-        previewComboTimesRef.current = buildPreviewComboTimes(stateRef.current.notes);
-        previewCameraTiltIntervalsRef.current = buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current);
-        previewTiltAngleRef.current = 0;
+        if (isPreviewPrecomputeEnabled) {
+          const cachedPreviewPrecompute = previewModePrecomputeCacheRef.current;
+          const cameraTiltSegments = previewCameraTiltSegmentsRef.current;
+          const canReusePreviewPrecompute = Boolean(
+            cachedPreviewPrecompute
+            && cachedPreviewPrecompute.notes === stateRef.current.notes
+            && cachedPreviewPrecompute.speedChanges === stateRef.current.speedChanges
+            && cachedPreviewPrecompute.bpmChanges === stateRef.current.bpmChanges
+            && cachedPreviewPrecompute.playbackSpeedDistanceIndex === previewPlaybackSpeedDistanceIndex
+            && cachedPreviewPrecompute.cameraTiltSegments === cameraTiltSegments
+          );
+          const previewPrecompute = canReusePreviewPrecompute
+            ? cachedPreviewPrecompute!
+            : {
+                notes: stateRef.current.notes,
+                speedChanges: stateRef.current.speedChanges,
+                bpmChanges: stateRef.current.bpmChanges,
+                playbackSpeedDistanceIndex: previewPlaybackSpeedDistanceIndex,
+                cameraTiltSegments,
+                chartStatisticsIndex: buildChartStatisticsIndex({
+                  getTimeFromTimepos,
+                  notes: stateRef.current.notes,
+                  speedChanges: stateRef.current.speedChanges,
+                }),
+                cameraTiltIntervals: buildPreviewCameraTiltIntervals(cameraTiltSegments),
+              };
+
+          previewModePrecomputeCacheRef.current = previewPrecompute;
+          previewComboTimesRef.current = previewPrecompute.chartStatisticsIndex.sortedNoteTimes;
+          previewChartStatisticsIndexRef.current = previewPrecompute.chartStatisticsIndex;
+          previewPlaybackSpeedDistanceIndexRef.current = previewPrecompute.playbackSpeedDistanceIndex;
+          previewCameraTiltIntervalsRef.current = previewPrecompute.cameraTiltIntervals;
+        } else {
+          previewComboTimesRef.current = [];
+          previewChartStatisticsIndexRef.current = null;
+          previewPlaybackSpeedDistanceIndexRef.current = [];
+          previewCameraTiltIntervalsRef.current = [];
+        }
+        previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
         preview3DCameraYOffsetRef.current = 0;
@@ -802,9 +1007,7 @@ export default function Editor({
         clearActiveNoteInteraction();
         pasteTargetRef.current = null;
       } else {
-        previewComboTimesRef.current = [];
-        previewCameraTiltIntervalsRef.current = [];
-        previewTiltAngleRef.current = 0;
+        previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
         preview3DCameraYOffsetRef.current = 0;
@@ -813,7 +1016,7 @@ export default function Editor({
 
       return nextPreviewMode;
     });
-  }, [clearActiveNoteInteraction, resetPreviewJudgementState]);
+  }, [clearActiveNoteInteraction, getTimeFromTimepos, isPreviewPrecomputeEnabled, previewPlaybackSpeedDistanceIndex, resetPreviewJudgementState]);
 
   const handleCopySelectedNotes = useCallback(() => {
     const selectedIdSet = new Set(selectedNoteIds);
@@ -887,17 +1090,6 @@ export default function Editor({
   const noteRenderIndex = useMemo(
     () => buildNoteRenderIndex(notes, timedBpmChanges, selectedNoteIdSet),
     [notes, timedBpmChanges, selectedNoteIdSet],
-  );
-  const speedDistanceIndex = useMemo(
-    () => buildSpeedDistanceIndex(speedChanges),
-    [speedChanges],
-  );
-  const previewPlaybackSpeedDistanceIndex = useMemo(
-    () => buildSpeedDistanceIndex(speedChanges.map(change => ({
-      ...change,
-      timepos: getTimeFromTimepos(change.timepos),
-    }))),
-    [getTimeFromTimepos, speedChanges],
   );
   const previewNoteRenderEntries = useMemo(
     () => noteRenderIndex.noteBeatEntries
@@ -1007,6 +1199,10 @@ export default function Editor({
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
     ],
+  );
+  const previewHoldConnectorDrawSegments = useMemo(
+    () => buildGroupedPreviewHoldConnectorSegments(previewHoldConnectorSegments),
+    [previewHoldConnectorSegments],
   );
   const previewJudgementNoteEntries = useMemo(
     () => notes
@@ -2221,9 +2417,20 @@ export default function Editor({
     const isPreviewPlaybackCanvas = isPreviewMode;
     const isPreview3DMode = isPreviewPlaybackCanvas && previewDisplayMode === '3d';
     const shouldClipPreviewHoldConnectors = !isPreviewPlaybackCanvas || stateRef.current.isPlaying;
+    const activePreviewPlaybackSpeedDistanceIndex = isPreviewPlaybackCanvas
+      ? (
+          isPreviewPrecomputeEnabled
+            ? (
+                previewPlaybackSpeedDistanceIndexRef.current.length > 0
+                  ? previewPlaybackSpeedDistanceIndexRef.current
+                  : previewPlaybackSpeedDistanceIndex
+              )
+            : previewPlaybackSpeedDistanceIndex
+        )
+      : previewPlaybackSpeedDistanceIndex;
     const currentPreviewTimepos = isPreviewPlaybackCanvas ? getTimeposFromTime(time) : 0;
     const currentPreviewDistance = isPreviewPlaybackCanvas
-      ? getSpeedDistanceAtTimepos(time, previewPlaybackSpeedDistanceIndex)
+      ? getSpeedDistanceAtTimepos(time, activePreviewPlaybackSpeedDistanceIndex)
       : 0;
     const previewDistanceScale = 4 * pixelsPerBeat;
     const previewCameraXOffset = isPreviewPlaybackCanvas && isPreviewCameraMovementEnabled
@@ -2264,7 +2471,7 @@ export default function Editor({
     const previewVisibleMaxDistance = currentPreviewDistance + previewVisibleDistanceRadius;
 
     const getPreviewYFromTimepos = (timepos: number) => projectPreviewY(
-      hitLineY - (getSpeedDistanceAtTimepos(getTimeFromTimepos(timepos), previewPlaybackSpeedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
+      hitLineY - (getSpeedDistanceAtTimepos(getTimeFromTimepos(timepos), activePreviewPlaybackSpeedDistanceIndex) - currentPreviewDistance) * previewDistanceScale
     );
 
     const getCanvasYFromBeat = (beat: number) => (
@@ -2516,13 +2723,24 @@ export default function Editor({
       : null;
     const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
       ? getPreviewConnectorSegmentsInDistanceRange(
-          previewHoldConnectorSegments,
+          previewHoldConnectorDrawSegments,
           previewVisibleMinDistance,
           previewVisibleMaxDistance,
         )
       : noteRenderIndex.holdConnectorSegments;
-    const targetPreviewTiltDegrees = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
-      ? getPreviewCameraTiltDegrees(previewCameraTiltIntervalsRef.current, currentPreviewTimepos)
+    const activePreviewCameraTiltIntervals = isPreviewPlaybackCanvas
+      ? (
+          isPreviewPrecomputeEnabled
+            ? (
+                previewCameraTiltIntervalsRef.current.length > 0
+                  ? previewCameraTiltIntervalsRef.current
+                  : buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current)
+              )
+            : buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current)
+        )
+      : [];
+    const targetPreviewRotationRadians = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
+      ? getPreviewCameraRotationRadians(activePreviewCameraTiltIntervals, currentPreviewTimepos)
       : 0;
     const tiltNow = performance.now();
     const previousTiltTimestamp = previewTiltTimestampRef.current || tiltNow;
@@ -2530,12 +2748,14 @@ export default function Editor({
     const previewTiltEase = isPreviewPlaybackCanvas
       ? 1 - Math.exp(-tiltElapsedMs / PREVIEW_CONNECTOR_TILT_EASING_MS)
       : 1;
-    previewTiltAngleRef.current += (targetPreviewTiltDegrees - previewTiltAngleRef.current) * previewTiltEase;
-    if (!isPreviewPlaybackCanvas || Math.abs(previewTiltAngleRef.current) < SNAP_EPSILON) {
-      previewTiltAngleRef.current = isPreviewPlaybackCanvas ? 0 : targetPreviewTiltDegrees;
+    previewCameraRotationRadiansRef.current += (
+      targetPreviewRotationRadians - previewCameraRotationRadiansRef.current
+    ) * previewTiltEase;
+    if (!isPreviewPlaybackCanvas || Math.abs(previewCameraRotationRadiansRef.current) < SNAP_EPSILON) {
+      previewCameraRotationRadiansRef.current = isPreviewPlaybackCanvas ? 0 : targetPreviewRotationRadians;
     }
     previewTiltTimestampRef.current = tiltNow;
-    const previewTiltDegrees = previewTiltAngleRef.current;
+    const previewCameraRotationRadians = previewCameraRotationRadiansRef.current;
     const preview3DCameraCenterX = chartStartX + gridWidth / 2;
     const getPreview3DZoomHeightAtTime = (targetTime: number) => {
       if (preview3DZoomHeightCurve.length === 0) {
@@ -2592,10 +2812,10 @@ export default function Editor({
       ctx.scale(preview3DCameraScale, preview3DCameraScale);
       ctx.translate(-preview3DCameraCenterX, -hitLineY);
     }
-    if (isPreviewPlaybackCanvas && Math.abs(previewTiltDegrees) > SNAP_EPSILON) {
+    if (isPreviewPlaybackCanvas && Math.abs(previewCameraRotationRadians) > SNAP_EPSILON) {
       const editorCanvasCenterX = chartStartX + gridWidth / 2;
       ctx.translate(editorCanvasCenterX, height / 2);
-      ctx.rotate((previewTiltDegrees * Math.PI) / 180);
+      ctx.rotate(previewCameraRotationRadians);
       ctx.translate(-editorCanvasCenterX, -height / 2);
     }
 
@@ -2924,10 +3144,9 @@ export default function Editor({
       });
     }
 
-    // Draw hold connections before note bodies so linked notes render on top.
-    for (const segment of visibleHoldConnectorSegments) {
+    const drawHoldConnectorSegment = (segment: typeof visibleHoldConnectorSegments[number]) => {
       if (hiddenPreviewNoteIds?.has(segment.note.id)) {
-        continue;
+        return;
       }
       const previewSegment = segment as PreviewHoldConnectorSegment;
       if (isPreviewPlaybackCanvas && previewSegment.noteSpeed.kind === 'curve') {
@@ -2939,7 +3158,7 @@ export default function Editor({
             && currentPreviewTimepos < animationStartTimepos - SNAP_EPSILON
           )
         ) {
-          continue;
+          return;
         }
       }
 
@@ -2975,7 +3194,7 @@ export default function Editor({
 
       if (isPreviewPlaybackCanvas) {
         if (Math.min(noteY, parentY) > height + 40 || Math.max(noteY, parentY) < -40) {
-          continue;
+          return;
         }
       } else {
         const minSegmentBeat = Math.min(noteBeat, parentBeat);
@@ -2983,17 +3202,17 @@ export default function Editor({
         const editorSegment = segment as typeof noteRenderIndex.holdConnectorSegments[number];
 
         if (!pendingDragUpdate && editorSegment.minBeat > visibleEndBeat) {
-          break;
+          return;
         }
 
         if (maxSegmentBeat < visibleStartBeat || minSegmentBeat > visibleEndBeat) {
-          continue;
+          return;
         }
       }
 
       const clippedConnector = getClippedPreviewConnector(parentNote, parentY, note, noteY);
       if (!clippedConnector) {
-        continue;
+        return;
       }
 
       const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
@@ -3003,7 +3222,7 @@ export default function Editor({
         && isPreviewConnectorBeingJudged
         && Math.max(noteY, parentY) > hitLineY;
       if (shouldClipPreviewHoldConnectors && isPreviewConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
-        continue;
+        return;
       }
 
       if (shouldClipPreviewConnectorAtJudgementLine) {
@@ -3024,6 +3243,99 @@ export default function Editor({
         ctx.restore();
       }
       countRenderedObject();
+    };
+    const canDrawGroupedHoldConnectorSegments = (groupedSegments: PreviewHoldConnectorSegment[]) => {
+      let groupParentY: number | null = null;
+      let groupNoteY: number | null = null;
+      let isGroupBeingJudged: boolean | null = null;
+      let shouldGroupClipAtJudgementLine: boolean | null = null;
+
+      for (const groupedSegment of groupedSegments) {
+        if (hiddenPreviewNoteIds?.has(groupedSegment.note.id)) {
+          return false;
+        }
+
+        if (groupedSegment.noteSpeed.kind === 'curve') {
+          const animationStartTimepos = groupedSegment.noteSpeed.keyframes[0]?.time;
+          if (
+            currentPreviewTimepos >= groupedSegment.noteTimepos - SNAP_EPSILON
+            || (
+              animationStartTimepos !== undefined
+              && currentPreviewTimepos < animationStartTimepos - SNAP_EPSILON
+            )
+          ) {
+            return false;
+          }
+        }
+
+        const noteY = getPreviewYFromNoteDistance(
+          groupedSegment.noteDistance,
+          groupedSegment.noteTimepos,
+          groupedSegment.notePlaybackTime,
+          groupedSegment.noteSpeed,
+        );
+        const parentY = getPreviewYFromNoteDistance(
+          groupedSegment.parentDistance,
+          groupedSegment.parentTimepos,
+          groupedSegment.parentPlaybackTime,
+          groupedSegment.parentSpeed,
+        );
+
+        if (Math.min(noteY, parentY) > height + 40 || Math.max(noteY, parentY) < -40) {
+          return false;
+        }
+
+        const isConnectorBeingJudged = (
+          currentPreviewTimepos >= Math.min(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
+          && currentPreviewTimepos < Math.max(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
+        );
+        if (shouldClipPreviewHoldConnectors && isConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
+          return false;
+        }
+
+        const shouldClipAtJudgementLine = shouldClipPreviewHoldConnectors
+          && isConnectorBeingJudged
+          && Math.max(noteY, parentY) > hitLineY;
+
+        if (
+          groupParentY === null
+          || groupNoteY === null
+          || isGroupBeingJudged === null
+          || shouldGroupClipAtJudgementLine === null
+        ) {
+          groupParentY = parentY;
+          groupNoteY = noteY;
+          isGroupBeingJudged = isConnectorBeingJudged;
+          shouldGroupClipAtJudgementLine = shouldClipAtJudgementLine;
+          continue;
+        }
+
+        if (
+          !arePreviewConnectorValuesEqual(parentY, groupParentY)
+          || !arePreviewConnectorValuesEqual(noteY, groupNoteY)
+          || isConnectorBeingJudged !== isGroupBeingJudged
+          || shouldClipAtJudgementLine !== shouldGroupClipAtJudgementLine
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    // Draw hold connections before note bodies so linked notes render on top.
+    for (const segment of visibleHoldConnectorSegments) {
+      const previewSegment = segment as PreviewHoldConnectorSegment;
+      const groupedSegments = isPreviewPlaybackCanvas ? previewSegment.groupedSegments : undefined;
+      const shouldFallbackToIndividualSegments = groupedSegments
+        ? !canDrawGroupedHoldConnectorSegments(groupedSegments)
+        : false;
+
+      if (shouldFallbackToIndividualSegments) {
+        groupedSegments!.forEach(drawHoldConnectorSegment);
+      } else {
+        drawHoldConnectorSegment(segment);
+      }
     }
 
     if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
@@ -3599,7 +3911,13 @@ export default function Editor({
     ctx.restore();
 
     if (isPreviewMode) {
-      const previewCanvasCombo = getPreviewComboAtTime(previewComboTimesRef.current, time);
+      const previewCanvasCombo = isPreviewPrecomputeEnabled
+        ? (
+            previewComboTimesRef.current.length > 0
+              ? getPreviewComboAtTime(previewComboTimesRef.current, time)
+              : notes.reduce((combo, note) => (note.time <= time ? combo + 1 : combo), 0)
+          )
+        : notes.reduce((combo, note) => (note.time <= time ? combo + 1 : combo), 0);
 
       ctx.save();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -3615,7 +3933,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -4410,6 +4728,10 @@ export default function Editor({
     if (!projectData || isExportDisabled) return;
 
     setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.exporting);
+    setDr3FpPreviewLogs([
+      createDr3FpPreviewLogEntry('Started DR3FP preview.'),
+      createDr3FpPreviewLogEntry(DR3FP_PREVIEW_STATUS.exporting.message),
+    ]);
     setIsDr3FpPreviewInfoOpen(true);
 
     try {
@@ -4432,8 +4754,10 @@ export default function Editor({
       }
       const zipBlob = createZipBlobForSave(zipBuffer);
       const sessionId = crypto.randomUUID();
+      addDr3FpPreviewLog('Preview bundle was built.', `${formatByteSize(zipBlob.size)} ready to send.`);
 
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.launching);
+      addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.launching.message);
       try {
         window.location.href = `dr3fp://preview?session=${encodeURIComponent(sessionId)}&version=1`;
       } catch (err) {
@@ -4445,19 +4769,25 @@ export default function Editor({
       }
 
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.receiver);
+      addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.receiver.message);
       await waitForDr3FpPreviewReceiver(sessionId);
+      addDr3FpPreviewLog('DR3FP receiver is ready.');
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.uploading);
+      addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.uploading.message);
       await uploadDr3FpPreviewBundle(sessionId, zipBlob);
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.complete);
+      addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.complete.message);
     } catch (err) {
       console.error('DR3FP preview failed', err);
       if (err instanceof Dr3FpPreviewError) {
         setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(err.kind, err.message, err.detail));
+        addDr3FpPreviewLog(err.message, err.detail);
       } else {
         setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(
           'upload',
           err instanceof Error ? err.message : 'Preview failed.',
         ));
+        addDr3FpPreviewLog(err instanceof Error ? err.message : 'Preview failed.');
       }
     }
   };
@@ -4755,10 +5085,11 @@ export default function Editor({
     getTimeposFromTime,
     liveStatsTime,
     notes,
+    precomputedIndex: isPreviewMode && isPreviewPrecomputeEnabled ? previewChartStatisticsIndexRef.current : null,
     shouldShowChartStatistics,
     speedChanges,
     timedBpmChanges,
-  }), [getTimeFromTimepos, getTimeposFromTime, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
+  }), [getTimeFromTimepos, getTimeposFromTime, isPreviewMode, isPreviewPrecomputeEnabled, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
   const {
     currentEditorBpm,
     currentEditorSpeed,
@@ -5153,10 +5484,12 @@ export default function Editor({
       isHelpOpen={isHelpOpen}
       isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
       dr3FpPreviewStatus={dr3FpPreviewStatus}
+      dr3FpPreviewLogs={dr3FpPreviewLogs}
       isExitWarningEnabled={isExitWarningEnabled}
       isBackdropBlurDisabled={isBackdropBlurDisabled}
       isAnimationDisabled={isAnimationDisabled}
       isScrollDirectionInverted={isScrollDirectionInverted}
+      isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
       isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
       isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
       selectionType={selectionType}
@@ -5176,6 +5509,7 @@ export default function Editor({
       setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
       setIsAnimationDisabled={setIsAnimationDisabled}
       setIsScrollDirectionInverted={setIsScrollDirectionInverted}
+      setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
       setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
       setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
       setSelectionType={setSelectionType}

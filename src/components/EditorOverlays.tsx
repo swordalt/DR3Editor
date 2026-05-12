@@ -2,7 +2,12 @@ import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { CheckCircle2, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { Dr3FpPreviewFailureKind, Dr3FpPreviewStage, Dr3FpPreviewStatus } from '../editor/dr3FpPreviewStatus';
+import type {
+  Dr3FpPreviewFailureKind,
+  Dr3FpPreviewLogEntry,
+  Dr3FpPreviewStage,
+  Dr3FpPreviewStatus,
+} from '../editor/dr3FpPreviewStatus';
 import { EDITOR_KEYBIND_GROUPS } from '../editor/editorKeybinds';
 import {
   SELECTION_TYPE_OPTIONS,
@@ -19,10 +24,12 @@ interface EditorOverlaysProps {
   isHelpOpen: boolean;
   isDr3FpPreviewInfoOpen: boolean;
   dr3FpPreviewStatus: Dr3FpPreviewStatus;
+  dr3FpPreviewLogs: Dr3FpPreviewLogEntry[];
   isExitWarningEnabled: boolean;
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
+  isPreviewPrecomputeEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
   selectionType: SelectionType;
@@ -38,6 +45,7 @@ interface EditorOverlaysProps {
   setIsBackdropBlurDisabled: Dispatch<SetStateAction<boolean>>;
   setIsAnimationDisabled: Dispatch<SetStateAction<boolean>>;
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
   setSelectionType: Dispatch<SetStateAction<SelectionType>>;
@@ -246,10 +254,12 @@ export default function EditorOverlays({
   isHelpOpen,
   isDr3FpPreviewInfoOpen,
   dr3FpPreviewStatus,
+  dr3FpPreviewLogs,
   isExitWarningEnabled,
   isBackdropBlurDisabled,
   isAnimationDisabled,
   isScrollDirectionInverted,
+  isPreviewPrecomputeEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
   selectionType,
@@ -265,6 +275,7 @@ export default function EditorOverlays({
   setIsBackdropBlurDisabled,
   setIsAnimationDisabled,
   setIsScrollDirectionInverted,
+  setIsPreviewPrecomputeEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
   setSelectionType,
@@ -275,6 +286,7 @@ export default function EditorOverlays({
   onBack,
 }: EditorOverlaysProps) {
   const text = translations;
+  const [isDr3FpPreviewLogOpen, setIsDr3FpPreviewLogOpen] = useState(true);
   const closeSettings = () => {
     setIsSettingsOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
@@ -375,6 +387,16 @@ export default function EditorOverlays({
               isEnabled={isScrollDirectionInverted}
               ariaLabel={text.overlays.toggleInvertScrollDirection}
               onToggle={() => setIsScrollDirectionInverted((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.previewPrecompute}
+              description={text.overlays.previewPrecomputeDescription}
+              isEnabled={isPreviewPrecomputeEnabled}
+              ariaLabel={text.overlays.togglePreviewPrecompute}
+              onToggle={() => setIsPreviewPrecomputeEnabled((current) => !current)}
             />
           </div>
 
@@ -629,124 +651,179 @@ export default function EditorOverlays({
           onMouseDown={() => setIsDr3FpPreviewInfoOpen(false)}
         >
           <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="dr3fp-preview-info-title"
-            className="flex w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            className="flex max-h-[85vh] w-full max-w-[70rem] items-stretch justify-center gap-4"
             {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">{text.overlays.dr3FpPreview}</p>
-              <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
-                {dr3FpPreviewStatus.title}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-neutral-400">
-                {dr3FpPreviewStatus.message}
-              </p>
-            </div>
-
-            <div className="space-y-5 px-6 py-6">
-              <div className="space-y-2">
-                {DR3FP_PREVIEW_STAGE_ORDER.map((stage, index) => {
-                  const currentIndex = DR3FP_PREVIEW_STAGE_ORDER.indexOf(
-                    dr3FpPreviewStatus.stage === 'failed'
-                      ? (
-                        dr3FpPreviewStatus.failureKind === 'export'
-                          ? 'exporting'
-                          : dr3FpPreviewStatus.failureKind === 'launch'
-                            ? 'launching'
-                            : dr3FpPreviewStatus.failureKind === 'receiver'
-                              ? 'receiver'
-                              : 'uploading'
-                      )
-                      : dr3FpPreviewStatus.stage === 'idle'
-                        ? 'exporting'
-                        : dr3FpPreviewStatus.stage,
-                  );
-                  const isActive = dr3FpPreviewStatus.stage !== 'complete'
-                    && dr3FpPreviewStatus.stage !== 'failed'
-                    && stage === dr3FpPreviewStatus.stage;
-                  const isComplete = dr3FpPreviewStatus.stage === 'complete' || index < currentIndex;
-                  const isFailed = dr3FpPreviewStatus.stage === 'failed' && index === currentIndex;
-
-                  return (
-                    <div
-                      key={stage}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
-                        isFailed
-                          ? 'border-red-400/30 bg-red-500/10 text-red-100'
-                          : isActive
-                            ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-100'
-                            : isComplete
-                              ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
-                              : 'border-white/10 bg-white/[0.03] text-neutral-500'
-                      }`}
-                    >
-                      {isFailed ? (
-                        <XCircle className="h-4 w-4 shrink-0" />
-                      ) : isActive ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                      ) : isComplete ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      ) : (
-                        <span className="h-4 w-4 shrink-0 rounded-full border border-current opacity-50" />
-                      )}
-                      <span className="font-medium">{DR3FP_PREVIEW_STAGE_LABELS[stage]}</span>
-                    </div>
-                  );
-                })}
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="dr3fp-preview-info-title"
+              className="flex min-h-[34rem] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            >
+              <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">{text.overlays.dr3FpPreview}</p>
+                <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
+                  {dr3FpPreviewStatus.title}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-neutral-400">
+                  {dr3FpPreviewStatus.message}
+                </p>
               </div>
 
-              {dr3FpPreviewStatus.stage === 'failed' && dr3FpPreviewStatus.failureKind && (
-                <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
-                  <p className="text-sm font-semibold text-red-100">{text.overlays.whatHappened}</p>
-                  <p className="mt-2 text-sm leading-6 text-red-100/80">
-                    {dr3FpPreviewStatus.message}
-                  </p>
-                  {dr3FpPreviewStatus.detail && (
-                    <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs text-red-100/70">
-                      {dr3FpPreviewStatus.detail}
-                    </p>
-                  )}
-                  <p className="mt-4 text-sm font-semibold text-red-100">{text.overlays.tryThis}</p>
-                  <ul className="mt-2 space-y-2 text-sm leading-6 text-red-100/80">
-                    {DR3FP_PREVIEW_FAILURE_GUIDANCE[dr3FpPreviewStatus.failureKind].map(item => (
-                      <li key={item} className="flex gap-2">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red-200/80" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {dr3FpPreviewStatus.failureKind === 'launch' && (
-                    <a
-                      href="https://github.com/swordalt/DanceRail3FanmadePlayer/releases"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-4 inline-flex text-sm font-medium text-red-100 underline decoration-red-100/40 underline-offset-4 transition-colors hover:text-white"
-                    >
-                      {text.overlays.dr3FpReleases}
-                    </a>
-                  )}
-                </div>
-              )}
+              <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+                <div className="space-y-2">
+                  {DR3FP_PREVIEW_STAGE_ORDER.map((stage, index) => {
+                    const currentIndex = DR3FP_PREVIEW_STAGE_ORDER.indexOf(
+                      dr3FpPreviewStatus.stage === 'failed'
+                        ? (
+                          dr3FpPreviewStatus.failureKind === 'export'
+                            ? 'exporting'
+                            : dr3FpPreviewStatus.failureKind === 'launch'
+                              ? 'launching'
+                              : dr3FpPreviewStatus.failureKind === 'receiver'
+                                ? 'receiver'
+                                : 'uploading'
+                        )
+                        : dr3FpPreviewStatus.stage === 'idle'
+                          ? 'exporting'
+                          : dr3FpPreviewStatus.stage,
+                    );
+                    const isActive = dr3FpPreviewStatus.stage !== 'complete'
+                      && dr3FpPreviewStatus.stage !== 'failed'
+                      && stage === dr3FpPreviewStatus.stage;
+                    const isComplete = dr3FpPreviewStatus.stage === 'complete' || index < currentIndex;
+                    const isFailed = dr3FpPreviewStatus.stage === 'failed' && index === currentIndex;
 
-              {dr3FpPreviewStatus.stage === 'complete' && (
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100/80">
-                  {text.overlays.switchToDr3Fp}
+                    return (
+                      <div
+                        key={stage}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
+                          isFailed
+                            ? 'border-red-400/30 bg-red-500/10 text-red-100'
+                            : isActive
+                              ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-100'
+                              : isComplete
+                                ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+                                : 'border-white/10 bg-white/[0.03] text-neutral-500'
+                        }`}
+                      >
+                        {isFailed ? (
+                          <XCircle className="h-4 w-4 shrink-0" />
+                        ) : isActive ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                        ) : isComplete ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <span className="h-4 w-4 shrink-0 rounded-full border border-current opacity-50" />
+                        )}
+                        <span className="font-medium">{DR3FP_PREVIEW_STAGE_LABELS[stage]}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
 
-            <div className="border-t border-white/10 p-4">
+                {dr3FpPreviewStatus.stage === 'failed' && dr3FpPreviewStatus.failureKind && (
+                  <details className="group rounded-2xl border border-red-400/20 bg-red-500/10">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-red-100 transition-colors hover:bg-red-500/10 [&::-webkit-details-marker]:hidden">
+                      <span>{text.overlays.whatHappened}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" />
+                    </summary>
+                    <div className="border-t border-red-400/10 px-4 pb-4 pt-3">
+                      <p className="text-sm leading-6 text-red-100/80">
+                        {dr3FpPreviewStatus.message}
+                      </p>
+                      {dr3FpPreviewStatus.detail && (
+                        <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs text-red-100/70">
+                          {dr3FpPreviewStatus.detail}
+                        </p>
+                      )}
+                      <p className="mt-4 text-sm font-semibold text-red-100">{text.overlays.tryThis}</p>
+                      <ul className="mt-2 space-y-2 text-sm leading-6 text-red-100/80">
+                        {DR3FP_PREVIEW_FAILURE_GUIDANCE[dr3FpPreviewStatus.failureKind].map(item => (
+                          <li key={item} className="flex gap-2">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red-200/80" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {dr3FpPreviewStatus.failureKind === 'launch' && (
+                        <a
+                          href="https://github.com/swordalt/DanceRail3FanmadePlayer/releases"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-4 inline-flex text-sm font-medium text-red-100 underline decoration-red-100/40 underline-offset-4 transition-colors hover:text-white"
+                        >
+                          {text.overlays.dr3FpReleases}
+                        </a>
+                      )}
+                    </div>
+                  </details>
+                )}
+
+                {dr3FpPreviewStatus.stage === 'complete' && (
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100/80">
+                    {text.overlays.switchToDr3Fp}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-white/10 p-4">
+                <button
+                  type="button"
+                  onClick={() => setIsDr3FpPreviewInfoOpen(false)}
+                  className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
+                >
+                  {dr3FpPreviewStatus.stage === 'failed' ? text.common.close : text.common.done}
+                </button>
+              </div>
+            </section>
+
+            {isDr3FpPreviewLogOpen ? (
+              <aside className="flex min-h-[34rem] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50">
+                <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.dr3FpPreview}</p>
+                    <h2 className="mt-2 text-2xl font-semibold text-white">{text.overlays.previewLog}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={text.overlays.collapsePreviewLog}
+                    onClick={() => setIsDr3FpPreviewLogOpen(false)}
+                    className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-neutral-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">
+                  {dr3FpPreviewLogs.map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <div className="flex items-start gap-3">
+                        <span className="shrink-0 font-mono text-xs text-neutral-500">{entry.time}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm leading-6 text-neutral-200">{entry.message}</p>
+                          {entry.detail && (
+                            <p className="mt-2 break-words rounded-lg bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-neutral-400">
+                              {entry.detail}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </aside>
+            ) : (
               <button
                 type="button"
-                onClick={() => setIsDr3FpPreviewInfoOpen(false)}
-                className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
+                aria-label={text.overlays.expandPreviewLog}
+                onClick={() => setIsDr3FpPreviewLogOpen(true)}
+                className="flex min-h-[34rem] w-14 shrink-0 flex-col items-center justify-center gap-3 rounded-3xl border border-white/10 bg-neutral-950/90 text-neutral-300 shadow-2xl shadow-black/50 transition-colors hover:bg-neutral-900 hover:text-white"
               >
-                {dr3FpPreviewStatus.stage === 'failed' ? text.common.close : text.common.done}
+                <ChevronRight className="h-4 w-4 rotate-180" />
+                <span className="[writing-mode:vertical-rl] text-xs font-semibold uppercase tracking-[0.3em]">{text.overlays.previewLog}</span>
               </button>
-            </div>
+            )}
           </motion.div>
         </motion.div>
       )}

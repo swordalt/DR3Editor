@@ -12,6 +12,13 @@ export interface Dr3FpPreviewStatus {
   detail?: string;
 }
 
+export interface Dr3FpPreviewLogEntry {
+  id: string;
+  time: string;
+  message: string;
+  detail?: string;
+}
+
 export class Dr3FpPreviewError extends Error {
   kind: Dr3FpPreviewFailureKind;
   detail?: string;

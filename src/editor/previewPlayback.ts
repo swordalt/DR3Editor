@@ -358,10 +358,13 @@ export const buildPreviewCameraTiltIntervals = (segments: PreviewCameraTiltSegme
       && nextTimepos - timepos > SNAP_EPSILON
       && activeCount > 0
     ) {
+      const tiltDegrees = activeTiltTotal / activeCount;
+
       intervals.push({
         startTimepos: timepos,
         endTimepos: nextTimepos,
-        tiltDegrees: activeTiltTotal / activeCount,
+        tiltDegrees,
+        rotationRadians: (tiltDegrees * Math.PI) / 180,
       });
     }
   }
@@ -389,6 +392,29 @@ export const getPreviewCameraTiltDegrees = (
   const interval = intervals[low - 1];
   return interval && currentTimepos < interval.endTimepos - SNAP_EPSILON
     ? interval.tiltDegrees
+    : 0;
+};
+
+export const getPreviewCameraRotationRadians = (
+  intervals: PreviewCameraTiltInterval[],
+  currentTimepos: number,
+) => {
+  let low = 0;
+  let high = intervals.length;
+  const searchTimepos = currentTimepos + SNAP_EPSILON;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (intervals[mid].startTimepos <= searchTimepos) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  const interval = intervals[low - 1];
+  return interval && currentTimepos < interval.endTimepos - SNAP_EPSILON
+    ? interval.rotationRadians
     : 0;
 };
 

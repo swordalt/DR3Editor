@@ -114,6 +114,7 @@ export interface PreviewHoldConnectorSegment {
   parentSpeed: PreviewNoteSpeed;
   minDistance: number;
   maxDistance: number;
+  groupedSegments?: PreviewHoldConnectorSegment[];
 }
 
 export interface PreviewJudgementNoteEntry {
@@ -137,6 +138,7 @@ export interface PreviewCameraTiltInterval {
   startTimepos: number;
   endTimepos: number;
   tiltDegrees: number;
+  rotationRadians: number;
 }
 
 export interface HitSoundEvent {

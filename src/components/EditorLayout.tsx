@@ -30,10 +30,12 @@ export default function EditorLayout(props: any) {
     isHelpOpen,
     isDr3FpPreviewInfoOpen,
     dr3FpPreviewStatus,
+    dr3FpPreviewLogs,
     isExitWarningEnabled,
     isBackdropBlurDisabled,
     isAnimationDisabled,
     isScrollDirectionInverted,
+    isPreviewPrecomputeEnabled,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
     selectionType,
@@ -53,6 +55,7 @@ export default function EditorLayout(props: any) {
     setIsBackdropBlurDisabled,
     setIsAnimationDisabled,
     setIsScrollDirectionInverted,
+    setIsPreviewPrecomputeEnabled,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
     setSelectionType,
@@ -152,10 +155,12 @@ export default function EditorLayout(props: any) {
         isHelpOpen={isHelpOpen}
         isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
         dr3FpPreviewStatus={dr3FpPreviewStatus}
+        dr3FpPreviewLogs={dr3FpPreviewLogs}
         isExitWarningEnabled={isExitWarningEnabled}
         isBackdropBlurDisabled={isBackdropBlurDisabled}
         isAnimationDisabled={isAnimationDisabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
+        isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
         selectionType={selectionType}
@@ -171,6 +176,7 @@ export default function EditorLayout(props: any) {
         setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
         setIsAnimationDisabled={setIsAnimationDisabled}
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
+        setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
         setSelectionType={setSelectionType}
