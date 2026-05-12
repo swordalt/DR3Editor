@@ -120,7 +120,7 @@ export default function EditorLeftUtilityPanel(props: any) {
                   </button>
 
                   <div className="shrink-0 rounded border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-xs leading-5 text-neutral-400">
-                    Initial scan found <span className="font-semibold text-neutral-200">{chartIssues.length}</span> potential {chartIssues.length === 1 ? 'issue' : 'issues'}.
+                    Found <span className="font-semibold text-neutral-200">{chartIssues.length}</span> potential {chartIssues.length === 1 ? 'issue' : 'issues'}.
                   </div>
 
                   {chartIssues.length === 0 ? (

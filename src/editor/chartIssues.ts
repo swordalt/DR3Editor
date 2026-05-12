@@ -1,9 +1,11 @@
-import { canTypeHaveParent } from '../constants/editorConstants';
+import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
 import type { Note } from '../types/editorTypes';
 import { formatHistoryNumber, formatNoteLane, formatTimingPosition } from './editorHistory';
+import { PINK_HOLD_CENTER_TYPE, PINK_HOLD_END_TYPE, SNAP_EPSILON } from './editorViewConstants';
+import { getPreviewCameraXPositionOffset } from './previewPlayback';
 
 export type ChartIssueSeverity = 'warning';
-export type ChartIssueCategory = 'overlap' | 'hold';
+export type ChartIssueCategory = 'overlap' | 'hold' | 'note' | 'camera';
 
 export interface ChartIssue {
   id: number;
@@ -16,6 +18,8 @@ export interface ChartIssue {
 }
 
 const DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
+const CAMERA_CENTER_X_POSITION = 8;
+const CAMERA_X_POSITION_HALF_RANGE = 10;
 const POSITION_EPSILON = 0.000001;
 
 const getNoteEndLane = (note: Note) => note.lane + note.width;
@@ -26,6 +30,32 @@ const doesNoteCoverXPosition = (coveringNote: Note, coveredNote: Note) => (
 );
 
 const formatNotePosition = (note: Note) => `x${formatNoteLane(note.lane)} w${formatHistoryNumber(note.width)}`;
+
+const isPinkCameraNote = (note: Note) => (
+  note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE
+);
+
+const buildCameraMovementSegments = (notes: Note[], notesById: Map<number, Note>) => notes
+  .filter(note => isPinkCameraNote(note) && note.parentId !== null)
+  .map((note) => {
+    const parentNote = notesById.get(note.parentId ?? 0);
+    if (!parentNote) {
+      return null;
+    }
+
+    const parentCenter = parentNote.lane + parentNote.width / 2;
+    const noteCenter = note.lane + note.width / 2;
+
+    return {
+      startTime: parentNote.time,
+      endTime: note.time,
+      deltaXPosition: noteCenter - parentCenter,
+    };
+  })
+  .filter((segment): segment is NonNullable<typeof segment> => (
+    segment !== null && Math.abs(segment.deltaXPosition) > SNAP_EPSILON
+  ))
+  .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime));
 
 export const findChartIssues = (
   notes: Note[],
@@ -38,6 +68,23 @@ export const findChartIssues = (
 
   notes.forEach((note) => {
     timeposByNoteId.set(note.id, getTimeposFromTime(note.time));
+  });
+
+  notes.forEach((note) => {
+    if (note.type in NOTE_TYPES) {
+      return;
+    }
+
+    const timepos = timeposByNoteId.get(note.id) ?? null;
+    issues.push({
+      id: nextIssueId++,
+      severity: 'warning',
+      category: 'note',
+      title: 'Unknown Note Type',
+      detail: `Note #${note.id} has unknown type ${note.type} at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (${formatNotePosition(note)})`,
+      noteIds: [note.id],
+      timepos,
+    });
   });
 
   notes.forEach((note) => {
@@ -56,6 +103,39 @@ export const findChartIssues = (
       timepos,
     });
   });
+
+  if (notes.some(isPinkCameraNote)) {
+    const cameraMovementSegments = buildCameraMovementSegments(notes, notesById);
+
+    notes.forEach((note) => {
+      if (DAMAGE_NOTE_TYPES.has(note.type)) {
+        return;
+      }
+
+      const cameraXPosition = CAMERA_CENTER_X_POSITION + getPreviewCameraXPositionOffset(cameraMovementSegments, note.time);
+      const minVisibleXPosition = cameraXPosition - CAMERA_X_POSITION_HALF_RANGE;
+      const maxVisibleXPosition = cameraXPosition + CAMERA_X_POSITION_HALF_RANGE;
+      const noteEndLane = getNoteEndLane(note);
+
+      if (
+        noteEndLane >= minVisibleXPosition - POSITION_EPSILON
+        && note.lane <= maxVisibleXPosition + POSITION_EPSILON
+      ) {
+        return;
+      }
+
+      const timepos = timeposByNoteId.get(note.id) ?? null;
+      issues.push({
+        id: nextIssueId++,
+        severity: 'warning',
+        category: 'camera',
+        title: 'Note Outside Camera Range',
+        detail: `Note #${note.id} ${formatNotePosition(note)} is outside camera range x${formatNoteLane(minVisibleXPosition)} to x${formatNoteLane(maxVisibleXPosition)} at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (camera x${formatNoteLane(cameraXPosition)})`,
+        noteIds: [note.id],
+        timepos,
+      });
+    });
+  }
 
   const notesByTimepos = new Map<string, Note[]>();
   notes.forEach((note) => {
