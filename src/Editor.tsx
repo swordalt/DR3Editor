@@ -29,7 +29,7 @@ import {
   loadEditorSettings,
   saveEditorSettings,
 } from './editor/editorSettings';
-import { buildNoteRenderIndex, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
+import { buildNoteRenderIndex, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
 import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 
 import {
@@ -782,8 +782,17 @@ export default function Editor({
   }, [mode]);
 
   useEffect(() => {
+    if (notes.length === 0) {
+      nextNoteIdRef.current = 1;
+      return;
+    }
+
+    if (notes.length < nextNoteIdRef.current) {
+      return;
+    }
+
     const maxNoteId = notes.reduce((maxId, note) => Math.max(maxId, note.id), 0);
-    nextNoteIdRef.current = maxNoteId + 1;
+    nextNoteIdRef.current = Math.max(nextNoteIdRef.current, maxNoteId + 1);
   }, [notes]);
 
   const timedBpmChanges = useMemo(() => convertBpmChangesToTime(bpmChanges), [bpmChanges]);
@@ -811,9 +820,9 @@ export default function Editor({
 
   const cloneEditorSnapshot = useCallback((): OperationHistorySnapshot => ({
     projectData: projectData ? { ...projectData } : null,
-    notes: stateRef.current.notes.map(note => ({ ...note })),
-    bpmChanges: stateRef.current.bpmChanges.map(change => ({ ...change })),
-    speedChanges: stateRef.current.speedChanges.map(change => ({ ...change })),
+    notes: stateRef.current.notes,
+    bpmChanges: stateRef.current.bpmChanges,
+    speedChanges: stateRef.current.speedChanges,
     offset: stateRef.current.offset,
   }), [projectData]);
 
@@ -1091,12 +1100,28 @@ export default function Editor({
   }, [clearActiveNoteInteraction, recordOperation, selectedNoteIds, setNotes]);
 
   const noteRenderIndex = useMemo(
-    () => buildNoteRenderIndex(notes, timedBpmChanges, selectedNoteIdSet),
-    [notes, timedBpmChanges, selectedNoteIdSet],
+    () => buildNoteRenderIndex(notes, timedBpmChanges),
+    [notes, timedBpmChanges],
   );
+  const selectedParentNoteIds = useMemo(() => {
+    if (selectedNoteIds.length !== 1) {
+      return new Set<number>();
+    }
+
+    const selectedNote = noteRenderIndex.notesById.get(selectedNoteIds[0]);
+    if (!selectedNote || !canTypeHaveParent(selectedNote.type) || selectedNote.parentId === null) {
+      return new Set<number>();
+    }
+
+    return new Set([selectedNote.parentId]);
+  }, [noteRenderIndex.notesById, selectedNoteIds]);
   const previewNoteRenderEntries = useMemo(
-    () => noteRenderIndex.noteBeatEntries
-      .map(({ note, beat }) => {
+    () => {
+      if (!isPreviewMode) {
+        return [];
+      }
+
+      return noteRenderIndex.noteBeatEntries.map(({ note, beat }) => {
         const timepos = getTimeposFromTime(note.time);
         return {
           note,
@@ -1117,11 +1142,13 @@ export default function Editor({
           ),
         };
       })
-      .sort(comparePreviewNoteRenderEntries),
+        .sort(comparePreviewNoteRenderEntries);
+    },
     [
       getTimeposFromTime,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
+      isPreviewMode,
       noteRenderIndex.noteBeatEntries,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
@@ -1140,8 +1167,12 @@ export default function Editor({
     [previewNoteRenderEntries],
   );
   const previewHoldConnectorSegments = useMemo(
-    () => noteRenderIndex.holdConnectorSegments
-      .map((segment) => {
+    () => {
+      if (!isPreviewMode) {
+        return [];
+      }
+
+      return noteRenderIndex.holdConnectorSegments.map((segment) => {
         const noteEntry = previewNoteRenderEntryById.get(segment.note.id);
         const parentEntry = previewNoteRenderEntryById.get(segment.parentNote.id);
         const noteTimepos = noteEntry?.timepos ?? getTimeposFromTime(segment.note.time);
@@ -1188,15 +1219,17 @@ export default function Editor({
           maxDistance: Math.max(noteDistance, parentDistance),
         };
       })
-      .sort((a, b) => (
-        (a.minDistance - b.minDistance)
-        || (a.maxDistance - b.maxDistance)
-        || (a.note.id - b.note.id)
-      )),
+        .sort((a, b) => (
+          (a.minDistance - b.minDistance)
+          || (a.maxDistance - b.maxDistance)
+          || (a.note.id - b.note.id)
+        ));
+    },
     [
       getTimeposFromTime,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
+      isPreviewMode,
       noteRenderIndex.holdConnectorSegments,
       previewNoteRenderEntryById,
       previewPlaybackSpeedDistanceIndex,
@@ -1208,15 +1241,22 @@ export default function Editor({
     [previewHoldConnectorSegments],
   );
   const previewJudgementNoteEntries = useMemo(
-    () => notes
-      .map(note => ({ id: note.id, time: note.time }))
-      .sort((a, b) => (a.time - b.time) || (a.id - b.id)),
-    [notes],
+    () => isPreviewMode
+      ? notes
+          .map(note => ({ id: note.id, time: note.time }))
+          .sort((a, b) => (a.time - b.time) || (a.id - b.id))
+      : [],
+    [isPreviewMode, notes],
   );
   const previewCameraMovementSegments = useMemo(
-    () => noteRenderIndex.holdConnectorSegments
-      .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE || segment.note.type === PINK_HOLD_END_TYPE)
-      .map((segment) => {
+    () => {
+      if (!isPreviewMode) {
+        return [];
+      }
+
+      return noteRenderIndex.holdConnectorSegments
+        .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE || segment.note.type === PINK_HOLD_END_TYPE)
+        .map((segment) => {
         const startTime = segment.parentNote.time;
         const endTime = segment.note.time;
         const parentCenter = segment.parentNote.lane + segment.parentNote.width / 2;
@@ -1228,15 +1268,20 @@ export default function Editor({
           deltaXPosition: noteCenter - parentCenter,
         };
       })
-      .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
-      .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime)),
-    [noteRenderIndex.holdConnectorSegments],
+        .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
+        .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime));
+    },
+    [isPreviewMode, noteRenderIndex.holdConnectorSegments],
   );
   const hasPinkHoldCameraNotes = useMemo(
-    () => notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
-    [notes],
+    () => isPreviewMode && notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
+    [isPreviewMode, notes],
   );
   const preview3DZoomHeightCurve = useMemo(() => {
+    if (!isPreviewMode) {
+      return [];
+    }
+
     const curveLength = Math.max(
       1,
       Math.ceil(Math.max(timelineDuration, ...notes.map(note => note.time), 0)) + 3,
@@ -1285,10 +1330,14 @@ export default function Editor({
     });
 
     return heightList;
-  }, [notes, timelineDuration]);
+  }, [isPreviewMode, notes, timelineDuration]);
   const previewCameraTiltSegments = useMemo(
-    () => previewHoldConnectorSegments
-      .map((segment) => {
+    () => {
+      if (!isPreviewMode) {
+        return [];
+      }
+
+      return previewHoldConnectorSegments.map((segment) => {
         const noteCenterXPosition = segment.note.lane + segment.note.width / 2;
         const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
 
@@ -1298,9 +1347,10 @@ export default function Editor({
           connectorCenterXPosition: (noteCenterXPosition + parentCenterXPosition) / 2,
         };
       })
-      .filter(segment => segment.endTimepos - segment.startTimepos > SNAP_EPSILON)
-      .sort((a, b) => (a.startTimepos - b.startTimepos) || (a.endTimepos - b.endTimepos)),
-    [previewHoldConnectorSegments],
+        .filter(segment => segment.endTimepos - segment.startTimepos > SNAP_EPSILON)
+        .sort((a, b) => (a.startTimepos - b.startTimepos) || (a.endTimepos - b.endTimepos));
+    },
+    [isPreviewMode, previewHoldConnectorSegments],
   );
   previewCameraTiltSegmentsRef.current = previewCameraTiltSegments;
   const previewMinimumNoteSpeedMagnitude = useMemo(
@@ -2727,13 +2777,13 @@ export default function Editor({
     const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
       : null;
-    const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
+    const previewVisibleHoldConnectorSegments = isPreviewPlaybackCanvas
       ? getPreviewConnectorSegmentsInDistanceRange(
           previewHoldConnectorDrawSegments,
           previewVisibleMinDistance,
           previewVisibleMaxDistance,
         )
-      : noteRenderIndex.holdConnectorSegments;
+      : [];
     const activePreviewCameraTiltIntervals = isPreviewPlaybackCanvas
       ? (
           isPreviewPrecomputeEnabled
@@ -2897,6 +2947,13 @@ export default function Editor({
         )
       : getNoteBeatEntriesInRange(
           noteRenderIndex.noteBeatEntries,
+          visibleStartBeat,
+          visibleEndBeat,
+        );
+    const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
+      ? previewVisibleHoldConnectorSegments
+      : getHoldConnectorSegmentsInRange(
+          noteRenderIndex.holdConnectorSegmentsByMaxBeat,
           visibleStartBeat,
           visibleEndBeat,
         );
@@ -3606,7 +3663,7 @@ export default function Editor({
         ctx.strokeStyle = '#ff00ff';
         ctx.lineWidth = 4;
         ctx.strokeRect(scaledX, appearedY - scaledNoteHeight / 2 - 2, scaledNotePixelWidth, scaledNoteHeight + 4);
-      } else if (noteRenderIndex.selectedParentNoteIds.has(renderedNote.id)) {
+      } else if (selectedParentNoteIds.has(renderedNote.id)) {
         ctx.setLineDash([6, 4]);
         ctx.strokeStyle = '#ff00ff';
         ctx.lineWidth = 3;
@@ -3945,7 +4002,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 

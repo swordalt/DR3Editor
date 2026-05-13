@@ -1,4 +1,4 @@
-import { HOLD_CONNECTOR_TYPES, HOLD_START_TYPES, canTypeHaveParent } from '../constants/editorConstants';
+import { HOLD_CONNECTOR_TYPES, HOLD_START_TYPES } from '../constants/editorConstants';
 import type { Note, TimedBpmChange } from '../types/editorTypes';
 import { getBeatAtTime } from '../utils/editorUtils';
 import { formatGroupedIds } from './editorHistory';
@@ -22,8 +22,8 @@ export interface NoteRenderIndex {
   noteBeats: Map<number, number>;
   noteBeatEntries: NoteBeatEntry[];
   holdConnectorSegments: HoldConnectorSegment[];
+  holdConnectorSegmentsByMaxBeat: HoldConnectorSegment[];
   groupedIdLabelsByNoteId: Map<number, string>;
-  selectedParentNoteIds: Set<number>;
 }
 
 const findFirstNoteBeatEntryIndex = (entries: NoteBeatEntry[], beat: number) => {
@@ -67,10 +67,43 @@ const getNoteIdGroupKey = (note: Note, noteBeat: number) => {
   return `${noteBeat.toFixed(6)}:${centerPosition.toFixed(6)}`;
 };
 
+const findFirstConnectorMaxBeatIndex = (segments: HoldConnectorSegment[], beat: number) => {
+  let low = 0;
+  let high = segments.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (segments[mid].maxBeat < beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+export const getHoldConnectorSegmentsInRange = (
+  segmentsByMaxBeat: HoldConnectorSegment[],
+  startBeat: number,
+  endBeat: number,
+) => {
+  const matchingSegments: HoldConnectorSegment[] = [];
+  const firstSegmentIndex = findFirstConnectorMaxBeatIndex(segmentsByMaxBeat, startBeat);
+
+  for (let index = firstSegmentIndex; index < segmentsByMaxBeat.length; index += 1) {
+    const segment = segmentsByMaxBeat[index];
+    if (segment.minBeat <= endBeat) {
+      matchingSegments.push(segment);
+    }
+  }
+
+  return matchingSegments.sort((a, b) => (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
+};
+
 export const buildNoteRenderIndex = (
   notes: Note[],
   timedBpmChanges: TimedBpmChange[],
-  selectedNoteIdSet: Set<number>,
 ): NoteRenderIndex => {
   const notesById = new Map<number, Note>();
   const noteBeats = new Map<number, number>();
@@ -107,17 +140,7 @@ export const buildNoteRenderIndex = (
     });
   });
 
-  const selectedParentNoteIds = new Set<number>();
   notes.forEach((note) => {
-    if (
-      selectedNoteIdSet.size === 1
-      && selectedNoteIdSet.has(note.id)
-      && canTypeHaveParent(note.type)
-      && note.parentId !== null
-    ) {
-      selectedParentNoteIds.add(note.parentId);
-    }
-
     if (!HOLD_CONNECTOR_TYPES.includes(note.type) || HOLD_START_TYPES.includes(note.type) || note.parentId === null) {
       return;
     }
@@ -141,13 +164,15 @@ export const buildNoteRenderIndex = (
   });
 
   holdConnectorSegments.sort((a, b) => (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
+  const holdConnectorSegmentsByMaxBeat = [...holdConnectorSegments]
+    .sort((a, b) => (a.maxBeat - b.maxBeat) || (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
 
   return {
     notesById,
     noteBeats,
     noteBeatEntries,
     holdConnectorSegments,
+    holdConnectorSegmentsByMaxBeat,
     groupedIdLabelsByNoteId,
-    selectedParentNoteIds,
   };
 };
