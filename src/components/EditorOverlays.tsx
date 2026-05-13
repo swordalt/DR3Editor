@@ -29,6 +29,7 @@ interface EditorOverlaysProps {
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
+  areTimingChangeIndicatorsAdjusted: boolean;
   isPreviewPrecomputeEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
@@ -45,6 +46,7 @@ interface EditorOverlaysProps {
   setIsBackdropBlurDisabled: Dispatch<SetStateAction<boolean>>;
   setIsAnimationDisabled: Dispatch<SetStateAction<boolean>>;
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
+  setAreTimingChangeIndicatorsAdjusted: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -259,6 +261,7 @@ export default function EditorOverlays({
   isBackdropBlurDisabled,
   isAnimationDisabled,
   isScrollDirectionInverted,
+  areTimingChangeIndicatorsAdjusted,
   isPreviewPrecomputeEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
@@ -275,6 +278,7 @@ export default function EditorOverlays({
   setIsBackdropBlurDisabled,
   setIsAnimationDisabled,
   setIsScrollDirectionInverted,
+  setAreTimingChangeIndicatorsAdjusted,
   setIsPreviewPrecomputeEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
@@ -387,6 +391,16 @@ export default function EditorOverlays({
               isEnabled={isScrollDirectionInverted}
               ariaLabel={text.overlays.toggleInvertScrollDirection}
               onToggle={() => setIsScrollDirectionInverted((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.adjustTimingChangeIndicators}
+              description={text.overlays.adjustTimingChangeIndicatorsDescription}
+              isEnabled={areTimingChangeIndicatorsAdjusted}
+              ariaLabel={text.overlays.toggleAdjustTimingChangeIndicators}
+              onToggle={() => setAreTimingChangeIndicatorsAdjusted((current) => !current)}
             />
           </div>
 

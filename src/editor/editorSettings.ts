@@ -18,6 +18,7 @@ export interface EditorSettings {
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
+  areTimingChangeIndicatorsAdjusted: boolean;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
   musicVolume: number;
@@ -41,6 +42,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isBackdropBlurDisabled: false,
   isAnimationDisabled: false,
   isScrollDirectionInverted: false,
+  areTimingChangeIndicatorsAdjusted: true,
   selectionType: 'window',
   statisticsRefreshRate: '30fps',
   musicVolume: 1,
@@ -133,6 +135,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isScrollDirectionInverted: typeof parsedSettings.isScrollDirectionInverted === 'boolean'
         ? parsedSettings.isScrollDirectionInverted
         : DEFAULT_EDITOR_SETTINGS.isScrollDirectionInverted,
+      areTimingChangeIndicatorsAdjusted: typeof parsedSettings.areTimingChangeIndicatorsAdjusted === 'boolean'
+        ? parsedSettings.areTimingChangeIndicatorsAdjusted
+        : DEFAULT_EDITOR_SETTINGS.areTimingChangeIndicatorsAdjusted,
       selectionType: isValidSelectionType(parsedSettings.selectionType)
         ? parsedSettings.selectionType
         : DEFAULT_EDITOR_SETTINGS.selectionType,

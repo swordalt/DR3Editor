@@ -316,6 +316,7 @@ export default function Editor({
   const [isBackdropBlurDisabled, setIsBackdropBlurDisabled] = useState(initialEditorSettings.isBackdropBlurDisabled);
   const [isAnimationDisabled, setIsAnimationDisabled] = useState(initialEditorSettings.isAnimationDisabled);
   const [isScrollDirectionInverted, setIsScrollDirectionInverted] = useState(initialEditorSettings.isScrollDirectionInverted);
+  const [areTimingChangeIndicatorsAdjusted, setAreTimingChangeIndicatorsAdjusted] = useState(initialEditorSettings.areTimingChangeIndicatorsAdjusted);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -435,6 +436,7 @@ export default function Editor({
       isBackdropBlurDisabled,
       isAnimationDisabled,
       isScrollDirectionInverted,
+      areTimingChangeIndicatorsAdjusted,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -457,6 +459,7 @@ export default function Editor({
     isBackdropBlurDisabled,
     isAnimationDisabled,
     isScrollDirectionInverted,
+    areTimingChangeIndicatorsAdjusted,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -1705,7 +1708,10 @@ export default function Editor({
 
     if (audio && !audio.paused && !audio.seeking && now >= stateRef.current.playbackAudioClockReadyTime) {
       const audioTime = Math.max(0, audio.currentTime + offsetInSeconds);
-      if (Math.abs(audioTime - projectedTime) <= AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+      const audioDrift = audioTime - projectedTime;
+      if (Math.abs(audioDrift) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+        stateRef.current.playbackStartTime = audioTime;
+        stateRef.current.playbackStartPerformanceTime = now;
         return audioTime;
       }
     }
@@ -3017,10 +3023,12 @@ export default function Editor({
         const changeBeat = change.startBeat;
         const y = hitLineY - (changeBeat - currentBeat) * pixelsPerBeat;
 
-        // Only draw indicators that are not at time 0 (as they are implied)
-        if (change.time > 0 && y > 0 && y < height) {
+        if (y > 0 && y < height) {
           const indicatorKey = getIndicatorKeyAtBeat(changeBeat);
-          getIndicatorGroup(indicatorKey, y).bpmLabels.push(`BPM: ${change.bpm} | ${change.timeSignature}`);
+          const bpmLabel = isOfficialChartFormat
+            ? `BPM: ${change.bpm}`
+            : `BPM: ${change.bpm} | ${change.timeSignature}`;
+          getIndicatorGroup(indicatorKey, y).bpmLabels.push(bpmLabel);
         }
       });
 
@@ -3053,32 +3061,36 @@ export default function Editor({
         return {
           labels,
           height: stackHeight,
-          top: Math.min(Math.max(centeredTop, minTop), maxTop),
+          top: areTimingChangeIndicatorsAdjusted
+            ? Math.min(Math.max(centeredTop, minTop), maxTop)
+            : centeredTop,
         };
       }).filter(stack => stack.labels.length > 0)
         .sort((a, b) => a.top - b.top);
 
-      const indicatorGap = 2;
-      const minIndicatorTop = 2;
-      const maxIndicatorBottom = height - 2;
-      let previousBottom = minIndicatorTop - indicatorGap;
+      if (areTimingChangeIndicatorsAdjusted) {
+        const indicatorGap = 2;
+        const minIndicatorTop = 2;
+        const maxIndicatorBottom = height - 2;
+        let previousBottom = minIndicatorTop - indicatorGap;
 
-      indicatorStacks.forEach(stack => {
-        stack.top = Math.max(stack.top, previousBottom + indicatorGap);
-        previousBottom = stack.top + stack.height;
-      });
-
-      const overflow = previousBottom - maxIndicatorBottom;
-      if (overflow > 0) {
-        indicatorStacks.forEach(stack => {
-          stack.top -= overflow;
-        });
-
-        previousBottom = minIndicatorTop - indicatorGap;
         indicatorStacks.forEach(stack => {
           stack.top = Math.max(stack.top, previousBottom + indicatorGap);
           previousBottom = stack.top + stack.height;
         });
+
+        const overflow = previousBottom - maxIndicatorBottom;
+        if (overflow > 0) {
+          indicatorStacks.forEach(stack => {
+            stack.top -= overflow;
+          });
+
+          previousBottom = minIndicatorTop - indicatorGap;
+          indicatorStacks.forEach(stack => {
+            stack.top = Math.max(stack.top, previousBottom + indicatorGap);
+            previousBottom = stack.top + stack.height;
+          });
+        }
       }
 
       indicatorStacks.forEach(stack => {
@@ -3933,7 +3945,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -5489,6 +5501,7 @@ export default function Editor({
       isBackdropBlurDisabled={isBackdropBlurDisabled}
       isAnimationDisabled={isAnimationDisabled}
       isScrollDirectionInverted={isScrollDirectionInverted}
+      areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
       isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
       isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
       isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -5509,6 +5522,7 @@ export default function Editor({
       setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
       setIsAnimationDisabled={setIsAnimationDisabled}
       setIsScrollDirectionInverted={setIsScrollDirectionInverted}
+      setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
       setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
       setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
       setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
