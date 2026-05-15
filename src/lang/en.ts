@@ -26,6 +26,14 @@ export const en = {
     chartFile: 'Chart File',
     audioFile: 'Audio File',
     illustrationFile: 'Illustration File',
+    bundledFile: 'Bundled file',
+    localFile: 'Local file',
+    chooseLocalFile: 'Choose local file',
+    noBundledFile: 'No bundled file found',
+    required: 'Required',
+    optional: 'Optional',
+    usingBundledFile: 'Using bundled file',
+    usingLocalFile: 'Using local file',
     cancel: 'Cancel',
     confirm: 'Confirm',
     missingChartFile: 'No chart .txt file was found in this bundle.',
@@ -33,6 +41,44 @@ export const en = {
     noChartFileInZip: 'No chart file found in this bundle.',
     unreadableBundle: 'This chart bundle could not be read.',
     selectedFilesFailed: 'The selected files could not be imported.',
+  },
+  importStatus: {
+    preparingImport: {
+      title: 'Preparing import',
+      message: 'Reading the selected file.',
+    },
+    readingBundle: {
+      title: 'Reading bundle',
+      message: 'Finding chart, audio, and illustration files.',
+    },
+    readingChart: {
+      title: 'Reading chart',
+      message: 'Loading chart text from the selected file.',
+    },
+    parsingChart: {
+      title: 'Parsing chart',
+      message: 'Converting chart data into editor notes and timing.',
+    },
+    loadingAssets: {
+      title: 'Loading assets',
+      message: 'Preparing audio, illustration, and metadata files.',
+    },
+    openingEditor: {
+      title: 'Opening editor',
+      message: 'Creating the editor workspace.',
+    },
+    loadingCanvas: {
+      title: 'Loading editor canvas',
+      message: 'Preparing the timeline and note renderer.',
+    },
+    scanningIssues: {
+      title: 'Scanning chart issues',
+      message: 'Checking the imported chart for potential problems.',
+    },
+    ready: {
+      title: 'Import complete',
+      message: 'The editor is ready.',
+    },
   },
   common: {
     cancel: 'Cancel',
@@ -82,6 +128,7 @@ export const en = {
     songBpmRequired: 'Song BPM *',
     difficultyRequired: 'Difficulty *',
     selectAudioRequired: 'Select Audio File *',
+    selectIllustration: 'Select Illustration File',
     returnToLanding: 'Return to Landing',
   },
   sidebar: {

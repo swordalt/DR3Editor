@@ -57,3 +57,8 @@ export interface ProjectData extends EditorFormData {
   bpm: number;
   audioUrl: string;
 }
+
+export interface ImportLoadStatus {
+  title: string;
+  message: string;
+}

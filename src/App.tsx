@@ -1,8 +1,9 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
+import { CheckCircle2, FileText, Image, Music, Upload } from 'lucide-react';
 import LandingPage from './components/LandingPage';
 import { loadEditorSettings } from './editor/editorSettings';
 import { translations } from './lang';
-import type { BpmChange, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
+import type { BpmChange, ImportLoadStatus, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 
 const Editor = lazy(() => import('./Editor'));
 
@@ -57,6 +58,15 @@ const getZipBaseName = (fileName: string) => (
   fileName.toLowerCase().endsWith('.zip') ? fileName.slice(0, -4) : getFileBaseName(fileName)
 );
 
+const getChartMetadataFromFileName = (fileName: string) => {
+  const baseName = getFileBaseName(fileName);
+  const match = baseName.match(/^(.+)\.([1-9]\d*)$/);
+
+  return match
+    ? { songId: match[1], difficulty: match[2] }
+    : null;
+};
+
 const getMimeType = (extension: string) => {
   const mimeTypes: Record<string, string> = {
     aac: 'audio/aac',
@@ -82,6 +92,24 @@ const sortByName = <T extends { name: string }>(files: T[]) => (
   [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 );
 
+const waitForPaint = () => new Promise<void>((resolve) => {
+  requestAnimationFrame(() => requestAnimationFrame(resolve));
+});
+
+function ImportLoadingOverlay({ status }: { status: ImportLoadStatus }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
+      <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+        <div className="mb-3 h-1 overflow-hidden rounded-full bg-neutral-800">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-indigo-500" />
+        </div>
+        <div className="text-sm font-semibold text-white">{status.title}</div>
+        <div className="mt-1 text-sm text-neutral-400">{status.message}</div>
+      </div>
+    </div>
+  );
+}
+
 interface ZipImportEntry {
   id: string;
   entry: {
@@ -101,8 +129,101 @@ interface ZipImportDialogState {
   selectedChartId: string;
   selectedAudioId: string;
   selectedImageId: string;
+  localChartFile: File | null;
+  localAudioFile: File | null;
+  localImageFile: File | null;
   messages: string[];
   canImport: boolean;
+}
+
+interface ZipImportResolverSectionProps {
+  title: string;
+  isRequired?: boolean;
+  Icon: typeof FileText;
+  bundledFiles: ZipImportEntry[];
+  selectedId: string;
+  localFile: File | null;
+  accept: string;
+  onSelectedIdChange: (selectedId: string) => void;
+  onLocalFileChange: (file: File | null) => void;
+}
+
+function ZipImportResolverSection({
+  title,
+  isRequired = false,
+  Icon,
+  bundledFiles,
+  selectedId,
+  localFile,
+  accept,
+  onSelectedIdChange,
+  onLocalFileChange,
+}: ZipImportResolverSectionProps) {
+  const hasBundledFiles = bundledFiles.length > 0;
+  const selectedBundledFile = bundledFiles.find(file => file.id === selectedId) ?? bundledFiles[0] ?? null;
+
+  return (
+    <section className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-4">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-800 text-neutral-300">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-white">{title}</h3>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isRequired ? 'bg-amber-500/10 text-amber-200 ring-1 ring-amber-500/30' : 'bg-neutral-800 text-neutral-400'}`}>
+              {isRequired ? text.importDialog.required : text.importDialog.optional}
+            </span>
+          </div>
+          <p className="mt-1 truncate text-xs text-neutral-500">
+            {localFile
+              ? `${text.importDialog.usingLocalFile}: ${localFile.name}`
+              : selectedBundledFile
+                ? `${text.importDialog.usingBundledFile}: ${selectedBundledFile.name}`
+                : text.importDialog.noBundledFile}
+          </p>
+        </div>
+        {(localFile || selectedBundledFile) && (
+          <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-400" />
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="grid min-w-0 gap-1">
+          <span className="text-xs font-medium text-neutral-500">{text.importDialog.bundledFile}</span>
+          {hasBundledFiles ? (
+            <select
+              value={selectedId}
+              onChange={(event) => onSelectedIdChange(event.target.value)}
+              className="h-10 min-w-0 rounded-lg border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-100 outline-none transition-colors focus:border-indigo-500"
+            >
+              {bundledFiles.map(file => (
+                <option key={file.id} value={file.id}>{file.name}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex h-10 items-center rounded-lg border border-neutral-800 bg-neutral-900 px-3 text-sm text-neutral-500">
+              {text.importDialog.noBundledFile}
+            </div>
+          )}
+        </label>
+
+        <label className="grid gap-1 sm:w-48">
+          <span className="text-xs font-medium text-neutral-500">{text.importDialog.localFile}</span>
+          <span className={`flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors ${localFile ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:border-emerald-400' : 'border-dashed border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-indigo-500 hover:text-white'}`}>
+            <Upload className="h-4 w-4" />
+            <span className="truncate">{localFile?.name || text.importDialog.chooseLocalFile}</span>
+          </span>
+          <input
+            type="file"
+            accept={accept}
+            className="hidden"
+            onChange={(event) => onLocalFileChange(event.target.files?.[0] ?? null)}
+          />
+        </label>
+      </div>
+    </section>
+  );
 }
 
 const getDefaultBpmChanges = (): BpmChange[] => DEFAULT_BPM_CHANGES.map(change => ({ ...change }));
@@ -120,8 +241,14 @@ export default function App() {
   const [initialProjectData, setInitialProjectData] = useState<ProjectData | null>(null);
   const [initialChartFileName, setInitialChartFileName] = useState<string | null>(null);
   const [zipImportDialog, setZipImportDialog] = useState<ZipImportDialogState | null>(null);
+  const [importLoadStatus, setImportLoadStatus] = useState<ImportLoadStatus | null>(null);
   const [isExampleLoading, setIsExampleLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const updateImportLoadStatus = async (status: ImportLoadStatus) => {
+    setImportLoadStatus(status);
+    await waitForPaint();
+  };
 
   const resetEditorState = () => {
     setNotes([]);
@@ -150,6 +277,7 @@ export default function App() {
   };
 
   const getZipImportEntries = async (file: File) => {
+    await updateImportLoadStatus(text.importStatus.readingBundle);
     const { default: JSZip } = await import('jszip');
     const zip = await JSZip.loadAsync(file);
     const zipFiles = Object.values(zip.files)
@@ -177,52 +305,68 @@ export default function App() {
     sourceFile,
     difficulty,
     chartFile,
+    localChartFile,
     audioFileEntry,
+    localAudioFile,
     imageFileEntry,
+    localImageFile,
     infoFile,
   }: {
     sourceFile: File;
     difficulty?: string;
-    chartFile: ZipImportEntry;
+    chartFile: ZipImportEntry | null;
+    localChartFile?: File | null;
     audioFileEntry: ZipImportEntry | null;
+    localAudioFile?: File | null;
     imageFileEntry: ZipImportEntry | null;
+    localImageFile?: File | null;
     infoFile: ZipImportEntry | null;
   }) => {
-    const chartText = await chartFile.entry.async('text') as string;
+    await updateImportLoadStatus(text.importStatus.readingChart);
+    const chartText = localChartFile
+      ? await localChartFile.text()
+      : await chartFile!.entry.async('text') as string;
+    await updateImportLoadStatus(text.importStatus.parsingChart);
     const parsedLevel = await handleLevelImport(chartText);
-    setInitialChartFileName(chartFile.name);
+    const chartFileName = localChartFile?.name ?? chartFile!.name;
+    setInitialChartFileName(chartFileName);
     const nextBpmChanges = parsedLevel.bpmChanges.length > 0 ? parsedLevel.bpmChanges : getDefaultBpmChanges();
     const firstBpm = nextBpmChanges[0]?.bpm || 120;
     const zipBaseName = getZipBaseName(sourceFile.name);
-    const chartBaseName = getFileBaseName(chartFile.name);
+    const chartBaseName = getFileBaseName(chartFileName);
+    const chartMetadata = getChartMetadataFromFileName(chartFileName);
     const chartNameParts = chartBaseName.split('.');
     const inferredDifficulty = chartNameParts.length > 1
       ? chartNameParts[chartNameParts.length - 1]
       : chartBaseName;
 
-    if (audioFileEntry) {
+    const resolvedAudioFile = localAudioFile ?? null;
+    const resolvedImageFile = localImageFile ?? null;
+
+    if (audioFileEntry || resolvedAudioFile) {
+      await updateImportLoadStatus(text.importStatus.loadingAssets);
       const [audioBlob, imageBlob, infoText] = await Promise.all([
-        audioFileEntry.entry.async('blob') as Promise<Blob>,
-        imageFileEntry ? imageFileEntry.entry.async('blob') as Promise<Blob> : Promise.resolve(null),
+        resolvedAudioFile ? Promise.resolve(null) : audioFileEntry!.entry.async('blob') as Promise<Blob>,
+        resolvedImageFile || !imageFileEntry ? Promise.resolve(null) : imageFileEntry.entry.async('blob') as Promise<Blob>,
         infoFile ? infoFile.entry.async('text') as Promise<string> : Promise.resolve(''),
       ]);
-      const audioFile = new File(
-        [audioBlob],
-        audioFileEntry.name,
-        { type: getMimeType(audioFileEntry.extension) },
+      const audioFile = resolvedAudioFile ?? new File(
+        [audioBlob!],
+        audioFileEntry!.name,
+        { type: getMimeType(audioFileEntry!.extension) },
       );
-      const imageFile = imageFileEntry && imageBlob
+      const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob
         ? new File(
             [imageBlob],
             imageFileEntry.name,
             { type: getMimeType(imageFileEntry.extension) },
           )
-        : null;
+        : null);
       const [infoTitle = '', infoArtist = '', infoBpm = ''] = infoText
         .split(/\r?\n/)
         .map((line) => line.trim());
-      const audioBaseName = getFileBaseName(audioFileEntry.name);
-      const songId = audioBaseName.toLowerCase() === 'base' ? zipBaseName : audioBaseName;
+      const audioBaseName = getFileBaseName(audioFile.name);
+      const songId = chartMetadata?.songId || (audioBaseName.toLowerCase() === 'base' ? zipBaseName : audioBaseName);
       const bpm = parseFloat(infoBpm) || firstBpm;
 
       setInitialProjectData({
@@ -231,7 +375,7 @@ export default function App() {
         songName: infoTitle || songId,
         songArtist: infoArtist,
         songBpm: bpm.toString(),
-        difficulty: difficulty || inferredDifficulty || '0',
+        difficulty: difficulty || chartMetadata?.difficulty || inferredDifficulty || '0',
         songFile: audioFile,
         songIllustration: imageFile,
         bpm,
@@ -241,6 +385,7 @@ export default function App() {
       setInitialProjectData(null);
     }
 
+    await updateImportLoadStatus(text.importStatus.openingEditor);
     setView({ page: 'editor', mode: 'import' });
   };
 
@@ -248,6 +393,7 @@ export default function App() {
     const { difficulty, showImportNotice = true } = options;
 
     try {
+      await updateImportLoadStatus(text.importStatus.preparingImport);
       const { chartFiles, audioFiles, imageFiles, infoFile } = await getZipImportEntries(file);
       const missingMessages = [
         ...(chartFiles.length === 0 ? [text.importDialog.missingChartFile] : []),
@@ -266,9 +412,13 @@ export default function App() {
           selectedChartId: chartFiles[0]?.id ?? '',
           selectedAudioId: audioFiles[0]?.id ?? '',
           selectedImageId: imageFiles[0]?.id ?? '',
+          localChartFile: null,
+          localAudioFile: null,
+          localImageFile: null,
           messages: missingMessages,
           canImport: chartFiles.length > 0,
         });
+        setImportLoadStatus(null);
         return;
       }
 
@@ -281,12 +431,16 @@ export default function App() {
         sourceFile: file,
         difficulty,
         chartFile,
+        localChartFile: null,
         audioFileEntry: audioFiles[0] ?? null,
+        localAudioFile: null,
         imageFileEntry: imageFiles[0] ?? null,
+        localImageFile: null,
         infoFile,
       });
     } catch (error) {
       console.error(error);
+      setImportLoadStatus(null);
       if (showImportNotice) {
         setZipImportDialog({
           sourceFile: file,
@@ -298,6 +452,9 @@ export default function App() {
           selectedChartId: '',
           selectedAudioId: '',
           selectedImageId: '',
+          localChartFile: null,
+          localAudioFile: null,
+          localImageFile: null,
           messages: [text.importDialog.unreadableBundle],
           canImport: false,
         });
@@ -310,14 +467,15 @@ export default function App() {
   const handleConfirmZipImportDialog = async () => {
     if (!zipImportDialog) return;
 
-    if (!zipImportDialog.canImport) {
+    if (!zipImportDialog.canImport && !zipImportDialog.localChartFile) {
       setZipImportDialog(null);
       return;
     }
 
     const chartFile = zipImportDialog.chartFiles.find(file => file.id === zipImportDialog.selectedChartId)
-      ?? zipImportDialog.chartFiles[0];
-    if (!chartFile) {
+      ?? zipImportDialog.chartFiles[0]
+      ?? null;
+    if (!chartFile && !zipImportDialog.localChartFile) {
       setZipImportDialog(null);
       return;
     }
@@ -332,16 +490,21 @@ export default function App() {
     setZipImportDialog(null);
 
     try {
+      await updateImportLoadStatus(text.importStatus.preparingImport);
       await importResolvedZip({
         sourceFile: dialogState.sourceFile,
         difficulty: dialogState.difficulty,
         chartFile,
+        localChartFile: dialogState.localChartFile,
         audioFileEntry,
+        localAudioFile: dialogState.localAudioFile,
         imageFileEntry,
+        localImageFile: dialogState.localImageFile,
         infoFile: dialogState.infoFile,
       });
     } catch (error) {
       console.error(error);
+      setImportLoadStatus(null);
       setZipImportDialog({
         ...dialogState,
         messages: [text.importDialog.selectedFilesFailed],
@@ -357,11 +520,39 @@ export default function App() {
       if (file.name.toLowerCase().endsWith('.zip')) {
         void handleZipImport(file);
       } else if (file.name.toLowerCase().endsWith('.txt')) {
+        void updateImportLoadStatus(text.importStatus.preparingImport);
         const reader = new FileReader();
         reader.onload = async (e) => {
-          await handleLevelImport(e.target?.result as string);
-          setInitialChartFileName(file.name);
-          setView({page: 'editor', mode: 'import'});
+          try {
+            await updateImportLoadStatus(text.importStatus.readingChart);
+            await updateImportLoadStatus(text.importStatus.parsingChart);
+            const parsedLevel = await handleLevelImport(e.target?.result as string);
+            const nextBpmChanges = parsedLevel.bpmChanges.length > 0 ? parsedLevel.bpmChanges : getDefaultBpmChanges();
+            const firstBpm = nextBpmChanges[0]?.bpm || 120;
+            const chartMetadata = getChartMetadataFromFileName(file.name);
+
+            setInitialChartFileName(file.name);
+            setInitialProjectData(chartMetadata ? {
+              chartFormat: 'Official',
+              songId: chartMetadata.songId,
+              songName: chartMetadata.songId,
+              songArtist: '',
+              songBpm: firstBpm.toString(),
+              difficulty: chartMetadata.difficulty,
+              songFile: null,
+              songIllustration: null,
+              bpm: firstBpm,
+              audioUrl: '',
+            } : null);
+            await updateImportLoadStatus(text.importStatus.openingEditor);
+            setView({page: 'editor', mode: 'import'});
+          } catch (error) {
+            console.error(error);
+            setImportLoadStatus(null);
+          }
+        };
+        reader.onerror = () => {
+          setImportLoadStatus(null);
         };
         reader.readAsText(file);
       } else {
@@ -407,8 +598,17 @@ export default function App() {
     }
   };
 
+  const canConfirmZipImport = Boolean(zipImportDialog && (zipImportDialog.canImport || zipImportDialog.localChartFile));
+  const zipImportDialogMessages = zipImportDialog
+    ? zipImportDialog.messages.filter(message => (
+        !(zipImportDialog.localChartFile && message === text.importDialog.missingChartFile)
+        && !(zipImportDialog.localAudioFile && message === text.importDialog.missingAudioFile)
+      ))
+    : [];
+
   return (
     <>
+      {importLoadStatus && <ImportLoadingOverlay status={importLoadStatus} />}
       {view.page === 'landing' ? (
         <LandingPage
           fileInputRef={fileInputRef}
@@ -428,7 +628,7 @@ export default function App() {
         <Suspense
           fallback={(
             <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm font-medium text-neutral-300">
-              {text.app.loadingEditor}
+              {importLoadStatus?.message || text.app.loadingEditor}
             </div>
           )}
         >
@@ -445,6 +645,7 @@ export default function App() {
             setSpeedChanges={setSpeedChanges}
             offset={offset}
             setOffset={setOffset}
+            onImportLoadStatusChange={setImportLoadStatus}
           />
         </Suspense>
       )}
@@ -454,7 +655,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="zip-import-title"
-            className="w-full max-w-lg overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/50"
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/50"
           >
             <div className="border-b border-neutral-800 px-6 py-5">
               <h2 id="zip-import-title" className="text-xl font-bold text-white">
@@ -465,71 +666,77 @@ export default function App() {
               </p>
             </div>
 
-            <div className="grid gap-4 p-6">
-              {zipImportDialog.messages.length > 0 && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                  {zipImportDialog.messages.map(message => (
+            <div className="grid gap-4 overflow-y-auto p-6">
+              {zipImportDialogMessages.length > 0 && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+                  {zipImportDialogMessages.map(message => (
                     <p key={message}>{message}</p>
                   ))}
                 </div>
               )}
 
-              {zipImportDialog.chartFiles.length > 1 && (
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">{text.importDialog.chartFile}</span>
-                  <select
-                    value={zipImportDialog.selectedChartId}
-                    onChange={(event) => setZipImportDialog(current => current ? {
-                      ...current,
-                      selectedChartId: event.target.value,
-                    } : current)}
-                    className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 outline-none focus:border-indigo-500"
-                  >
-                    {zipImportDialog.chartFiles.map(file => (
-                      <option key={file.id} value={file.id}>{file.name}</option>
-                    ))}
-                  </select>
-                </label>
+              {zipImportDialog.chartFiles.length !== 1 && (
+                <ZipImportResolverSection
+                  title={text.importDialog.chartFile}
+                  isRequired
+                  Icon={FileText}
+                  bundledFiles={zipImportDialog.chartFiles}
+                  selectedId={zipImportDialog.selectedChartId}
+                  localFile={zipImportDialog.localChartFile}
+                  accept=".txt,text/plain"
+                  onSelectedIdChange={(selectedChartId) => setZipImportDialog(current => current ? {
+                    ...current,
+                    selectedChartId,
+                  } : current)}
+                  onLocalFileChange={(localChartFile) => setZipImportDialog(current => current ? {
+                    ...current,
+                    localChartFile,
+                    canImport: current.chartFiles.length > 0 || Boolean(localChartFile),
+                  } : current)}
+                />
               )}
 
-              {zipImportDialog.audioFiles.length > 1 && (
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">{text.importDialog.audioFile}</span>
-                  <select
-                    value={zipImportDialog.selectedAudioId}
-                    onChange={(event) => setZipImportDialog(current => current ? {
-                      ...current,
-                      selectedAudioId: event.target.value,
-                    } : current)}
-                    className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 outline-none focus:border-indigo-500"
-                  >
-                    {zipImportDialog.audioFiles.map(file => (
-                      <option key={file.id} value={file.id}>{file.name}</option>
-                    ))}
-                  </select>
-                </label>
+              {zipImportDialog.audioFiles.length !== 1 && (
+                <ZipImportResolverSection
+                  title={text.importDialog.audioFile}
+                  isRequired
+                  Icon={Music}
+                  bundledFiles={zipImportDialog.audioFiles}
+                  selectedId={zipImportDialog.selectedAudioId}
+                  localFile={zipImportDialog.localAudioFile}
+                  accept="audio/*"
+                  onSelectedIdChange={(selectedAudioId) => setZipImportDialog(current => current ? {
+                    ...current,
+                    selectedAudioId,
+                  } : current)}
+                  onLocalFileChange={(localAudioFile) => setZipImportDialog(current => current ? {
+                    ...current,
+                    localAudioFile,
+                  } : current)}
+                />
               )}
 
               {zipImportDialog.imageFiles.length > 1 && (
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium text-neutral-300">{text.importDialog.illustrationFile}</span>
-                  <select
-                    value={zipImportDialog.selectedImageId}
-                    onChange={(event) => setZipImportDialog(current => current ? {
-                      ...current,
-                      selectedImageId: event.target.value,
-                    } : current)}
-                    className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 outline-none focus:border-indigo-500"
-                  >
-                    {zipImportDialog.imageFiles.map(file => (
-                      <option key={file.id} value={file.id}>{file.name}</option>
-                    ))}
-                  </select>
-                </label>
+                <ZipImportResolverSection
+                  title={text.importDialog.illustrationFile}
+                  Icon={Image}
+                  bundledFiles={zipImportDialog.imageFiles}
+                  selectedId={zipImportDialog.selectedImageId}
+                  localFile={zipImportDialog.localImageFile}
+                  accept="image/*"
+                  onSelectedIdChange={(selectedImageId) => setZipImportDialog(current => current ? {
+                    ...current,
+                    selectedImageId,
+                  } : current)}
+                  onLocalFileChange={(localImageFile) => setZipImportDialog(current => current ? {
+                    ...current,
+                    localImageFile,
+                  } : current)}
+                />
               )}
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-neutral-800 px-6 py-4">
+            <div className="flex shrink-0 justify-end gap-3 border-t border-neutral-800 bg-neutral-900 px-6 py-4">
               <button
                 type="button"
                 onClick={() => setZipImportDialog(null)}
@@ -540,7 +747,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => { void handleConfirmZipImportDialog(); }}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                disabled={!canConfirmZipImport}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               >
                 {text.importDialog.confirm}
               </button>

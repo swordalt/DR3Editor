@@ -123,19 +123,6 @@ export default function EditorLeftEditInfoPanel(props: any) {
                   <input type="text" value={formData.songArtist} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-xs text-neutral-400 mb-1">{text.modal.songBpmRequired}</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={formData.songBpm}
-                    required
-                    className={getMetadataInputClassName('songBpm')}
-                    onBlur={() => showMetadataFieldValidation('songBpm')}
-                    onKeyDown={(event) => handleMetadataFieldKeyDown('songBpm', event)}
-                    onChange={(e) => setFormData({...formData, songBpm: e.target.value})}
-                  />
-                </div>
-                <div>
                   <label className="block text-xs text-neutral-400 mb-1">{text.modal.difficultyRequired}</label>
                   <input
                     type="text"
@@ -179,17 +166,19 @@ export default function EditorLeftEditInfoPanel(props: any) {
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <label className="block text-xs text-neutral-400">{text.sidebar.availableFiles}</label>
-                    <span className="text-[11px] text-neutral-500">{isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : `${chartProjectFiles.length} files`}</span>
+                    <span className="text-[11px] text-neutral-500">{`${chartProjectFiles.length} files`}</span>
                   </div>
                   <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
-                    {chartProjectFiles.map(({ label, name, detail, Icon }) => (
-                      <div key={`${label}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
+                    {chartProjectFiles.map(({ id, label, name, detail, Icon }) => (
+                      <div key={`${id}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
                         <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium text-neutral-300">{label}</div>
                           <div className="truncate text-xs text-neutral-500" title={name}>{name}</div>
                         </div>
-                        {detail && <div className="shrink-0 text-[11px] text-neutral-500">{detail}</div>}
+                        <div className="shrink-0 text-[11px] text-neutral-500">
+                          {detail || (id === 'chart' && isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : '')}
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { BpmChange, EditorMode, Note, ProjectData, SpeedChange } from '../types/editorTypes';
+import type { BpmChange, EditorMode, ImportLoadStatus, Note, ProjectData, SpeedChange } from '../types/editorTypes';
 
 export type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'chartIssues' | 'bpmTiming';
 export type CurveIdSelectTarget = 'start' | 'end' | null;
@@ -48,6 +48,7 @@ export interface EditorProps {
   setSpeedChanges: Dispatch<SetStateAction<SpeedChange[]>>;
   offset: string | number;
   setOffset: Dispatch<SetStateAction<string | number>>;
+  onImportLoadStatusChange?: (status: ImportLoadStatus | null) => void;
 }
 
 export interface EditorRuntimeState {

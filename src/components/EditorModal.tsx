@@ -35,6 +35,7 @@ export default function EditorModal({
   handleMetadataFieldKeyDown,
 }: EditorModalProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const illustrationInputRef = React.useRef<HTMLInputElement>(null);
   const text = translations;
   const isConfirmDisabled = hasInvalidMetadataFields(getInvalidMetadataFields(formData));
   const getInputClassName = (field: MetadataField) => (
@@ -45,10 +46,18 @@ export default function EditorModal({
     fileInputRef.current?.click();
   };
 
+  const handleIllustrationUploadClick = () => {
+    illustrationInputRef.current?.click();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFormData({ ...formData, songFile: e.target.files[0] });
     }
+  };
+
+  const handleIllustrationFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, songIllustration: e.target.files?.[0] || null });
   };
 
   return (
@@ -118,6 +127,22 @@ export default function EditorModal({
                   accept="audio/*" 
                   required
                   className="hidden" 
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleIllustrationUploadClick}
+                  className="p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700 transition-colors w-full text-left"
+                >
+                  {formData.songIllustration ? formData.songIllustration.name : text.modal.selectIllustration}
+                </button>
+                <input
+                  type="file"
+                  ref={illustrationInputRef}
+                  onChange={handleIllustrationFileChange}
+                  accept="image/*"
+                  className="hidden"
                 />
               </div>
 

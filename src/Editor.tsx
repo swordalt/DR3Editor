@@ -98,7 +98,8 @@ import {
 import { SOUND_URLS, getHitSoundVolume, musicAudioGraphs, type MusicAudioGraph } from './editor/editorAudioAssets';
 import { formatByteSize } from './editor/editorFileHelpers';
 import { getMirroredNoteLane } from './editor/editorNoteTransforms';
-import { buildChartProjectFiles } from './editor/chartProjectFiles';
+import { buildChartProjectFiles, type ChartProjectFileDetails } from './editor/chartProjectFiles';
+import { calculateChartProjectFileDetailsInWorker } from './utils/chartProjectFilesWorkerClient';
 import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
 import {
   METADATA_REQUIRED_FIELDS,
@@ -351,7 +352,8 @@ export default function Editor({
   speedChanges,
   setSpeedChanges,
   offset,
-  setOffset
+  setOffset,
+  onImportLoadStatusChange,
 }: EditorProps) {
   const initialEditorSettings = useMemo(loadEditorSettings, []);
   const [isModalOpen, setIsModalOpen] = useState(mode === 'new');
@@ -441,7 +443,7 @@ export default function Editor({
     songName: '',
     songArtist: '',
     songBpm: '',
-    difficulty: '1',
+    difficulty: '',
     songFile: null as File | null,
     songIllustration: null as File | null,
   });
@@ -1003,8 +1005,41 @@ export default function Editor({
     }
 
     hasScannedInitialChartIssuesRef.current = true;
-    recheckChartIssues();
-  }, [recheckChartIssues]);
+
+    if (mode !== 'import' || !onImportLoadStatusChange) {
+      recheckChartIssues();
+      return;
+    }
+
+    let firstFrameId: number | undefined;
+    let secondFrameId: number | undefined;
+    let readyTimeoutId: number | undefined;
+    onImportLoadStatusChange(text.importStatus.loadingCanvas);
+
+    firstFrameId = window.requestAnimationFrame(() => {
+      onImportLoadStatusChange(text.importStatus.scanningIssues);
+
+      secondFrameId = window.requestAnimationFrame(() => {
+        recheckChartIssues();
+        onImportLoadStatusChange(text.importStatus.ready);
+        readyTimeoutId = window.setTimeout(() => {
+          onImportLoadStatusChange(null);
+        }, 350);
+      });
+    });
+
+    return () => {
+      if (firstFrameId !== undefined) {
+        window.cancelAnimationFrame(firstFrameId);
+      }
+      if (secondFrameId !== undefined) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+      if (readyTimeoutId !== undefined) {
+        window.clearTimeout(readyTimeoutId);
+      }
+    };
+  }, [mode, onImportLoadStatusChange, recheckChartIssues]);
 
   const clearActiveNoteInteraction = useCallback(() => {
     setDraggingNoteId(null);
@@ -5641,38 +5676,50 @@ export default function Editor({
 
   const tierBadge = getTierBadge(projectData?.difficulty);
   const shouldBuildChartProjectFiles = !isPreviewMode && isLeftPanelContentVisible && activeLeftPanel === 'editInfo';
-  const [chartProjectFiles, setChartProjectFiles] = useState<ReturnType<typeof buildChartProjectFiles>>([]);
+  const [chartProjectFileDetails, setChartProjectFileDetails] = useState<ChartProjectFileDetails>({});
   const [isChartProjectFilesPending, setIsChartProjectFilesPending] = useState(false);
+  const chartProjectFiles = useMemo(() => buildChartProjectFiles({
+    projectData,
+    chartFileName,
+    details: chartProjectFileDetails,
+  }), [chartFileName, chartProjectFileDetails, projectData]);
 
   useEffect(() => {
     if (!shouldBuildChartProjectFiles) {
-      setChartProjectFiles([]);
+      setChartProjectFileDetails({});
       setIsChartProjectFilesPending(false);
       return;
     }
 
+    let isCanceled = false;
     setIsChartProjectFilesPending(true);
+    setChartProjectFileDetails({});
 
-    const rebuildChartProjectFiles = () => {
-      setChartProjectFiles(buildChartProjectFiles({
+    const timeoutId = window.setTimeout(() => {
+      void calculateChartProjectFileDetailsInWorker({
         projectData,
         notes,
         bpmChanges,
         speedChanges,
         offset,
-        chartFileName,
-      }));
-      setIsChartProjectFilesPending(false);
+      })
+        .then((details) => {
+          if (isCanceled) return;
+          setChartProjectFileDetails(details);
+          setIsChartProjectFilesPending(false);
+        })
+        .catch((error) => {
+          if (isCanceled) return;
+          console.error(error);
+          setIsChartProjectFilesPending(false);
+        });
+    }, 100);
+
+    return () => {
+      isCanceled = true;
+      window.clearTimeout(timeoutId);
     };
-
-    if ('requestIdleCallback' in window) {
-      const idleCallbackId = window.requestIdleCallback(rebuildChartProjectFiles, { timeout: 500 });
-      return () => window.cancelIdleCallback(idleCallbackId);
-    }
-
-    const timeoutId = window.setTimeout(rebuildChartProjectFiles, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [bpmChanges, chartFileName, notes, offset, projectData, shouldBuildChartProjectFiles, speedChanges]);
+  }, [shouldBuildChartProjectFiles]);
 
   const jumpToNoteTime = (time: number) => {
     if (stateRef.current.isPlaying) {
