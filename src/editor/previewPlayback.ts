@@ -1,6 +1,6 @@
 import type { Note, SpeedChange } from '../types/editorTypes';
 import { APPEAR_MODE_ENTRY_DISTANCE, APPEAR_MODE_H_FLY_DOWN_PIXELS, APPEAR_MODE_H_START_SCALE, APPEAR_MODE_SIDE_ENTRY_MULTIPLIER, PREVIEW_CONNECTOR_TILT_DIVISOR, SNAP_EPSILON, X_POSITION_COUNT } from './editorViewConstants';
-import type { PreviewCameraMovementSegment, PreviewCameraTiltInterval, PreviewCameraTiltSegment, PreviewHoldConnectorSegment, PreviewJudgementNoteEntry, PreviewNotePosition, PreviewNoteRenderEntry, PreviewNoteSpeed, PreviewNoteSpeedKeyframe, SpeedDistancePoint } from './editorLocalTypes';
+import type { PreviewCameraMovementInterval, PreviewCameraMovementSegment, PreviewCameraTiltInterval, PreviewCameraTiltSegment, PreviewHoldConnectorSegment, PreviewJudgementNoteEntry, PreviewNotePosition, PreviewNoteRenderEntry, PreviewNoteSpeed, PreviewNoteSpeedKeyframe, SpeedDistancePoint } from './editorLocalTypes';
 
 export const buildSpeedDistanceIndex = (speedChanges: SpeedChange[]) => {
   const sortedSpeedChanges = [...speedChanges].sort((a, b) => a.timepos - b.timepos);
@@ -196,21 +196,28 @@ export const evaluatePreviewNoteSpeedCurve = (
     return lastKeyframe.value;
   }
 
-  for (let index = 1; index < keyframes.length; index += 1) {
-    const previous = keyframes[index - 1];
-    const next = keyframes[index];
+  let low = 1;
+  let high = keyframes.length - 1;
+  let nextIndex = keyframes.length - 1;
 
-    if (currentTimepos <= next.time) {
-      const span = next.time - previous.time;
-      const progress = Math.abs(span) <= SNAP_EPSILON
-        ? 0
-        : (currentTimepos - previous.time) / span;
-
-      return previous.value + (next.value - previous.value) * progress;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if (currentTimepos <= keyframes[mid].time) {
+      nextIndex = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
     }
   }
 
-  return lastKeyframe.value;
+  const previous = keyframes[nextIndex - 1];
+  const next = keyframes[nextIndex];
+  const span = next.time - previous.time;
+  const progress = Math.abs(span) <= SNAP_EPSILON
+    ? 0
+    : (currentTimepos - previous.time) / span;
+
+  return previous.value + (next.value - previous.value) * progress;
 };
 
 export const getPreviewNoteVisualDistance = (
@@ -418,28 +425,88 @@ export const getPreviewCameraRotationRadians = (
     : 0;
 };
 
-export const getPreviewCameraXPositionOffset = (
+export const buildPreviewCameraMovementIntervals = (
   segments: PreviewCameraMovementSegment[],
-  currentTime: number,
-) => {
-  let offset = 0;
+): PreviewCameraMovementInterval[] => {
+  const events: Array<{ time: number; slopeDelta: number; interceptDelta: number }> = [];
 
-  for (const segment of segments) {
+  segments.forEach((segment) => {
     const segmentStartTime = Math.min(segment.startTime, segment.endTime);
     const segmentEndTime = Math.max(segment.startTime, segment.endTime);
+    const duration = segmentEndTime - segmentStartTime;
 
-    if (currentTime >= segmentEndTime) {
-      offset += segment.deltaXPosition;
-      continue;
+    if (duration <= SNAP_EPSILON) {
+      events.push({ time: segmentEndTime, slopeDelta: 0, interceptDelta: segment.deltaXPosition });
+      return;
     }
 
-    if (currentTime <= segmentStartTime) {
-      continue;
+    const slope = segment.deltaXPosition / duration;
+    const intercept = -slope * segmentStartTime;
+
+    events.push(
+      { time: segmentStartTime, slopeDelta: slope, interceptDelta: intercept },
+      { time: segmentEndTime, slopeDelta: -slope, interceptDelta: segment.deltaXPosition - intercept },
+    );
+  });
+
+  events.sort((a, b) => a.time - b.time);
+
+  const intervals: PreviewCameraMovementInterval[] = [];
+  let activeSlope = 0;
+  let activeIntercept = 0;
+  let eventIndex = 0;
+
+  while (eventIndex < events.length) {
+    const time = events[eventIndex].time;
+
+    while (
+      eventIndex < events.length
+      && Math.abs(events[eventIndex].time - time) <= SNAP_EPSILON
+    ) {
+      activeSlope += events[eventIndex].slopeDelta;
+      activeIntercept += events[eventIndex].interceptDelta;
+      eventIndex += 1;
     }
 
-    const progress = (currentTime - segmentStartTime) / Math.max(SNAP_EPSILON, segmentEndTime - segmentStartTime);
-    offset += segment.deltaXPosition * Math.max(0, Math.min(1, progress));
+    const nextTime = events[eventIndex]?.time;
+    if (nextTime !== undefined && nextTime - time > SNAP_EPSILON) {
+      intervals.push({
+        startTime: time,
+        endTime: nextTime,
+        offsetAtStart: activeSlope * time + activeIntercept,
+        slope: activeSlope,
+      });
+    } else if (nextTime === undefined && Math.abs(activeSlope * time + activeIntercept) > SNAP_EPSILON) {
+      intervals.push({
+        startTime: time,
+        endTime: Number.POSITIVE_INFINITY,
+        offsetAtStart: activeSlope * time + activeIntercept,
+        slope: activeSlope,
+      });
+    }
   }
 
-  return offset;
+  return intervals;
+};
+
+export const getPreviewCameraXPositionOffset = (
+  intervals: PreviewCameraMovementInterval[],
+  currentTime: number,
+) => {
+  let low = 0;
+  let high = intervals.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (intervals[mid].startTime <= currentTime) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  const interval = intervals[low - 1];
+  return interval && currentTime < interval.endTime - SNAP_EPSILON
+    ? interval.offsetAtStart + interval.slope * (currentTime - interval.startTime)
+    : 0;
 };

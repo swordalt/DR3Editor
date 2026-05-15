@@ -106,6 +106,7 @@ export const en = {
     uploadAudio: 'Upload Audio',
     uploadImage: 'Upload Image',
     availableFiles: 'Available Files',
+    projectFilesUpdating: 'Updating...',
     saveChanges: 'Save Changes',
     offsetMs: 'Offset (ms)',
     bpmChanges: 'BPM Changes',

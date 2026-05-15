@@ -22,6 +22,7 @@ export interface NoteRenderIndex {
   noteBeats: Map<number, number>;
   noteBeatEntries: NoteBeatEntry[];
   holdConnectorSegments: HoldConnectorSegment[];
+  holdConnectorSegmentsByMinBeat: HoldConnectorSegment[];
   holdConnectorSegmentsByMaxBeat: HoldConnectorSegment[];
   groupedIdLabelsByNoteId: Map<number, string>;
 }
@@ -83,22 +84,51 @@ const findFirstConnectorMaxBeatIndex = (segments: HoldConnectorSegment[], beat: 
   return low;
 };
 
+const findFirstConnectorMinBeatAfterIndex = (segments: HoldConnectorSegment[], beat: number) => {
+  let low = 0;
+  let high = segments.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (segments[mid].minBeat <= beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
 export const getHoldConnectorSegmentsInRange = (
+  segmentsByMinBeat: HoldConnectorSegment[],
   segmentsByMaxBeat: HoldConnectorSegment[],
   startBeat: number,
   endBeat: number,
 ) => {
   const matchingSegments: HoldConnectorSegment[] = [];
-  const firstSegmentIndex = findFirstConnectorMaxBeatIndex(segmentsByMaxBeat, startBeat);
+  const firstMaxBeatIndex = findFirstConnectorMaxBeatIndex(segmentsByMaxBeat, startBeat);
+  const firstMinBeatAfterEndIndex = findFirstConnectorMinBeatAfterIndex(segmentsByMinBeat, endBeat);
 
-  for (let index = firstSegmentIndex; index < segmentsByMaxBeat.length; index += 1) {
+  if (firstMinBeatAfterEndIndex <= segmentsByMaxBeat.length - firstMaxBeatIndex) {
+    for (let index = 0; index < firstMinBeatAfterEndIndex; index += 1) {
+      const segment = segmentsByMinBeat[index];
+      if (segment.maxBeat >= startBeat) {
+        matchingSegments.push(segment);
+      }
+    }
+
+    return matchingSegments;
+  }
+
+  for (let index = firstMaxBeatIndex; index < segmentsByMaxBeat.length; index += 1) {
     const segment = segmentsByMaxBeat[index];
     if (segment.minBeat <= endBeat) {
       matchingSegments.push(segment);
     }
   }
 
-  return matchingSegments.sort((a, b) => (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
+  return matchingSegments;
 };
 
 export const buildNoteRenderIndex = (
@@ -163,7 +193,8 @@ export const buildNoteRenderIndex = (
     });
   });
 
-  holdConnectorSegments.sort((a, b) => (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
+  const holdConnectorSegmentsByMinBeat = [...holdConnectorSegments]
+    .sort((a, b) => (a.minBeat - b.minBeat) || (a.maxBeat - b.maxBeat) || (a.note.id - b.note.id));
   const holdConnectorSegmentsByMaxBeat = [...holdConnectorSegments]
     .sort((a, b) => (a.maxBeat - b.maxBeat) || (a.minBeat - b.minBeat) || (a.note.id - b.note.id));
 
@@ -172,6 +203,7 @@ export const buildNoteRenderIndex = (
     noteBeats,
     noteBeatEntries,
     holdConnectorSegments,
+    holdConnectorSegmentsByMinBeat,
     holdConnectorSegmentsByMaxBeat,
     groupedIdLabelsByNoteId,
   };

@@ -80,6 +80,7 @@ import type {
 import { getTierBadge } from './editor/editorMetadata';
 import { getBeatAtTimepos, getBeatsPerMeasureAtBeat, getCurveSnapBeatsBetween, getIndicatorKeyAtBeat, snapBeatToMeasureDivision } from './editor/editorTiming';
 import {
+  buildPreviewCameraMovementIntervals,
   buildPreviewCameraTiltIntervals,
   buildSpeedDistanceIndex,
   comparePreviewNoteRenderEntries,
@@ -195,45 +196,49 @@ const buildGroupedPreviewHoldConnectorSegments = (
     let activeGroup: PreviewHoldConnectorSegment[] = [];
     let activeParentRight = 0;
     let activeNoteRight = 0;
+    let activeParentLane = 0;
+    let activeNoteLane = 0;
+    let activeMinDistance = 0;
+    let activeMaxDistance = 0;
+
+    const startActiveGroup = (segment: PreviewHoldConnectorSegment) => {
+      activeGroup = [segment];
+      activeParentLane = segment.parentNote.lane;
+      activeNoteLane = segment.note.lane;
+      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
+      activeNoteRight = segment.note.lane + segment.note.width;
+      activeMinDistance = segment.minDistance;
+      activeMaxDistance = segment.maxDistance;
+    };
+
+    const appendActiveGroup = (segment: PreviewHoldConnectorSegment) => {
+      activeGroup.push(segment);
+      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
+      activeNoteRight = segment.note.lane + segment.note.width;
+      activeMinDistance = Math.min(activeMinDistance, segment.minDistance);
+      activeMaxDistance = Math.max(activeMaxDistance, segment.maxDistance);
+    };
 
     const flushActiveGroup = () => {
       if (activeGroup.length < 2) {
         groupedSegments.push(...activeGroup);
       } else {
         const firstSegment = activeGroup[0];
-        const parentLane = activeGroup[0].parentNote.lane;
-        const noteLane = activeGroup[0].note.lane;
-        const parentRight = activeGroup.reduce(
-          (right, segment) => Math.max(right, segment.parentNote.lane + segment.parentNote.width),
-          parentLane,
-        );
-        const noteRight = activeGroup.reduce(
-          (right, segment) => Math.max(right, segment.note.lane + segment.note.width),
-          noteLane,
-        );
-        const minDistance = activeGroup.reduce(
-          (minimumDistance, segment) => Math.min(minimumDistance, segment.minDistance),
-          firstSegment.minDistance,
-        );
-        const maxDistance = activeGroup.reduce(
-          (maximumDistance, segment) => Math.max(maximumDistance, segment.maxDistance),
-          firstSegment.maxDistance,
-        );
 
         groupedSegments.push({
           ...firstSegment,
           parentNote: {
             ...firstSegment.parentNote,
-            lane: parentLane,
-            width: parentRight - parentLane,
+            lane: activeParentLane,
+            width: activeParentRight - activeParentLane,
           },
           note: {
             ...firstSegment.note,
-            lane: noteLane,
-            width: noteRight - noteLane,
+            lane: activeNoteLane,
+            width: activeNoteRight - activeNoteLane,
           },
-          minDistance,
-          maxDistance,
+          minDistance: activeMinDistance,
+          maxDistance: activeMaxDistance,
           groupedSegments: activeGroup,
         });
       }
@@ -241,13 +246,15 @@ const buildGroupedPreviewHoldConnectorSegments = (
       activeGroup = [];
       activeParentRight = 0;
       activeNoteRight = 0;
+      activeParentLane = 0;
+      activeNoteLane = 0;
+      activeMinDistance = 0;
+      activeMaxDistance = 0;
     };
 
     sortedSegments.forEach((segment) => {
       if (activeGroup.length === 0) {
-        activeGroup = [segment];
-        activeParentRight = segment.parentNote.lane + segment.parentNote.width;
-        activeNoteRight = segment.note.lane + segment.note.width;
+        startActiveGroup(segment);
         return;
       }
 
@@ -256,13 +263,10 @@ const buildGroupedPreviewHoldConnectorSegments = (
 
       if (!isParentContiguous || !isNoteContiguous) {
         flushActiveGroup();
-        activeGroup = [segment];
+        startActiveGroup(segment);
       } else {
-        activeGroup.push(segment);
+        appendActiveGroup(segment);
       }
-
-      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
-      activeNoteRight = segment.note.lane + segment.note.width;
     });
 
     flushActiveGroup();
@@ -284,6 +288,56 @@ interface PreviewModePrecomputeCache {
   chartStatisticsIndex: ChartStatisticsIndex;
   cameraTiltIntervals: PreviewCameraTiltInterval[];
 }
+
+interface BeatIndexedEntry<T> {
+  beat: number;
+  change: T;
+}
+
+type PreviewCanvasLoadPhase = 'idle' | 'visible' | 'full';
+
+const PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING = 32;
+const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
+const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
+const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
+const HOLD_END_TYPE_SET = new Set(HOLD_END_TYPES);
+const isArrowFlickType = (type: number) => type >= 13 && type <= 16;
+
+const findFirstBeatIndexedEntry = <T,>(entries: BeatIndexedEntry<T>[], beat: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].beat < beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+const getBeatIndexedEntriesInRange = <T,>(
+  entries: BeatIndexedEntry<T>[],
+  startBeat: number,
+  endBeat: number,
+) => {
+  const matchingEntries: BeatIndexedEntry<T>[] = [];
+  const firstEntryIndex = findFirstBeatIndexedEntry(entries, startBeat);
+
+  for (let index = firstEntryIndex; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.beat > endBeat) {
+      break;
+    }
+
+    matchingEntries.push(entry);
+  }
+
+  return matchingEntries;
+};
 
 export default function Editor({ 
   onBack, 
@@ -348,6 +402,8 @@ export default function Editor({
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [previewCanvasLoadPhase, setPreviewCanvasLoadPhase] = useState<PreviewCanvasLoadPhase>('idle');
+  const [previewVisibleWindowTime, setPreviewVisibleWindowTime] = useState(0);
   const [isLeftPanelCompact, setIsLeftPanelCompact] = useState(false);
   const [isRightPanelCompact, setIsRightPanelCompact] = useState(false);
   const [isLeftPanelContentVisible, setIsLeftPanelContentVisible] = useState(true);
@@ -905,12 +961,37 @@ export default function Editor({
     return getTimeAtBeat(currentMeasureBeat + measureDecimal * currentBeatsPerMeasure, timedBpmChanges);
   }, [timedBpmChanges]);
 
-  const chartTimelineDuration = useMemo(() => Math.max(
-    0,
-    ...notes.map(note => note.time),
-    ...speedChanges.map(change => getTimeFromTimepos(change.timepos)),
-  ), [getTimeFromTimepos, notes, speedChanges]);
+  const chartTimelineDuration = useMemo(() => {
+    let maxDuration = 0;
+
+    notes.forEach((note) => {
+      if (note.time > maxDuration) {
+        maxDuration = note.time;
+      }
+    });
+
+    speedChanges.forEach((change) => {
+      const changeTime = getTimeFromTimepos(change.timepos);
+      if (changeTime > maxDuration) {
+        maxDuration = changeTime;
+      }
+    });
+
+    return maxDuration;
+  }, [getTimeFromTimepos, notes, speedChanges]);
   const timelineDuration = Math.max(audioTimelineDuration, chartTimelineDuration);
+  const bpmIndicatorEntries = useMemo(
+    () => timedBpmChanges
+      .map(change => ({ beat: change.startBeat, change }))
+      .sort((a, b) => a.beat - b.beat),
+    [timedBpmChanges],
+  );
+  const speedIndicatorEntries = useMemo(
+    () => speedChanges
+      .map(change => ({ beat: getBeatAtTimepos(change.timepos, timedBpmChanges), change }))
+      .sort((a, b) => a.beat - b.beat),
+    [speedChanges, timedBpmChanges],
+  );
 
   const recheckChartIssues = useCallback(() => {
     setChartIssues(findChartIssues(notes, getTimeposFromTime));
@@ -944,6 +1025,62 @@ export default function Editor({
     }))),
     [getTimeFromTimepos, speedChanges],
   );
+  const isPreviewCanvasLoadingVisibleOnly = isPreviewMode && previewCanvasLoadPhase === 'visible';
+  const previewInitialDistanceWindow = useMemo(() => {
+    const viewportHeight = containerRef.current?.clientHeight || window.innerHeight || 720;
+    const hitLineY = viewportHeight - 150;
+    const previewDistanceScale = Math.max(1, 4 * pixelsPerBeat);
+    const currentPreviewDistance = getSpeedDistanceAtTimepos(
+      previewVisibleWindowTime,
+      previewPlaybackSpeedDistanceIndex,
+    );
+    const visibleBehindDistance = (viewportHeight - hitLineY + 40) / previewDistanceScale;
+    const visibleAheadDistance = (hitLineY + 40) / previewDistanceScale;
+
+    return {
+      min: currentPreviewDistance - visibleBehindDistance - PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING,
+      max: currentPreviewDistance + visibleAheadDistance + PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING,
+    };
+  }, [pixelsPerBeat, previewCanvasLoadPhase, previewPlaybackSpeedDistanceIndex, previewVisibleWindowTime]);
+
+  useEffect(() => {
+    if (!isPreviewCanvasLoadingVisibleOnly) {
+      return;
+    }
+
+    let idleCallbackId: number | undefined;
+    let timeoutId: number | undefined;
+    let isCancelled = false;
+
+    const promoteToFullPreviewLoad = () => {
+      if (isCancelled) {
+        return;
+      }
+
+      setPreviewVisibleWindowTime(stateRef.current.currentTime);
+      setPreviewCanvasLoadPhase('full');
+    };
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if ('requestIdleCallback' in window) {
+        idleCallbackId = window.requestIdleCallback(promoteToFullPreviewLoad, { timeout: 1000 });
+        return;
+      }
+
+      timeoutId = window.setTimeout(promoteToFullPreviewLoad, 0);
+    });
+
+    return () => {
+      isCancelled = true;
+      window.cancelAnimationFrame(animationFrameId);
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isPreviewCanvasLoadingVisibleOnly]);
 
   const togglePreviewMode = useCallback(() => {
     setIsPreviewMode(current => {
@@ -964,44 +1101,13 @@ export default function Editor({
       resetPreviewJudgementState(previewStartTime, enteringPreviewDuringPlayback);
 
       if (nextPreviewMode) {
-        if (isPreviewPrecomputeEnabled) {
-          const cachedPreviewPrecompute = previewModePrecomputeCacheRef.current;
-          const cameraTiltSegments = previewCameraTiltSegmentsRef.current;
-          const canReusePreviewPrecompute = Boolean(
-            cachedPreviewPrecompute
-            && cachedPreviewPrecompute.notes === stateRef.current.notes
-            && cachedPreviewPrecompute.speedChanges === stateRef.current.speedChanges
-            && cachedPreviewPrecompute.bpmChanges === stateRef.current.bpmChanges
-            && cachedPreviewPrecompute.playbackSpeedDistanceIndex === previewPlaybackSpeedDistanceIndex
-            && cachedPreviewPrecompute.cameraTiltSegments === cameraTiltSegments
-          );
-          const previewPrecompute = canReusePreviewPrecompute
-            ? cachedPreviewPrecompute!
-            : {
-                notes: stateRef.current.notes,
-                speedChanges: stateRef.current.speedChanges,
-                bpmChanges: stateRef.current.bpmChanges,
-                playbackSpeedDistanceIndex: previewPlaybackSpeedDistanceIndex,
-                cameraTiltSegments,
-                chartStatisticsIndex: buildChartStatisticsIndex({
-                  getTimeFromTimepos,
-                  notes: stateRef.current.notes,
-                  speedChanges: stateRef.current.speedChanges,
-                }),
-                cameraTiltIntervals: buildPreviewCameraTiltIntervals(cameraTiltSegments),
-              };
+        setPreviewVisibleWindowTime(previewStartTime);
+        setPreviewCanvasLoadPhase('visible');
 
-          previewModePrecomputeCacheRef.current = previewPrecompute;
-          previewComboTimesRef.current = previewPrecompute.chartStatisticsIndex.sortedNoteTimes;
-          previewChartStatisticsIndexRef.current = previewPrecompute.chartStatisticsIndex;
-          previewPlaybackSpeedDistanceIndexRef.current = previewPrecompute.playbackSpeedDistanceIndex;
-          previewCameraTiltIntervalsRef.current = previewPrecompute.cameraTiltIntervals;
-        } else {
-          previewComboTimesRef.current = [];
-          previewChartStatisticsIndexRef.current = null;
-          previewPlaybackSpeedDistanceIndexRef.current = [];
-          previewCameraTiltIntervalsRef.current = [];
-        }
+        previewComboTimesRef.current = [];
+        previewChartStatisticsIndexRef.current = null;
+        previewPlaybackSpeedDistanceIndexRef.current = [];
+        previewCameraTiltIntervalsRef.current = [];
         previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
@@ -1019,6 +1125,8 @@ export default function Editor({
         clearActiveNoteInteraction();
         pasteTargetRef.current = null;
       } else {
+        setPreviewVisibleWindowTime(0);
+        setPreviewCanvasLoadPhase('idle');
         previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
@@ -1028,7 +1136,7 @@ export default function Editor({
 
       return nextPreviewMode;
     });
-  }, [clearActiveNoteInteraction, getTimeFromTimepos, isPreviewPrecomputeEnabled, previewPlaybackSpeedDistanceIndex, resetPreviewJudgementState]);
+  }, [clearActiveNoteInteraction, resetPreviewJudgementState]);
 
   const handleCopySelectedNotes = useCallback(() => {
     const selectedIdSet = new Set(selectedNoteIds);
@@ -1103,6 +1211,55 @@ export default function Editor({
     () => buildNoteRenderIndex(notes, timedBpmChanges),
     [notes, timedBpmChanges],
   );
+  const previewNoteBeatEntriesSource = useMemo(() => {
+    if (!isPreviewMode) {
+      return [];
+    }
+
+    if (!isPreviewCanvasLoadingVisibleOnly) {
+      return noteRenderIndex.noteBeatEntries;
+    }
+
+    return noteRenderIndex.noteBeatEntries.filter(({ note }) => {
+      const noteDistance = getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex);
+      return noteDistance >= previewInitialDistanceWindow.min
+        && noteDistance <= previewInitialDistanceWindow.max;
+    });
+  }, [
+    isPreviewCanvasLoadingVisibleOnly,
+    isPreviewMode,
+    noteRenderIndex.noteBeatEntries,
+    previewInitialDistanceWindow,
+    previewPlaybackSpeedDistanceIndex,
+  ]);
+  const previewHoldConnectorSegmentsSource = useMemo(() => {
+    if (!isPreviewMode) {
+      return [];
+    }
+
+    if (!isPreviewCanvasLoadingVisibleOnly) {
+      return noteRenderIndex.holdConnectorSegments;
+    }
+
+    return noteRenderIndex.holdConnectorSegments.filter((segment) => {
+      const noteDistance = getSpeedDistanceAtTimepos(segment.note.time, previewPlaybackSpeedDistanceIndex);
+      const parentDistance = getSpeedDistanceAtTimepos(segment.parentNote.time, previewPlaybackSpeedDistanceIndex);
+      return Math.max(noteDistance, parentDistance) >= previewInitialDistanceWindow.min
+        && Math.min(noteDistance, parentDistance) <= previewInitialDistanceWindow.max;
+    });
+  }, [
+    isPreviewCanvasLoadingVisibleOnly,
+    isPreviewMode,
+    noteRenderIndex.holdConnectorSegments,
+    previewInitialDistanceWindow,
+    previewPlaybackSpeedDistanceIndex,
+  ]);
+  const previewCanvasNotesSource = useMemo(
+    () => isPreviewCanvasLoadingVisibleOnly
+      ? previewNoteBeatEntriesSource.map(({ note }) => note)
+      : notes,
+    [isPreviewCanvasLoadingVisibleOnly, notes, previewNoteBeatEntriesSource],
+  );
   const selectedParentNoteIds = useMemo(() => {
     if (selectedNoteIds.length !== 1) {
       return new Set<number>();
@@ -1121,7 +1278,7 @@ export default function Editor({
         return [];
       }
 
-      return noteRenderIndex.noteBeatEntries.map(({ note, beat }) => {
+      return previewNoteBeatEntriesSource.map(({ note, beat }) => {
         const timepos = getTimeposFromTime(note.time);
         return {
           note,
@@ -1149,7 +1306,7 @@ export default function Editor({
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
-      noteRenderIndex.noteBeatEntries,
+      previewNoteBeatEntriesSource,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
     ],
@@ -1162,6 +1319,35 @@ export default function Editor({
     () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind === 'curve'),
     [previewNoteRenderEntries],
   );
+  const previewCurveNoteRenderEntryBuckets = useMemo(() => {
+    const bucketSize = 1;
+    const buckets = new Map<number, PreviewNoteRenderEntry[]>();
+
+    previewCurveNoteRenderEntries.forEach((entry) => {
+      if (entry.noteSpeed.kind !== 'curve') {
+        return;
+      }
+
+      const animationStartTimepos = entry.noteSpeed.keyframes[0]?.time;
+      if (animationStartTimepos === undefined) {
+        return;
+      }
+
+      const startBucket = Math.floor((animationStartTimepos - SNAP_EPSILON) / bucketSize);
+      const endBucket = Math.floor((entry.timepos - SNAP_EPSILON) / bucketSize);
+
+      for (let bucket = startBucket; bucket <= endBucket; bucket += 1) {
+        const bucketEntries = buckets.get(bucket);
+        if (bucketEntries) {
+          bucketEntries.push(entry);
+        } else {
+          buckets.set(bucket, [entry]);
+        }
+      }
+    });
+
+    return { bucketSize, buckets };
+  }, [previewCurveNoteRenderEntries]);
   const previewNoteRenderEntryById = useMemo(
     () => new Map(previewNoteRenderEntries.map(entry => [entry.note.id, entry])),
     [previewNoteRenderEntries],
@@ -1172,7 +1358,7 @@ export default function Editor({
         return [];
       }
 
-      return noteRenderIndex.holdConnectorSegments.map((segment) => {
+      return previewHoldConnectorSegmentsSource.map((segment) => {
         const noteEntry = previewNoteRenderEntryById.get(segment.note.id);
         const parentEntry = previewNoteRenderEntryById.get(segment.parentNote.id);
         const noteTimepos = noteEntry?.timepos ?? getTimeposFromTime(segment.note.time);
@@ -1230,7 +1416,7 @@ export default function Editor({
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
-      noteRenderIndex.holdConnectorSegments,
+      previewHoldConnectorSegmentsSource,
       previewNoteRenderEntryById,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
@@ -1242,11 +1428,13 @@ export default function Editor({
   );
   const previewJudgementNoteEntries = useMemo(
     () => isPreviewMode
-      ? notes
-          .map(note => ({ id: note.id, time: note.time }))
-          .sort((a, b) => (a.time - b.time) || (a.id - b.id))
+      ? noteRenderIndex.noteBeatEntries.map(({ note }) => ({ id: note.id, time: note.time }))
       : [],
-    [isPreviewMode, notes],
+    [isPreviewMode, noteRenderIndex.noteBeatEntries],
+  );
+  const previewComboTimes = useMemo(
+    () => isPreviewMode ? noteRenderIndex.noteBeatEntries.map(({ note }) => note.time) : [],
+    [isPreviewMode, noteRenderIndex.noteBeatEntries],
   );
   const previewCameraMovementSegments = useMemo(
     () => {
@@ -1254,7 +1442,7 @@ export default function Editor({
         return [];
       }
 
-      return noteRenderIndex.holdConnectorSegments
+      return previewHoldConnectorSegmentsSource
         .filter(segment => segment.note.type === PINK_HOLD_CENTER_TYPE || segment.note.type === PINK_HOLD_END_TYPE)
         .map((segment) => {
         const startTime = segment.parentNote.time;
@@ -1271,21 +1459,23 @@ export default function Editor({
         .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
         .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime));
     },
-    [isPreviewMode, noteRenderIndex.holdConnectorSegments],
+    [isPreviewMode, previewHoldConnectorSegmentsSource],
+  );
+  const previewCameraMovementIntervals = useMemo(
+    () => buildPreviewCameraMovementIntervals(previewCameraMovementSegments),
+    [previewCameraMovementSegments],
   );
   const hasPinkHoldCameraNotes = useMemo(
-    () => isPreviewMode && notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
-    [isPreviewMode, notes],
+    () => isPreviewMode && previewCanvasNotesSource.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
+    [isPreviewMode, previewCanvasNotesSource],
   );
   const preview3DZoomHeightCurve = useMemo(() => {
     if (!isPreviewMode) {
       return [];
     }
 
-    const curveLength = Math.max(
-      1,
-      Math.ceil(Math.max(timelineDuration, ...notes.map(note => note.time), 0)) + 3,
-    );
+    const maxNoteTime = previewCanvasNotesSource.reduce((maxTime, note) => Math.max(maxTime, note.time), 0);
+    const curveLength = Math.max(1, Math.ceil(Math.max(timelineDuration, maxNoteTime)) + 3);
     const heightList = Array.from({ length: curveLength }, () => 0);
     const setHeight = (second: number, value: number) => {
       if (second < 0 || second >= heightList.length) {
@@ -1295,7 +1485,7 @@ export default function Editor({
       heightList[second] = Math.max(heightList[second], value);
     };
 
-    notes.forEach((note) => {
+    previewCanvasNotesSource.forEach((note) => {
       const second = Math.floor(note.time);
       const noteLeft = note.lane;
       const noteRight = note.lane + note.width;
@@ -1330,7 +1520,7 @@ export default function Editor({
     });
 
     return heightList;
-  }, [isPreviewMode, notes, timelineDuration]);
+  }, [isPreviewMode, previewCanvasNotesSource, timelineDuration]);
   const previewCameraTiltSegments = useMemo(
     () => {
       if (!isPreviewMode) {
@@ -1353,6 +1543,91 @@ export default function Editor({
     [isPreviewMode, previewHoldConnectorSegments],
   );
   previewCameraTiltSegmentsRef.current = previewCameraTiltSegments;
+  const previewCameraTiltIntervals = useMemo(
+    () => buildPreviewCameraTiltIntervals(previewCameraTiltSegments),
+    [previewCameraTiltSegments],
+  );
+  useEffect(() => {
+    if (!isPreviewMode || !isPreviewPrecomputeEnabled || previewCanvasLoadPhase !== 'full') {
+      if (!isPreviewMode || !isPreviewPrecomputeEnabled) {
+        previewComboTimesRef.current = [];
+        previewChartStatisticsIndexRef.current = null;
+        previewPlaybackSpeedDistanceIndexRef.current = [];
+        previewCameraTiltIntervalsRef.current = [];
+      }
+      return;
+    }
+
+    let idleCallbackId: number | undefined;
+    let timeoutId: number | undefined;
+    let isCancelled = false;
+
+    const precomputePreviewMode = () => {
+      if (isCancelled) {
+        return;
+      }
+
+      const cachedPreviewPrecompute = previewModePrecomputeCacheRef.current;
+      const cameraTiltSegments = previewCameraTiltSegmentsRef.current;
+      const canReusePreviewPrecompute = Boolean(
+        cachedPreviewPrecompute
+        && cachedPreviewPrecompute.notes === stateRef.current.notes
+        && cachedPreviewPrecompute.speedChanges === stateRef.current.speedChanges
+        && cachedPreviewPrecompute.bpmChanges === stateRef.current.bpmChanges
+        && cachedPreviewPrecompute.playbackSpeedDistanceIndex === previewPlaybackSpeedDistanceIndex
+        && cachedPreviewPrecompute.cameraTiltSegments === cameraTiltSegments
+      );
+      const previewPrecompute = canReusePreviewPrecompute
+        ? cachedPreviewPrecompute!
+        : {
+            notes: stateRef.current.notes,
+            speedChanges: stateRef.current.speedChanges,
+            bpmChanges: stateRef.current.bpmChanges,
+            playbackSpeedDistanceIndex: previewPlaybackSpeedDistanceIndex,
+            cameraTiltSegments,
+            chartStatisticsIndex: buildChartStatisticsIndex({
+              getTimeFromTimepos,
+              notes: stateRef.current.notes,
+              speedChanges: stateRef.current.speedChanges,
+            }),
+            cameraTiltIntervals: previewCameraTiltIntervals,
+          };
+
+      if (isCancelled) {
+        return;
+      }
+
+      previewModePrecomputeCacheRef.current = previewPrecompute;
+      previewComboTimesRef.current = previewPrecompute.chartStatisticsIndex.sortedNoteTimes;
+      previewChartStatisticsIndexRef.current = previewPrecompute.chartStatisticsIndex;
+      previewPlaybackSpeedDistanceIndexRef.current = previewPrecompute.playbackSpeedDistanceIndex;
+      previewCameraTiltIntervalsRef.current = previewPrecompute.cameraTiltIntervals;
+    };
+
+    if ('requestIdleCallback' in window) {
+      idleCallbackId = window.requestIdleCallback(precomputePreviewMode, { timeout: 500 });
+    } else {
+      timeoutId = window.setTimeout(precomputePreviewMode, 0);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    getTimeFromTimepos,
+    isPreviewMode,
+    isPreviewPrecomputeEnabled,
+    previewCanvasLoadPhase,
+    previewCameraTiltIntervals,
+    previewCameraTiltSegments,
+    previewPlaybackSpeedDistanceIndex,
+  ]);
   const previewMinimumNoteSpeedMagnitude = useMemo(
     () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
       entry.noteSpeed.kind === 'multiplier'
@@ -2468,9 +2743,9 @@ export default function Editor({
     }
     updateProgressBarValue(time);
 
-    const currentBeat = getBeatAtTime(time, sortedChanges);
-    const hitLineY = height - 150;
     const isPreviewPlaybackCanvas = isPreviewMode;
+    const currentBeat = isPreviewPlaybackCanvas ? 0 : getBeatAtTime(time, sortedChanges);
+    const hitLineY = height - 150;
     const isPreview3DMode = isPreviewPlaybackCanvas && previewDisplayMode === '3d';
     const shouldClipPreviewHoldConnectors = !isPreviewPlaybackCanvas || stateRef.current.isPlaying;
     const activePreviewPlaybackSpeedDistanceIndex = isPreviewPlaybackCanvas
@@ -2490,7 +2765,7 @@ export default function Editor({
       : 0;
     const previewDistanceScale = 4 * pixelsPerBeat;
     const previewCameraXOffset = isPreviewPlaybackCanvas && isPreviewCameraMovementEnabled
-      ? getPreviewCameraXPositionOffset(previewCameraMovementSegments, time)
+      ? getPreviewCameraXPositionOffset(previewCameraMovementIntervals, time)
       : 0;
     const preview3DHorizonY = -height * PREVIEW_3D_HORIZON_VIEWPORT_MULTIPLIER;
     const preview3DMaxTravel = Math.max(1, hitLineY - preview3DHorizonY);
@@ -2790,9 +3065,9 @@ export default function Editor({
             ? (
                 previewCameraTiltIntervalsRef.current.length > 0
                   ? previewCameraTiltIntervalsRef.current
-                  : buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current)
+                  : previewCameraTiltIntervals
               )
-            : buildPreviewCameraTiltIntervals(previewCameraTiltSegmentsRef.current)
+            : previewCameraTiltIntervals
         )
       : [];
     const targetPreviewRotationRadians = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
@@ -2906,14 +3181,14 @@ export default function Editor({
     if (isXPositionGridEnabled && !isPreviewMode) {
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 1;
+      ctx.beginPath();
       for (let i = 0; i <= lanes; i++) {
         const x = startX + i * laneWidth;
-        ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
+        countRenderedObject();
+      }
       ctx.stroke();
-      countRenderedObject();
-    }
     }
 
     // Draw beats
@@ -2926,7 +3201,7 @@ export default function Editor({
     const visibleStartBeat = currentBeat - beatsVisibleBelow - noteVisibilityPaddingBeats;
     const visibleEndBeat = currentBeat + beatsVisibleAbove + noteVisibilityPaddingBeats;
     const pendingDragUpdate = pendingDragUpdateRef.current;
-    const pendingDragBeat = pendingDragUpdate
+    const pendingDragBeat = pendingDragUpdate && !isPreviewPlaybackCanvas
       ? getBeatAtTime(pendingDragUpdate.time, sortedChanges)
       : null;
     const visiblePreviewDistanceNoteEntries = isPreviewPlaybackCanvas
@@ -2936,12 +3211,28 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : [];
+    const visiblePreviewCurveNoteEntries = isPreviewPlaybackCanvas
+      ? (
+          previewCurveNoteRenderEntryBuckets.buckets
+            .get(Math.floor(currentPreviewTimepos / previewCurveNoteRenderEntryBuckets.bucketSize))
+            ?.filter((entry) => {
+              if (entry.noteSpeed.kind !== 'curve') {
+                return false;
+              }
+
+              const animationStartTimepos = entry.noteSpeed.keyframes[0]?.time;
+              return animationStartTimepos !== undefined
+                && currentPreviewTimepos >= animationStartTimepos - SNAP_EPSILON
+                && currentPreviewTimepos < entry.timepos - SNAP_EPSILON;
+            }) ?? []
+        )
+      : [];
     const visibleNoteEntries = isPreviewPlaybackCanvas
       ? (
-          previewCurveNoteRenderEntries.length > 0
+          visiblePreviewCurveNoteEntries.length > 0
             ? [
                 ...visiblePreviewDistanceNoteEntries,
-                ...previewCurveNoteRenderEntries,
+                ...visiblePreviewCurveNoteEntries,
               ].sort(comparePreviewNoteRenderEntries)
             : visiblePreviewDistanceNoteEntries
         )
@@ -2953,6 +3244,7 @@ export default function Editor({
     const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
       ? previewVisibleHoldConnectorSegments
       : getHoldConnectorSegmentsInRange(
+          noteRenderIndex.holdConnectorSegmentsByMinBeat,
           noteRenderIndex.holdConnectorSegmentsByMaxBeat,
           visibleStartBeat,
           visibleEndBeat,
@@ -3017,8 +3309,6 @@ export default function Editor({
       }
     }
 
-    gridLines.sort((a, b) => a.beat - b.beat);
-
     for (const gridLine of gridLines) {
       if (gridLine.beat < 0) continue;
       const y = gridLine.timepos === null
@@ -3076,8 +3366,7 @@ export default function Editor({
       };
 
       // Queue BPM/Time Signature change indicators on the right side.
-      sortedChanges.forEach(change => {
-        const changeBeat = change.startBeat;
+      getBeatIndexedEntriesInRange(bpmIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: changeBeat, change }) => {
         const y = hitLineY - (changeBeat - currentBeat) * pixelsPerBeat;
 
         if (y > 0 && y < height) {
@@ -3090,8 +3379,7 @@ export default function Editor({
       });
 
       // Queue speed change indicators above BPM changes at the same time position.
-      stateRef.current.speedChanges.forEach(sc => {
-        const scBeat = getBeatAtTimepos(sc.timepos, sortedChanges);
+      getBeatIndexedEntriesInRange(speedIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: scBeat, change: sc }) => {
         const y = hitLineY - (scBeat - currentBeat) * pixelsPerBeat;
 
         if (y > 0 && y < height) {
@@ -3465,7 +3753,8 @@ export default function Editor({
       ctx.restore();
     }
 
-    const orderedVisibleNoteEntries = isPreviewPlaybackCanvas
+    const shouldSortPreviewNotes = isPreviewPlaybackCanvas && (isPreview3DMode || isPreviewNoteAppearModeEnabled);
+    const orderedVisibleNoteEntries = shouldSortPreviewNotes
       ? [...visibleNoteEntries].sort((a, b) => {
           if (isPreview3DMode) {
             const distanceSort = (b as PreviewNoteRenderEntry).distance - (a as PreviewNoteRenderEntry).distance;
@@ -3508,7 +3797,7 @@ export default function Editor({
         return;
       }
 
-      if (isPreviewMode && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
+      if (isPreviewMode && HOLD_CENTER_TYPE_SET.has(renderedNote.type)) {
         return;
       }
 
@@ -3620,15 +3909,15 @@ export default function Editor({
         drawCircleMark(noteCenterX, appearedY, Math.min(markAvailableWidth / 2, 6 * combinedScale));
       }
 
-      if (shouldDrawTopIndicators && HOLD_START_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_START_TYPE_SET.has(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'S', combinedScale);
       }
 
-      if (shouldDrawTopIndicators && HOLD_CENTER_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_CENTER_TYPE_SET.has(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'C', combinedScale);
       }
 
-      if (shouldDrawTopIndicators && HOLD_END_TYPES.includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && HOLD_END_TYPE_SET.has(renderedNote.type)) {
         drawNoteLetter(noteCenterX, appearedY, 'E', combinedScale);
       }
 
@@ -3636,7 +3925,7 @@ export default function Editor({
         drawNoteLetter(noteCenterX, appearedY, '?', combinedScale);
       }
 
-      if (shouldDrawTopIndicators && [13, 14, 15, 16].includes(renderedNote.type)) {
+      if (shouldDrawTopIndicators && isArrowFlickType(renderedNote.type)) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2 * combinedScale;
 
@@ -3729,15 +4018,15 @@ export default function Editor({
           );
         }
 
-        if (HOLD_START_TYPES.includes(curveNoteType)) {
+        if (HOLD_START_TYPE_SET.has(curveNoteType)) {
           drawNoteLetter(previewCenterX, previewY, 'S');
         }
 
-        if (HOLD_CENTER_TYPES.includes(curveNoteType)) {
+        if (HOLD_CENTER_TYPE_SET.has(curveNoteType)) {
           drawNoteLetter(previewCenterX, previewY, 'C');
         }
 
-        if (HOLD_END_TYPES.includes(curveNoteType)) {
+        if (HOLD_END_TYPE_SET.has(curveNoteType)) {
           drawNoteLetter(previewCenterX, previewY, 'E');
         }
 
@@ -3745,7 +4034,7 @@ export default function Editor({
           drawNoteLetter(previewCenterX, previewY, '?');
         }
 
-        if ([13, 14, 15, 16].includes(curveNoteType)) {
+        if (isArrowFlickType(curveNoteType)) {
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 2;
 
@@ -3811,19 +4100,19 @@ export default function Editor({
           Math.min((previewPixelWidth - 12) / 2, 6),
         );
       }
-      if (shouldDrawTopIndicators && HOLD_START_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_START_TYPE_SET.has(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'S');
       }
-      if (shouldDrawTopIndicators && HOLD_CENTER_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_CENTER_TYPE_SET.has(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'C');
       }
-      if (shouldDrawTopIndicators && HOLD_END_TYPES.includes(previewType)) {
+      if (shouldDrawTopIndicators && HOLD_END_TYPE_SET.has(previewType)) {
         drawNoteLetter(previewCenterX, previewY, 'E');
       }
       if (shouldDrawTopIndicators && !(previewType in NOTE_TYPES)) {
         drawNoteLetter(previewCenterX, previewY, '?');
       }
-      if (shouldDrawTopIndicators && [13, 14, 15, 16].includes(previewType)) {
+      if (shouldDrawTopIndicators && isArrowFlickType(previewType)) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
 
@@ -3878,7 +4167,7 @@ export default function Editor({
         ctx.save();
         ctx.globalAlpha = 0.08;
         copiedPreviewNotes.forEach(({ note, previewY }) => {
-          if (!HOLD_CONNECTOR_TYPES.includes(note.type) || HOLD_START_TYPES.includes(note.type) || note.parentId === null) {
+          if (!HOLD_CONNECTOR_TYPE_SET.has(note.type) || HOLD_START_TYPE_SET.has(note.type) || note.parentId === null) {
             return;
           }
 
@@ -3980,13 +4269,10 @@ export default function Editor({
     ctx.restore();
 
     if (isPreviewMode) {
-      const previewCanvasCombo = isPreviewPrecomputeEnabled
-        ? (
-            previewComboTimesRef.current.length > 0
-              ? getPreviewComboAtTime(previewComboTimesRef.current, time)
-              : notes.reduce((combo, note) => (note.time <= time ? combo + 1 : combo), 0)
-          )
-        : notes.reduce((combo, note) => (note.time <= time ? combo + 1 : combo), 0);
+      const activePreviewComboTimes = isPreviewPrecomputeEnabled && previewComboTimesRef.current.length > 0
+        ? previewComboTimesRef.current
+        : previewComboTimes;
+      const previewCanvasCombo = getPreviewComboAtTime(activePreviewComboTimes, time);
 
       ctx.save();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -4002,7 +4288,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCurveNoteRenderEntries, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -5355,19 +5641,37 @@ export default function Editor({
 
   const tierBadge = getTierBadge(projectData?.difficulty);
   const shouldBuildChartProjectFiles = !isPreviewMode && isLeftPanelContentVisible && activeLeftPanel === 'editInfo';
-  const chartProjectFiles = useMemo(() => {
+  const [chartProjectFiles, setChartProjectFiles] = useState<ReturnType<typeof buildChartProjectFiles>>([]);
+  const [isChartProjectFilesPending, setIsChartProjectFilesPending] = useState(false);
+
+  useEffect(() => {
     if (!shouldBuildChartProjectFiles) {
-      return [];
+      setChartProjectFiles([]);
+      setIsChartProjectFilesPending(false);
+      return;
     }
 
-    return buildChartProjectFiles({
-      projectData,
-      notes,
-      bpmChanges,
-      speedChanges,
-      offset,
-      chartFileName,
-    });
+    setIsChartProjectFilesPending(true);
+
+    const rebuildChartProjectFiles = () => {
+      setChartProjectFiles(buildChartProjectFiles({
+        projectData,
+        notes,
+        bpmChanges,
+        speedChanges,
+        offset,
+        chartFileName,
+      }));
+      setIsChartProjectFilesPending(false);
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleCallbackId = window.requestIdleCallback(rebuildChartProjectFiles, { timeout: 500 });
+      return () => window.cancelIdleCallback(idleCallbackId);
+    }
+
+    const timeoutId = window.setTimeout(rebuildChartProjectFiles, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [bpmChanges, chartFileName, notes, offset, projectData, shouldBuildChartProjectFiles, speedChanges]);
 
   const jumpToNoteTime = (time: number) => {
@@ -5424,6 +5728,7 @@ export default function Editor({
     handleMetadataFieldKeyDown,
     illustrationPreview,
     chartProjectFiles,
+    isChartProjectFilesPending,
     handleConfirm,
     offset,
     updateOffset,

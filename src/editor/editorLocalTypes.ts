@@ -128,6 +128,13 @@ export interface PreviewCameraMovementSegment {
   deltaXPosition: number;
 }
 
+export interface PreviewCameraMovementInterval {
+  startTime: number;
+  endTime: number;
+  offsetAtStart: number;
+  slope: number;
+}
+
 export interface PreviewCameraTiltSegment {
   startTimepos: number;
   endTimepos: number;

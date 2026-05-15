@@ -40,6 +40,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
     handleMetadataFieldKeyDown,
     illustrationPreview,
     chartProjectFiles,
+    isChartProjectFilesPending,
     handleConfirm,
     offset,
     updateOffset,
@@ -178,7 +179,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <label className="block text-xs text-neutral-400">{text.sidebar.availableFiles}</label>
-                    <span className="text-[11px] text-neutral-500">{chartProjectFiles.length} files</span>
+                    <span className="text-[11px] text-neutral-500">{isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : `${chartProjectFiles.length} files`}</span>
                   </div>
                   <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
                     {chartProjectFiles.map(({ label, name, detail, Icon }) => (
