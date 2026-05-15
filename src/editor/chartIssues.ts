@@ -2,7 +2,7 @@ import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
 import type { Note } from '../types/editorTypes';
 import { formatHistoryNumber, formatNoteLane, formatTimingPosition } from './editorHistory';
 import { PINK_HOLD_CENTER_TYPE, PINK_HOLD_END_TYPE, SNAP_EPSILON } from './editorViewConstants';
-import { getPreviewCameraXPositionOffset } from './previewPlayback';
+import { buildPreviewCameraMovementIntervals, getPreviewCameraXPositionOffset } from './previewPlayback';
 
 export type ChartIssueSeverity = 'warning';
 export type ChartIssueCategory = 'overlap' | 'hold' | 'note' | 'camera';
@@ -23,6 +23,11 @@ const CAMERA_X_POSITION_HALF_RANGE = 10;
 const POSITION_EPSILON = 0.000001;
 
 const getNoteEndLane = (note: Note) => note.lane + note.width;
+const hasFiniteHorizontalBounds = (note: Note) => (
+  Number.isFinite(note.lane)
+  && Number.isFinite(note.width)
+  && Number.isFinite(getNoteEndLane(note))
+);
 
 const doesNoteCoverXPosition = (coveringNote: Note, coveredNote: Note) => (
   coveringNote.lane <= coveredNote.lane + POSITION_EPSILON
@@ -43,13 +48,26 @@ const buildCameraMovementSegments = (notes: Note[], notesById: Map<number, Note>
       return null;
     }
 
+    if (!Number.isFinite(parentNote.time) || !Number.isFinite(note.time)) {
+      return null;
+    }
+
+    if (!hasFiniteHorizontalBounds(parentNote) || !hasFiniteHorizontalBounds(note)) {
+      return null;
+    }
+
     const parentCenter = parentNote.lane + parentNote.width / 2;
     const noteCenter = note.lane + note.width / 2;
+    const deltaXPosition = noteCenter - parentCenter;
+
+    if (!Number.isFinite(deltaXPosition)) {
+      return null;
+    }
 
     return {
       startTime: parentNote.time,
       endTime: note.time,
-      deltaXPosition: noteCenter - parentCenter,
+      deltaXPosition,
     };
   })
   .filter((segment): segment is NonNullable<typeof segment> => (
@@ -106,13 +124,22 @@ export const findChartIssues = (
 
   if (notes.some(isPinkCameraNote)) {
     const cameraMovementSegments = buildCameraMovementSegments(notes, notesById);
+    const cameraMovementIntervals = buildPreviewCameraMovementIntervals(cameraMovementSegments);
 
     notes.forEach((note) => {
       if (DAMAGE_NOTE_TYPES.has(note.type)) {
         return;
       }
 
-      const cameraXPosition = CAMERA_CENTER_X_POSITION + getPreviewCameraXPositionOffset(cameraMovementSegments, note.time);
+      if (!Number.isFinite(note.time) || !hasFiniteHorizontalBounds(note)) {
+        return;
+      }
+
+      const cameraXPosition = CAMERA_CENTER_X_POSITION + getPreviewCameraXPositionOffset(cameraMovementIntervals, note.time);
+      if (!Number.isFinite(cameraXPosition)) {
+        return;
+      }
+
       const minVisibleXPosition = cameraXPosition - CAMERA_X_POSITION_HALF_RANGE;
       const maxVisibleXPosition = cameraXPosition + CAMERA_X_POSITION_HALF_RANGE;
       const noteEndLane = getNoteEndLane(note);
