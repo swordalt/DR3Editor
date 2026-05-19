@@ -14,9 +14,11 @@ export const HOLD_CONNECTOR_TYPES = [3, 4, 5, 6, 7, 8, 10, 11, 17, 18, 19, 20, 2
 export const HOLD_START_TYPES = [3, 5, 10];
 export const HOLD_CENTER_TYPES = [6, 11, 17, 19, 21, 23];
 export const HOLD_END_TYPES = [4, 7, 18, 20, 22, 24];
+export const OFFICIAL_NOTE_SPEED_LOCKED_TYPES = [...HOLD_CENTER_TYPES, ...HOLD_END_TYPES];
 
 export const canTypeHaveParent = (type: number) => HOLD_CENTER_TYPES.includes(type) || HOLD_END_TYPES.includes(type);
 export const shouldOmitParentForType = (type: number) => !canTypeHaveParent(type);
+export const isOfficialNoteSpeedLockedType = (type: number) => OFFICIAL_NOTE_SPEED_LOCKED_TYPES.includes(type);
 
 export const getConnectorFill = (noteType: number) => {
   const color = (NOTE_TYPES[noteType] || UNKNOWN_NOTE_TYPE).color;

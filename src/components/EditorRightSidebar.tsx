@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, Copy, FlipHorizontal, Trash2, X } from 'lucide-react';
 import CommitInput from './CommitInput';
-import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE } from '../constants/editorConstants';
+import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
 import { formatHistoryNumber } from '../editor/editorHistory';
 import { translations } from '../lang';
@@ -11,6 +11,7 @@ export default function EditorRightSidebar(props: any) {
     isRightPanelCompact,
     isRightPanelContentVisible,
     isPreviewMode,
+    isOfficialChartFormat,
     toggleRightPanelCompact,
     selectedSingleNote,
     setSelectedNoteIds,
@@ -35,6 +36,11 @@ export default function EditorRightSidebar(props: any) {
     currentEditorScore,
   } = props;
   const text = translations;
+  const isSelectedNoteSpeedLocked = Boolean(
+    isOfficialChartFormat
+    && selectedSingleNote
+    && isOfficialNoteSpeedLockedType(selectedSingleNote.type),
+  );
 
   return (        <aside className={`${isRightPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-l border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
           <div className={`p-2 border-b border-neutral-800 flex ${isRightPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
@@ -185,7 +191,11 @@ export default function EditorRightSidebar(props: any) {
                       value={selectedSingleNote.speed ?? ''}
                       placeholder={text.common.default}
                       className={notePropertyInputClass}
+                      disabled={isSelectedNoteSpeedLocked}
                       onCommit={(value) => {
+                        if (isSelectedNoteSpeedLocked) {
+                          return;
+                        }
                         const normalizedValue = value.replace(/\s+/g, '');
                         updateSelectedNote({ speed: normalizedValue === '' ? undefined : normalizedValue });
                       }}

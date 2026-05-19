@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorLayout from './components/EditorLayout';
-import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, shouldOmitParentForType } from './constants/editorConstants';
+import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerClient';
 import { buildLevelText } from './utils/levelFormat';
@@ -23,6 +23,7 @@ import {
   MAX_PIXELS_PER_BEAT,
   MIN_PIXELS_PER_BEAT,
   type PreviewDisplayMode,
+  type PreviewModeFormat,
   type SelectionType,
   type StatisticsRefreshRate,
   getStatisticsRefreshIntervalMs,
@@ -138,6 +139,41 @@ const getOffsetInSeconds = (offset: string | number) => {
   const parsedOffset = parseFloat(offset.toString());
   return Number.isFinite(parsedOffset) ? parsedOffset / 1000 : 0;
 };
+
+const getPreviewNoteSpeedSource = (
+  note: Note,
+  isOfficialChartFormat: boolean,
+  isPreviewNoteSpeedChangesEnabled: boolean,
+  isPreviewNoteAppearModeEnabled: boolean,
+) => {
+  if (!isPreviewNoteSpeedChangesEnabled) {
+    return undefined;
+  }
+
+  if (isOfficialChartFormat && isOfficialNoteSpeedLockedType(note.type)) {
+    return undefined;
+  }
+
+  return isPreviewNoteAppearModeEnabled && note.appearMode === 'P'
+    ? APPEAR_MODE_P_NSC
+    : note.speed;
+};
+
+const getPreviewConnectorParentSpeedSource = (
+  note: Note,
+  isOfficialChartFormat: boolean,
+  isPreviewNoteSpeedChangesEnabled: boolean,
+  isPreviewNoteAppearModeEnabled: boolean,
+) => (
+  isOfficialChartFormat
+    ? undefined
+    : getPreviewNoteSpeedSource(
+        note,
+        isOfficialChartFormat,
+        isPreviewNoteSpeedChangesEnabled,
+        isPreviewNoteAppearModeEnabled,
+      )
+);
 const text = translations;
 
 const createDr3FpPreviewLogEntry = (message: string, detail?: string): Dr3FpPreviewLogEntry => ({
@@ -399,6 +435,7 @@ export default function Editor({
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
   const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
   const [isPreviewNoteAppearModeEnabled, setIsPreviewNoteAppearModeEnabled] = useState(initialEditorSettings.isPreviewNoteAppearModeEnabled);
+  const [previewModeFormat, setPreviewModeFormat] = useState<PreviewModeFormat>(initialEditorSettings.previewModeFormat);
   const [previewDisplayMode, setPreviewDisplayMode] = useState<PreviewDisplayMode>(initialEditorSettings.previewDisplayMode);
   const [preview3DTiltDegrees, setPreview3DTiltDegrees] = useState(initialEditorSettings.preview3DTiltDegrees);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
@@ -509,6 +546,7 @@ export default function Editor({
       isPreviewCameraMovementEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewNoteAppearModeEnabled,
+      previewModeFormat,
       previewDisplayMode,
       preview3DTiltDegrees,
     });
@@ -532,6 +570,7 @@ export default function Editor({
     isPreviewCameraMovementEnabled,
     isPreviewNoteSpeedChangesEnabled,
     isPreviewNoteAppearModeEnabled,
+    previewModeFormat,
     previewDisplayMode,
     preview3DTiltDegrees,
   ]);
@@ -855,6 +894,9 @@ export default function Editor({
 
   const timedBpmChanges = useMemo(() => convertBpmChangesToTime(bpmChanges), [bpmChanges]);
   const isOfficialChartFormat = (projectData?.chartFormat ?? 'Official') === 'Official';
+  const isOfficialPreviewModeFormat = previewModeFormat === 'default'
+    ? isOfficialChartFormat
+    : previewModeFormat === 'official';
   const hasValidProjectSongId = Boolean(projectData && isValidSongId(projectData.songId));
   const hasExportIncompatibleTimeSignature = useMemo(
     () => !isOfficialChartFormat && bpmChanges.some(change => change.timeSignature.trim() !== '4/4'),
@@ -1322,13 +1364,12 @@ export default function Editor({
           playbackTime: note.time,
           distance: getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex),
           noteSpeed: parsePreviewNoteSpeed(
-            isPreviewNoteSpeedChangesEnabled
-              ? (
-                  isPreviewNoteAppearModeEnabled && note.appearMode === 'P'
-                    ? APPEAR_MODE_P_NSC
-                    : note.speed
-                )
-              : undefined,
+            getPreviewNoteSpeedSource(
+              note,
+              isOfficialPreviewModeFormat,
+              isPreviewNoteSpeedChangesEnabled,
+              isPreviewNoteAppearModeEnabled,
+            ),
             timepos,
             speedDistanceIndex,
           ),
@@ -1338,6 +1379,7 @@ export default function Editor({
     },
     [
       getTimeposFromTime,
+      isOfficialPreviewModeFormat,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
@@ -1415,24 +1457,22 @@ export default function Editor({
           noteDistance,
           parentDistance,
           noteSpeed: noteEntry?.noteSpeed ?? parsePreviewNoteSpeed(
-            isPreviewNoteSpeedChangesEnabled
-              ? (
-                  isPreviewNoteAppearModeEnabled && segment.note.appearMode === 'P'
-                    ? APPEAR_MODE_P_NSC
-                    : segment.note.speed
-                )
-              : undefined,
+            getPreviewNoteSpeedSource(
+              segment.note,
+              isOfficialPreviewModeFormat,
+              isPreviewNoteSpeedChangesEnabled,
+              isPreviewNoteAppearModeEnabled,
+            ),
             noteTimepos,
             speedDistanceIndex,
           ),
-          parentSpeed: parentEntry?.noteSpeed ?? parsePreviewNoteSpeed(
-            isPreviewNoteSpeedChangesEnabled
-              ? (
-                  isPreviewNoteAppearModeEnabled && segment.parentNote.appearMode === 'P'
-                    ? APPEAR_MODE_P_NSC
-                    : segment.parentNote.speed
-                )
-              : undefined,
+          parentSpeed: parsePreviewNoteSpeed(
+            getPreviewConnectorParentSpeedSource(
+              segment.parentNote,
+              isOfficialPreviewModeFormat,
+              isPreviewNoteSpeedChangesEnabled,
+              isPreviewNoteAppearModeEnabled,
+            ),
             parentTimepos,
             speedDistanceIndex,
           ),
@@ -1448,6 +1488,7 @@ export default function Editor({
     },
     [
       getTimeposFromTime,
+      isOfficialPreviewModeFormat,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
@@ -5860,6 +5901,7 @@ export default function Editor({
   const rightSidebarProps = {
     isRightPanelCompact,
     isRightPanelContentVisible,
+    isOfficialChartFormat,
     toggleRightPanelCompact,
     selectedSingleNote,
     setSelectedNoteIds,
@@ -5912,6 +5954,7 @@ export default function Editor({
       isScrollDirectionInverted={isScrollDirectionInverted}
       areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
       isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
+      previewModeFormat={previewModeFormat}
       isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
       isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
       selectionType={selectionType}
@@ -5933,6 +5976,7 @@ export default function Editor({
       setIsScrollDirectionInverted={setIsScrollDirectionInverted}
       setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
       setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
+      setPreviewModeFormat={setPreviewModeFormat}
       setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
       setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
       setSelectionType={setSelectionType}
