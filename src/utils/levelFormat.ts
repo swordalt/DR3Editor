@@ -2,11 +2,16 @@ import type { BpmChange, Note, ProjectData, SpeedChange } from '../types/editorT
 import { HOLD_START_TYPES } from '../constants/editorConstants';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat } from './editorUtils';
 
-interface ParsedLevelData {
+export interface ParsedLevelData {
   notes: Note[];
   bpmChanges: BpmChange[];
   speedChanges: SpeedChange[];
   offset: number;
+}
+
+export interface LevelTextValidationError {
+  lineNumber: number;
+  message: string;
 }
 
 const DEFAULT_BPM_CHANGE: BpmChange = {
@@ -16,6 +21,8 @@ const DEFAULT_BPM_CHANGE: BpmChange = {
 };
 
 const APPEAR_MODES = new Set(['L', 'R', 'H', 'P', 'N']);
+const CHART_NUMBER_PATTERN = '-?(?:\\d+\\.?\\d*|\\.\\d+)';
+const NON_NEGATIVE_CHART_NUMBER_PATTERN = '(?:\\d+\\.?\\d*|\\.\\d+)';
 
 const formatChartNumber = (value: number, precision = 3) => {
   const roundedValue = Number(value.toFixed(precision));
@@ -46,6 +53,101 @@ const convertTimeposToBpmChange = (timepos: number, bpm: number): BpmChange => {
     timeSignature: '4/4',
   };
 };
+
+export function validateLevelText(text: string): LevelTextValidationError | null {
+  const lines = text.split('\n');
+
+  for (const [index, line] of lines.entries()) {
+    const normalizedLine = line.trim();
+    const lineNumber = index + 1;
+
+    if (normalizedLine === '') {
+      continue;
+    }
+
+    if (new RegExp(`^#OFFSET=${CHART_NUMBER_PATTERN};$`).test(normalizedLine)) {
+      continue;
+    }
+
+    if (normalizedLine === '#BEAT=1;') {
+      continue;
+    }
+
+    if (/^#BPM_NUMBER=\d+;$/.test(normalizedLine)) {
+      continue;
+    }
+
+    if (new RegExp(`^#BPM \\[\\d+\\]=${NON_NEGATIVE_CHART_NUMBER_PATTERN};$`).test(normalizedLine)) {
+      continue;
+    }
+
+    if (new RegExp(`^#BPMS\\[\\d+\\]=${NON_NEGATIVE_CHART_NUMBER_PATTERN};$`).test(normalizedLine)) {
+      continue;
+    }
+
+    if (/^#SCN=\d+;$/.test(normalizedLine)) {
+      continue;
+    }
+
+    if (new RegExp(`^#SC \\[\\d+\\]=${CHART_NUMBER_PATTERN};$`).test(normalizedLine)) {
+      continue;
+    }
+
+    if (new RegExp(`^#SCI\\[\\d+\\]=${NON_NEGATIVE_CHART_NUMBER_PATTERN};$`).test(normalizedLine)) {
+      continue;
+    }
+
+    if (normalizedLine.startsWith('<')) {
+      const columns = [...normalizedLine.matchAll(/<([^>]*)>/g)].map((match) => match[1]);
+      const reconstructedLine = columns.map(column => `<${column}>`).join('');
+
+      if (reconstructedLine !== normalizedLine || (columns.length !== 7 && columns.length !== 8)) {
+        return { lineNumber, message: 'Note lines must contain 7 fields, plus optional appear mode.' };
+      }
+
+      const [id, type, beatPos, lane, width, speed, parentId, appearMode] = columns;
+      const numericValues = [
+        { label: 'note ID', value: id, integer: true },
+        { label: 'note type', value: type, integer: true },
+        { label: 'time position', value: beatPos, integer: false },
+        { label: 'x position', value: lane, integer: false },
+        { label: 'width', value: width, integer: false },
+        { label: 'parent ID', value: parentId, integer: true },
+      ];
+
+      for (const numericValue of numericValues) {
+        const parsedValue = Number(numericValue.value);
+        if (!Number.isFinite(parsedValue) || (numericValue.integer && !Number.isInteger(parsedValue))) {
+          return { lineNumber, message: `Invalid ${numericValue.label}.` };
+        }
+      }
+
+      if (speed.replace(/\s+/g, '') === '') {
+        return { lineNumber, message: 'Note speed cannot be empty.' };
+      }
+
+      if (appearMode && !APPEAR_MODES.has(appearMode.trim().toUpperCase())) {
+        return { lineNumber, message: 'Appear mode must be L, R, H, P, or N.' };
+      }
+
+      continue;
+    }
+
+    return { lineNumber, message: 'Unrecognized chart line.' };
+  }
+
+  return null;
+}
+
+export function parseValidatedLevelText(text: string): ParsedLevelData {
+  const validationError = validateLevelText(text);
+
+  if (validationError) {
+    throw Object.assign(new Error(validationError.message), validationError);
+  }
+
+  return parseLevelText(text);
+}
 
 export function parseLevelText(text: string): ParsedLevelData {
   const lines = text.split('\n');

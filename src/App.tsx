@@ -9,6 +9,9 @@ const Editor = lazy(() => import('./Editor'));
 
 const DEFAULT_BPM_CHANGES: BpmChange[] = [{ timepos: 0, bpm: 180, timeSignature: '4/4' }];
 const DEFAULT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
+const SILENT_IMPORT_AUDIO_SAMPLE_RATE = 8000;
+const SILENT_IMPORT_AUDIO_MARGIN_SECONDS = 5;
+const SILENT_IMPORT_AUDIO_MIN_SECONDS = 10;
 const EXAMPLES = [
   {
     id: 'poppy',
@@ -65,6 +68,82 @@ const getChartMetadataFromFileName = (fileName: string) => {
   return match
     ? { songId: match[1], difficulty: match[2] }
     : null;
+};
+
+const sanitizeSongId = (value: string) => {
+  const sanitized = value.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return sanitized || 'imported_chart';
+};
+
+const getSilentImportAudioDuration = (notes: Note[]) => {
+  const lastNoteTime = notes.reduce((maxTime, note) => (
+    Number.isFinite(note.time) ? Math.max(maxTime, note.time) : maxTime
+  ), 0);
+
+  return Math.max(SILENT_IMPORT_AUDIO_MIN_SECONDS, lastNoteTime + SILENT_IMPORT_AUDIO_MARGIN_SECONDS);
+};
+
+const writeAscii = (view: DataView, offset: number, value: string) => {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+};
+
+const createSilentImportAudioUrl = (notes: Note[]) => {
+  const duration = getSilentImportAudioDuration(notes);
+  const sampleCount = Math.max(1, Math.ceil(duration * SILENT_IMPORT_AUDIO_SAMPLE_RATE));
+  const bytesPerSample = 2;
+  const channelCount = 1;
+  const dataSize = sampleCount * bytesPerSample * channelCount;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, SILENT_IMPORT_AUDIO_SAMPLE_RATE, true);
+  view.setUint32(28, SILENT_IMPORT_AUDIO_SAMPLE_RATE * channelCount * bytesPerSample, true);
+  view.setUint16(32, channelCount * bytesPerSample, true);
+  view.setUint16(34, 8 * bytesPerSample, true);
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+};
+
+const createAudioLessImportProjectData = ({
+  sourceName,
+  chartMetadata,
+  difficulty,
+  firstBpm,
+  notes,
+}: {
+  sourceName: string;
+  chartMetadata: ReturnType<typeof getChartMetadataFromFileName>;
+  difficulty?: string;
+  firstBpm: number;
+  notes: Note[];
+}): ProjectData => {
+  const sourceBaseName = getFileBaseName(sourceName);
+  const songId = sanitizeSongId(chartMetadata?.songId || sourceBaseName);
+  const inferredDifficulty = difficulty || chartMetadata?.difficulty || '0';
+
+  return {
+    chartFormat: 'Official',
+    songId,
+    songName: songId,
+    songArtist: '',
+    songBpm: firstBpm.toString(),
+    difficulty: inferredDifficulty,
+    songFile: null,
+    songIllustration: null,
+    bpm: firstBpm,
+    audioUrl: createSilentImportAudioUrl(notes),
+  };
 };
 
 const getMimeType = (extension: string) => {
@@ -382,7 +461,13 @@ export default function App() {
         audioUrl: URL.createObjectURL(audioFile),
       });
     } else {
-      setInitialProjectData(null);
+      setInitialProjectData(createAudioLessImportProjectData({
+        sourceName: chartFileName,
+        chartMetadata,
+        difficulty: difficulty || inferredDifficulty || '0',
+        firstBpm,
+        notes: parsedLevel.notes,
+      }));
     }
 
     await updateImportLoadStatus(text.importStatus.openingEditor);
@@ -532,18 +617,12 @@ export default function App() {
             const chartMetadata = getChartMetadataFromFileName(file.name);
 
             setInitialChartFileName(file.name);
-            setInitialProjectData(chartMetadata ? {
-              chartFormat: 'Official',
-              songId: chartMetadata.songId,
-              songName: chartMetadata.songId,
-              songArtist: '',
-              songBpm: firstBpm.toString(),
-              difficulty: chartMetadata.difficulty,
-              songFile: null,
-              songIllustration: null,
-              bpm: firstBpm,
-              audioUrl: '',
-            } : null);
+            setInitialProjectData(createAudioLessImportProjectData({
+              sourceName: file.name,
+              chartMetadata,
+              firstBpm,
+              notes: parsedLevel.notes,
+            }));
             await updateImportLoadStatus(text.importStatus.openingEditor);
             setView({page: 'editor', mode: 'import'});
           } catch (error) {

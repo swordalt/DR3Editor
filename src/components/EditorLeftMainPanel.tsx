@@ -36,6 +36,8 @@ export default function EditorLeftMainPanel(props: any) {
     setFormData,
     illustrationPreview,
     chartProjectFiles,
+    infoBadge,
+    chartIssuesBadge,
     handleConfirm,
     offset,
     updateOffset,
@@ -82,6 +84,22 @@ export default function EditorLeftMainPanel(props: any) {
     undoneOperationIds,
   } = props;
   const text = translations;
+  const formatBadgeCount = (count: number) => (
+    count > 1000 ? `${Math.floor(count / 1000)}k` : count.toString()
+  );
+  const renderTabBadge = (badge: { count: number; tone: 'red' | 'yellow' } | null | undefined) => {
+    if (!badge) return null;
+
+    const toneClass = badge.tone === 'red'
+      ? 'bg-red-500 text-white'
+      : 'bg-amber-400 text-neutral-950';
+
+    return (
+      <span className={`ml-3 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums ${toneClass}`}>
+        {formatBadgeCount(badge.count)}
+      </span>
+    );
+  };
 
   return (
     <>
@@ -91,9 +109,10 @@ export default function EditorLeftMainPanel(props: any) {
               <div className="flex flex-col gap-2 flex-1">
                 <button 
                   onClick={handleEditInfo}
-                  className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
                 >
-                  {text.sidebar.infoAndFiles}
+                  <span className="min-w-0 truncate">{text.sidebar.infoAndFiles}</span>
+                  {renderTabBadge(infoBadge)}
                 </button>
                 <button onClick={() => setActiveLeftPanel('bpmTiming')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.bpmTiming}
@@ -110,8 +129,15 @@ export default function EditorLeftMainPanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('history')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.operationHistory}
                 </button>
-                <button onClick={() => setActiveLeftPanel('chartIssues')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
-                  {text.sidebar.chartIssues}
+                <button
+                  onClick={() => {
+                    recheckChartIssues();
+                    setActiveLeftPanel('chartIssues');
+                  }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
+                >
+                  <span className="min-w-0 truncate">{text.sidebar.chartIssues}</span>
+                  {renderTabBadge(chartIssuesBadge)}
                 </button>
               </div>
               

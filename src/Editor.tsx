@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorLayout from './components/EditorLayout';
+import EditorFilePreviewModal from './components/EditorFilePreviewModal';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerClient';
-import { buildLevelText } from './utils/levelFormat';
+import { buildLevelText, parseValidatedLevelText } from './utils/levelFormat';
 import { applyAudioPlaybackSpeed } from './editor/audioPlayback';
 import {
   MAX_OPERATION_HISTORY_ENTRIES,
@@ -99,7 +100,7 @@ import {
 import { SOUND_URLS, getHitSoundVolume, musicAudioGraphs, type MusicAudioGraph } from './editor/editorAudioAssets';
 import { formatByteSize } from './editor/editorFileHelpers';
 import { getMirroredNoteLane } from './editor/editorNoteTransforms';
-import { buildChartProjectFiles, type ChartProjectFileDetails } from './editor/chartProjectFiles';
+import { buildChartProjectFiles, type ChartProjectFileDetails, type ChartProjectFileEntry } from './editor/chartProjectFiles';
 import { calculateChartProjectFileDetailsInWorker } from './utils/chartProjectFilesWorkerClient';
 import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
 import {
@@ -108,6 +109,7 @@ import {
   hasInvalidMetadataFields,
   isValidDifficulty,
   isValidSongId,
+  isValidSongBpm,
   type MetadataField,
   type MetadataTouchedFields,
 } from './editor/metadataValidation';
@@ -467,6 +469,8 @@ export default function Editor({
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [operationHistory, setOperationHistory] = useState<OperationHistoryEntry[]>([]);
   const [chartIssues, setChartIssues] = useState<ChartIssue[]>([]);
+  const [previewedProjectFile, setPreviewedProjectFile] = useState<ChartProjectFileEntry | null>(null);
+  const [previewedProjectFileUrl, setPreviewedProjectFileUrl] = useState('');
   const [undoneOperationIds, setUndoneOperationIds] = useState<Set<number>>(() => new Set());
   const [redoableOperationIds, setRedoableOperationIds] = useState<number[]>([]);
   const [shouldShowUndoneOperations, setShouldShowUndoneOperations] = useState(true);
@@ -5324,6 +5328,7 @@ export default function Editor({
         }, 0);
 
         setNotes(organizedNotes);
+        setChartIssues(findChartIssues(organizedNotes, getTimeposFromTime));
         setSelectedNoteIds(prev => prev
           .map(id => nextIdByOriginalId.get(id))
           .filter((id): id is number => id !== undefined));
@@ -5528,6 +5533,29 @@ export default function Editor({
     currentEditorCombo,
     currentEditorScore,
   } = chartStatistics;
+  const leftSidebarInfoBadge = useMemo(() => {
+    const requiredMissingCount = [
+      !projectData || !isValidSongId(projectData.songId),
+      !projectData || !isValidSongBpm(projectData.songBpm || projectData.bpm.toString()),
+      !projectData || !isValidDifficulty(projectData.difficulty),
+      !projectData?.songFile,
+    ].filter(Boolean).length;
+    const optionalMissingCount = [
+      !projectData?.songName?.trim(),
+      !projectData?.songArtist?.trim(),
+      !projectData?.songIllustration,
+    ].filter(Boolean).length;
+    const count = requiredMissingCount + optionalMissingCount;
+
+    return count > 0
+      ? { count, tone: requiredMissingCount > 0 ? 'red' : 'yellow' }
+      : null;
+  }, [projectData]);
+  const leftSidebarChartIssuesBadge = useMemo(() => (
+    chartIssues.length > 0
+      ? { count: chartIssues.length, tone: 'yellow' }
+      : null
+  ), [chartIssues.length]);
   const notePropertyInputClass = 'w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600';
   const bpmChangeGridClass = isOfficialChartFormat
     ? 'grid grid-cols-[2rem_minmax(0,1.25fr)_minmax(0,1fr)_1.25rem] gap-2'
@@ -5724,6 +5752,110 @@ export default function Editor({
     chartFileName,
     details: chartProjectFileDetails,
   }), [chartFileName, chartProjectFileDetails, projectData]);
+  const previewedProjectFileText = useMemo(() => {
+    if (!previewedProjectFile) return '';
+
+    if (previewedProjectFile.id === 'chart') {
+      return buildLevelText({
+        projectData,
+        notes,
+        bpmChanges,
+        speedChanges,
+        offset,
+      });
+    }
+
+    if (previewedProjectFile.id === 'info' && projectData) {
+      const firstBpm = [...bpmChanges].sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))[0]?.bpm;
+      return `${projectData.songName || ''}\n${projectData.songArtist || ''}\n${firstBpm || projectData.bpm}\n`;
+    }
+
+    return '';
+  }, [bpmChanges, notes, offset, previewedProjectFile, projectData, speedChanges]);
+  const savePreviewedChartText = useCallback((chartText: string): { ok: true } | { ok: false; lineNumber: number; message: string } => {
+    try {
+      const parsedLevel = parseValidatedLevelText(chartText);
+      const nextBpmChanges = parsedLevel.bpmChanges.length > 0
+        ? parsedLevel.bpmChanges
+        : [{ timepos: 0, bpm: projectData?.bpm || 120, timeSignature: '4/4' }];
+      const nextTimedBpmChanges = convertBpmChangesToTime(nextBpmChanges);
+      const getNextTimeposFromTime = (time: number) => {
+        const totalBeats = getBeatAtTime(time, nextTimedBpmChanges);
+        let currentMeasureBeat = 0;
+        let measureCount = 0;
+        let currentBeatsPerMeasure = 4;
+
+        while (measureCount < 10000) {
+          const timeAtMeasure = getTimeAtBeat(currentMeasureBeat, nextTimedBpmChanges);
+          const activeChange = getActiveChange(timeAtMeasure + 0.001, nextTimedBpmChanges);
+          currentBeatsPerMeasure = parseInt(activeChange.timeSignature.split('/')[0], 10) || 4;
+
+          if (totalBeats < currentMeasureBeat + currentBeatsPerMeasure) {
+            break;
+          }
+
+          currentMeasureBeat += currentBeatsPerMeasure;
+          measureCount++;
+        }
+
+        const beatInMeasure = totalBeats - currentMeasureBeat;
+        return measureCount + beatInMeasure / currentBeatsPerMeasure;
+      };
+
+      recordOperation({
+        category: 'note',
+        title: 'Edited chart file',
+        detail: `Imported ${parsedLevel.notes.length} notes from chart text`,
+      });
+      setNotes(parsedLevel.notes);
+      setBpmChanges(nextBpmChanges);
+      setSpeedChanges(parsedLevel.speedChanges);
+      setOffset(parsedLevel.offset);
+      setChartIssues(findChartIssues(parsedLevel.notes, getNextTimeposFromTime));
+      return { ok: true };
+    } catch (error) {
+      const parsedError = error as Partial<{ lineNumber: number; message: string }>;
+      return {
+        ok: false,
+        lineNumber: parsedError.lineNumber || 1,
+        message: parsedError.message || 'Invalid chart file.',
+      };
+    }
+  }, [projectData?.bpm, recordOperation]);
+
+  useEffect(() => {
+    if (!previewedProjectFile) {
+      setPreviewedProjectFileUrl('');
+      return;
+    }
+
+    if (previewedProjectFile.id === 'audio') {
+      setPreviewedProjectFileUrl(projectData?.audioUrl || '');
+      return;
+    }
+
+    if (previewedProjectFile.id !== 'illustration' || !projectData?.songIllustration) {
+      setPreviewedProjectFileUrl('');
+      return;
+    }
+
+    const url = URL.createObjectURL(projectData.songIllustration);
+    setPreviewedProjectFileUrl(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [previewedProjectFile, projectData]);
+
+  useEffect(() => {
+    if (!previewedProjectFile) return;
+
+    const isPreviewedFileAvailable = chartProjectFiles.some(file => (
+      file.id === previewedProjectFile.id && file.name === previewedProjectFile.name
+    ));
+
+    if (!isPreviewedFileAvailable) {
+      setPreviewedProjectFile(null);
+    }
+  }, [chartProjectFiles, previewedProjectFile]);
 
   useEffect(() => {
     if (!shouldBuildChartProjectFiles) {
@@ -5817,6 +5949,9 @@ export default function Editor({
     illustrationPreview,
     chartProjectFiles,
     isChartProjectFilesPending,
+    onPreviewProjectFile: setPreviewedProjectFile,
+    infoBadge: leftSidebarInfoBadge,
+    chartIssuesBadge: leftSidebarChartIssuesBadge,
     handleConfirm,
     offset,
     updateOffset,
@@ -5927,124 +6062,133 @@ export default function Editor({
   };
 
   return (
-    <EditorLayout
-      mode={mode}
-      onBack={onBack}
-      isModalOpen={isModalOpen}
-      setIsModalOpen={setIsModalOpen}
-      formData={formData}
-      setFormData={setFormData}
-      invalidMetadataFields={visibleInvalidMetadataFields}
-      showMetadataFieldValidation={showMetadataFieldValidation}
-      handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
-      handleConfirm={handleConfirm}
-      projectData={projectData}
-      audioRef={audioRef}
-      setDuration={setDuration}
-      stateRef={stateRef}
-      isExitWarningOpen={isExitWarningOpen}
-      isSettingsOpen={isSettingsOpen}
-      isHelpOpen={isHelpOpen}
-      isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
-      dr3FpPreviewStatus={dr3FpPreviewStatus}
-      dr3FpPreviewLogs={dr3FpPreviewLogs}
-      isExitWarningEnabled={isExitWarningEnabled}
-      isBackdropBlurDisabled={isBackdropBlurDisabled}
-      isAnimationDisabled={isAnimationDisabled}
-      isScrollDirectionInverted={isScrollDirectionInverted}
-      areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
-      isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
-      previewModeFormat={previewModeFormat}
-      isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
-      isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
-      selectionType={selectionType}
-      statisticsRefreshRate={statisticsRefreshRate}
-      musicVolume={musicVolume}
-      tapSoundVolume={tapSoundVolume}
-      flickSoundVolume={flickSoundVolume}
-      isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
-      isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
-      isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
-      isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
-      setIsExitWarningOpen={setIsExitWarningOpen}
-      setIsSettingsOpen={setIsSettingsOpen}
-      setIsHelpOpen={setIsHelpOpen}
-      setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
-      setIsExitWarningEnabled={setIsExitWarningEnabled}
-      setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
-      setIsAnimationDisabled={setIsAnimationDisabled}
-      setIsScrollDirectionInverted={setIsScrollDirectionInverted}
-      setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
-      setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
-      setPreviewModeFormat={setPreviewModeFormat}
-      setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
-      setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
-      setSelectionType={setSelectionType}
-      setStatisticsRefreshRate={setStatisticsRefreshRate}
-      setMusicVolume={setMusicVolume}
-      setTapSoundVolume={setTapSoundVolume}
-      setFlickSoundVolume={setFlickSoundVolume}
-      setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
-      setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
-      setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
-      setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
-      tierBadge={tierBadge}
-      isXPositionGridEnabled={isXPositionGridEnabled}
-      isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
-      isPlaying={isPlaying}
-      isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
-      isPreviewMode={isPreviewMode}
-      isExportMenuOpen={isExportMenuOpen}
-      isPreviewMenuOpen={isPreviewMenuOpen}
-      isExportDisabled={isExportDisabled}
-      hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
-      duration={timelineDuration}
-      currentTime={currentTime}
-      effectiveGridZoom={effectiveGridZoom}
-      pixelsPerBeat={pixelsPerBeat}
-      playbackSpeed={playbackSpeed}
-      bpmChanges={bpmChanges}
-      progressBarRef={progressBarRef}
-      timeDisplayRef={timeDisplayRef}
-      isDraggingProgress={isDraggingProgress}
-      isProgressBarInteractive={isProgressBarInteractive}
-      openExitWarning={openExitWarning}
-      togglePlay={togglePlay}
-      handleSeekChange={handleSeekChange}
-      setIsXPositionGridEnabled={setIsXPositionGridEnabled}
-      setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
-      setIsExportMenuOpen={setIsExportMenuOpen}
-      setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
-      setIsPreviewMenuOpen={setIsPreviewMenuOpen}
-      changePlaybackSpeed={changePlaybackSpeed}
-      openHelp={openHelp}
-      openSettings={openSettings}
-      togglePreviewMode={togglePreviewMode}
-      previewDr3Fp={previewDr3Fp}
-      exportDr3Viewer={exportDr3Viewer}
-      exportDr3Fp={exportDr3Fp}
-      fps={fps}
-      renderedObjects={renderedObjects}
-      onPerformanceStatsMouseEnter={() => {
-        shouldCountRenderedObjectsRef.current = true;
-        setIsFpsCounterHovered(true);
-        drawGrid();
-        updateRenderedObjectsDisplay(true);
-      }}
-      onPerformanceStatsMouseLeave={() => {
-        shouldCountRenderedObjectsRef.current = false;
-        setIsFpsCounterHovered(false);
-        renderedObjectsRef.current = 0;
-        renderedObjectsDisplayLastUpdateRef.current = 0;
-        setRenderedObjects(0);
-      }}
-      leftSidebarProps={leftSidebarProps}
-      previewDisplayMode={previewDisplayMode}
-      setPreviewDisplayMode={setPreviewDisplayMode}
-      preview3DTiltDegrees={preview3DTiltDegrees}
-      setPreview3DTiltDegrees={setPreview3DTiltDegrees}
-      canvasStageProps={canvasStageProps}
-      rightSidebarProps={rightSidebarProps}
-    />
+    <>
+      <EditorLayout
+        mode={mode}
+        onBack={onBack}
+        isModalOpen={isModalOpen}
+        setIsModalOpen={setIsModalOpen}
+        formData={formData}
+        setFormData={setFormData}
+        invalidMetadataFields={visibleInvalidMetadataFields}
+        showMetadataFieldValidation={showMetadataFieldValidation}
+        handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
+        handleConfirm={handleConfirm}
+        projectData={projectData}
+        audioRef={audioRef}
+        setDuration={setDuration}
+        stateRef={stateRef}
+        isExitWarningOpen={isExitWarningOpen}
+        isSettingsOpen={isSettingsOpen}
+        isHelpOpen={isHelpOpen}
+        isDr3FpPreviewInfoOpen={isDr3FpPreviewInfoOpen}
+        dr3FpPreviewStatus={dr3FpPreviewStatus}
+        dr3FpPreviewLogs={dr3FpPreviewLogs}
+        isExitWarningEnabled={isExitWarningEnabled}
+        isBackdropBlurDisabled={isBackdropBlurDisabled}
+        isAnimationDisabled={isAnimationDisabled}
+        isScrollDirectionInverted={isScrollDirectionInverted}
+        areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
+        isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
+        previewModeFormat={previewModeFormat}
+        isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
+        isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
+        selectionType={selectionType}
+        statisticsRefreshRate={statisticsRefreshRate}
+        musicVolume={musicVolume}
+        tapSoundVolume={tapSoundVolume}
+        flickSoundVolume={flickSoundVolume}
+        isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
+        isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
+        isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
+        isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+        setIsExitWarningOpen={setIsExitWarningOpen}
+        setIsSettingsOpen={setIsSettingsOpen}
+        setIsHelpOpen={setIsHelpOpen}
+        setIsDr3FpPreviewInfoOpen={setIsDr3FpPreviewInfoOpen}
+        setIsExitWarningEnabled={setIsExitWarningEnabled}
+        setIsBackdropBlurDisabled={setIsBackdropBlurDisabled}
+        setIsAnimationDisabled={setIsAnimationDisabled}
+        setIsScrollDirectionInverted={setIsScrollDirectionInverted}
+        setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
+        setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
+        setPreviewModeFormat={setPreviewModeFormat}
+        setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
+        setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
+        setSelectionType={setSelectionType}
+        setStatisticsRefreshRate={setStatisticsRefreshRate}
+        setMusicVolume={setMusicVolume}
+        setTapSoundVolume={setTapSoundVolume}
+        setFlickSoundVolume={setFlickSoundVolume}
+        setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
+        setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
+        setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
+        setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
+        tierBadge={tierBadge}
+        isXPositionGridEnabled={isXPositionGridEnabled}
+        isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
+        isPlaying={isPlaying}
+        isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
+        isPreviewMode={isPreviewMode}
+        isExportMenuOpen={isExportMenuOpen}
+        isPreviewMenuOpen={isPreviewMenuOpen}
+        isExportDisabled={isExportDisabled}
+        hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
+        duration={timelineDuration}
+        currentTime={currentTime}
+        effectiveGridZoom={effectiveGridZoom}
+        pixelsPerBeat={pixelsPerBeat}
+        playbackSpeed={playbackSpeed}
+        bpmChanges={bpmChanges}
+        progressBarRef={progressBarRef}
+        timeDisplayRef={timeDisplayRef}
+        isDraggingProgress={isDraggingProgress}
+        isProgressBarInteractive={isProgressBarInteractive}
+        openExitWarning={openExitWarning}
+        togglePlay={togglePlay}
+        handleSeekChange={handleSeekChange}
+        setIsXPositionGridEnabled={setIsXPositionGridEnabled}
+        setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
+        setIsExportMenuOpen={setIsExportMenuOpen}
+        setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
+        setIsPreviewMenuOpen={setIsPreviewMenuOpen}
+        changePlaybackSpeed={changePlaybackSpeed}
+        openHelp={openHelp}
+        openSettings={openSettings}
+        togglePreviewMode={togglePreviewMode}
+        previewDr3Fp={previewDr3Fp}
+        exportDr3Viewer={exportDr3Viewer}
+        exportDr3Fp={exportDr3Fp}
+        fps={fps}
+        renderedObjects={renderedObjects}
+        onPerformanceStatsMouseEnter={() => {
+          shouldCountRenderedObjectsRef.current = true;
+          setIsFpsCounterHovered(true);
+          drawGrid();
+          updateRenderedObjectsDisplay(true);
+        }}
+        onPerformanceStatsMouseLeave={() => {
+          shouldCountRenderedObjectsRef.current = false;
+          setIsFpsCounterHovered(false);
+          renderedObjectsRef.current = 0;
+          renderedObjectsDisplayLastUpdateRef.current = 0;
+          setRenderedObjects(0);
+        }}
+        leftSidebarProps={leftSidebarProps}
+        previewDisplayMode={previewDisplayMode}
+        setPreviewDisplayMode={setPreviewDisplayMode}
+        preview3DTiltDegrees={preview3DTiltDegrees}
+        setPreview3DTiltDegrees={setPreview3DTiltDegrees}
+        canvasStageProps={canvasStageProps}
+        rightSidebarProps={rightSidebarProps}
+      />
+      <EditorFilePreviewModal
+        file={previewedProjectFile}
+        textContent={previewedProjectFileText}
+        mediaUrl={previewedProjectFileUrl}
+        onSaveChartText={savePreviewedChartText}
+        onClose={() => setPreviewedProjectFile(null)}
+      />
+    </>
   );
 }

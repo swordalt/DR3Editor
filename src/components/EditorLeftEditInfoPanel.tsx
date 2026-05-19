@@ -41,6 +41,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
     illustrationPreview,
     chartProjectFiles,
     isChartProjectFilesPending,
+    onPreviewProjectFile,
     handleConfirm,
     offset,
     updateOffset,
@@ -169,18 +170,28 @@ export default function EditorLeftEditInfoPanel(props: any) {
                     <span className="text-[11px] text-neutral-500">{`${chartProjectFiles.length} files`}</span>
                   </div>
                   <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
-                    {chartProjectFiles.map(({ id, label, name, detail, Icon }) => (
+                    {chartProjectFiles.map((file) => {
+                      const { id, label, name, detail, Icon } = file;
+
+                      return (
                       <div key={`${id}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
-                        <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium text-neutral-300">{label}</div>
-                          <div className="truncate text-xs text-neutral-500" title={name}>{name}</div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onPreviewProjectFile(file)}
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded text-left transition-colors hover:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-medium text-neutral-300">{label}</span>
+                            <span className="block truncate text-xs text-neutral-500" title={name}>{name}</span>
+                          </span>
+                        </button>
                         <div className="shrink-0 text-[11px] text-neutral-500">
                           {detail || (id === 'chart' && isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : '')}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <button onClick={handleConfirm} className="w-full p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-semibold mt-2 transition-colors shrink-0">{text.sidebar.saveChanges}</button>
