@@ -1,1 +1,1 @@
-Example projects will be hosted here as zip archives.
+Assets for functions such as example charts and game assets for Preview Mode are stored here.
