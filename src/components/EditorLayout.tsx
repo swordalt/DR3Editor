@@ -36,6 +36,7 @@ export default function EditorLayout(props: any) {
     isAnimationDisabled,
     isScrollDirectionInverted,
     areTimingChangeIndicatorsAdjusted,
+    isEditorJudgementGlowEnabled,
     isPreviewPrecomputeEnabled,
     previewModeFormat,
     isSelectionTypeMenuOpen,
@@ -58,6 +59,7 @@ export default function EditorLayout(props: any) {
     setIsAnimationDisabled,
     setIsScrollDirectionInverted,
     setAreTimingChangeIndicatorsAdjusted,
+    setIsEditorJudgementGlowEnabled,
     setIsPreviewPrecomputeEnabled,
     setPreviewModeFormat,
     setIsSelectionTypeMenuOpen,
@@ -165,6 +167,7 @@ export default function EditorLayout(props: any) {
         isAnimationDisabled={isAnimationDisabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
+        isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         previewModeFormat={previewModeFormat}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
@@ -183,6 +186,7 @@ export default function EditorLayout(props: any) {
         setIsAnimationDisabled={setIsAnimationDisabled}
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
+        setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setPreviewModeFormat={setPreviewModeFormat}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}

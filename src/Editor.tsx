@@ -177,6 +177,8 @@ const getPreviewConnectorParentSpeedSource = (
       )
 );
 const text = translations;
+const EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS = 0.25;
+const EDITOR_NOTE_JUDGEMENT_OVERLAY_MAX_ALPHA = 0.75;
 
 const createDr3FpPreviewLogEntry = (message: string, detail?: string): Dr3FpPreviewLogEntry => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -411,6 +413,7 @@ export default function Editor({
   const [isAnimationDisabled, setIsAnimationDisabled] = useState(initialEditorSettings.isAnimationDisabled);
   const [isScrollDirectionInverted, setIsScrollDirectionInverted] = useState(initialEditorSettings.isScrollDirectionInverted);
   const [areTimingChangeIndicatorsAdjusted, setAreTimingChangeIndicatorsAdjusted] = useState(initialEditorSettings.areTimingChangeIndicatorsAdjusted);
+  const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -536,6 +539,7 @@ export default function Editor({
       isAnimationDisabled,
       isScrollDirectionInverted,
       areTimingChangeIndicatorsAdjusted,
+      isEditorJudgementGlowEnabled,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -560,6 +564,7 @@ export default function Editor({
     isAnimationDisabled,
     isScrollDirectionInverted,
     areTimingChangeIndicatorsAdjusted,
+    isEditorJudgementGlowEnabled,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -3969,6 +3974,13 @@ export default function Editor({
       const noteBodyX = scaledX + noteBodyInset;
       const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * combinedScale);
       const shouldDrawTopIndicators = scaledNotePixelWidth > 0;
+      const editorJudgementOverlayElapsed = isEditorJudgementGlowEnabled && !isPreviewPlaybackCanvas && stateRef.current.isPlaying
+        ? time - renderedNote.time
+        : Number.POSITIVE_INFINITY;
+      const editorJudgementOverlayAmount = editorJudgementOverlayElapsed >= 0
+        && editorJudgementOverlayElapsed <= EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS
+        ? 1 - editorJudgementOverlayElapsed / EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS
+        : 0;
         
       const noteTypeInfo = NOTE_TYPES[renderedNote.type] || UNKNOWN_NOTE_TYPE;
       ctx.fillStyle = noteTypeInfo.color;
@@ -3977,6 +3989,14 @@ export default function Editor({
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2 * combinedScale;
       ctx.strokeRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
+
+      if (editorJudgementOverlayAmount > 0) {
+        ctx.save();
+        ctx.globalAlpha = EDITOR_NOTE_JUDGEMENT_OVERLAY_MAX_ALPHA * editorJudgementOverlayAmount;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(noteBodyX, appearedY - scaledNoteHeight / 2, noteBodyWidth, scaledNoteHeight);
+        ctx.restore();
+      }
 
       if (shouldDrawTopIndicators && (renderedNote.type === 1 || renderedNote.type === 2)) {
         ctx.fillStyle = '#ffffff';
@@ -4334,11 +4354,24 @@ export default function Editor({
     }
 
     // Draw hit line
+    const hitLineStartX = !isPreviewPlaybackCanvas && isOutOfBoundsPlacementEnabled
+      ? 0
+      : isPreview3DMode
+        ? getPreviewLaneLeftX(hitLineY)
+        : isPreviewPlaybackCanvas
+          ? chartStartX
+          : startX;
+    const hitLineEndX = !isPreviewPlaybackCanvas && isOutOfBoundsPlacementEnabled
+      ? width
+      : isPreview3DMode
+        ? getPreviewLaneRightX(hitLineY)
+        : (isPreviewPlaybackCanvas ? chartStartX : startX) + gridWidth;
+
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(isPreview3DMode ? getPreviewLaneLeftX(hitLineY) : (isPreviewPlaybackCanvas ? chartStartX : startX), hitLineY);
-    ctx.lineTo(isPreview3DMode ? getPreviewLaneRightX(hitLineY) : (isPreviewPlaybackCanvas ? chartStartX : startX) + gridWidth, hitLineY);
+    ctx.moveTo(hitLineStartX, hitLineY);
+    ctx.lineTo(hitLineEndX, hitLineY);
     ctx.stroke();
     
     ctx.shadowColor = '#fff';
@@ -4368,7 +4401,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -6089,6 +6122,7 @@ export default function Editor({
         isAnimationDisabled={isAnimationDisabled}
         isScrollDirectionInverted={isScrollDirectionInverted}
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
+        isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         previewModeFormat={previewModeFormat}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
@@ -6111,6 +6145,7 @@ export default function Editor({
         setIsAnimationDisabled={setIsAnimationDisabled}
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
+        setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setPreviewModeFormat={setPreviewModeFormat}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}

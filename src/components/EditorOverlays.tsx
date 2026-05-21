@@ -32,6 +32,7 @@ interface EditorOverlaysProps {
   isAnimationDisabled: boolean;
   isScrollDirectionInverted: boolean;
   areTimingChangeIndicatorsAdjusted: boolean;
+  isEditorJudgementGlowEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
   previewModeFormat: PreviewModeFormat;
   isSelectionTypeMenuOpen: boolean;
@@ -50,6 +51,7 @@ interface EditorOverlaysProps {
   setIsAnimationDisabled: Dispatch<SetStateAction<boolean>>;
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
   setAreTimingChangeIndicatorsAdjusted: Dispatch<SetStateAction<boolean>>;
+  setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setPreviewModeFormat: Dispatch<SetStateAction<PreviewModeFormat>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -271,6 +273,7 @@ export default function EditorOverlays({
   isAnimationDisabled,
   isScrollDirectionInverted,
   areTimingChangeIndicatorsAdjusted,
+  isEditorJudgementGlowEnabled,
   isPreviewPrecomputeEnabled,
   previewModeFormat,
   isSelectionTypeMenuOpen,
@@ -289,6 +292,7 @@ export default function EditorOverlays({
   setIsAnimationDisabled,
   setIsScrollDirectionInverted,
   setAreTimingChangeIndicatorsAdjusted,
+  setIsEditorJudgementGlowEnabled,
   setIsPreviewPrecomputeEnabled,
   setPreviewModeFormat,
   setIsSelectionTypeMenuOpen,
@@ -412,6 +416,16 @@ export default function EditorOverlays({
               isEnabled={areTimingChangeIndicatorsAdjusted}
               ariaLabel={text.overlays.toggleAdjustTimingChangeIndicators}
               onToggle={() => setAreTimingChangeIndicatorsAdjusted((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.editorJudgementGlow}
+              description={text.overlays.editorJudgementGlowDescription}
+              isEnabled={isEditorJudgementGlowEnabled}
+              ariaLabel={text.overlays.toggleEditorJudgementGlow}
+              onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
             />
           </div>
 

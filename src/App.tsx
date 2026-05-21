@@ -14,30 +14,23 @@ const SILENT_IMPORT_AUDIO_MARGIN_SECONDS = 5;
 const SILENT_IMPORT_AUDIO_MIN_SECONDS = 10;
 const EXAMPLES = [
   {
-    id: 'poppy',
-    label: 'Poppy - Tier11 [Official]',
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/poppy.zip',
-    fileName: 'poppy.zip',
-    difficulty: '11',
-  },
-  {
     id: 'galaxycollapse',
     label: 'Galaxy Collapse - Tier20 [Official]',
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/galaxycollapse.zip',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/galaxycollapse.zip',
     fileName: 'galaxycollapse.zip',
     difficulty: '20',
   },
   {
     id: 'hellowind',
     label: "Ghost-O'-Note - Tier15 [Official]",
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/hellowind.zip',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/hellowind.zip',
     fileName: 'hellowind.zip',
     difficulty: '15',
   },
   {
     id: 'raidboss',
     label: 'カタストロフィック・ラヴ - Tier17 [Official]',
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/example-projects/raidboss.zip',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/raidboss.zip',
     fileName: 'raidboss.zip',
     difficulty: '17',
   },
