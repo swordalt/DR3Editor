@@ -23,6 +23,9 @@ export const PREVIEW_NOTE_TEXTURE_URLS: Record<number, string> = {
   22: new URL('../assets/preview-note-sprites/note22.png', import.meta.url).href,
   23: new URL('../assets/preview-note-sprites/note23.png', import.meta.url).href,
   24: new URL('../assets/preview-note-sprites/note24.png', import.meta.url).href,
+  25: new URL('../assets/preview-note-sprites/note25.png', import.meta.url).href,
+  26: new URL('../assets/preview-note-sprites/note26.png', import.meta.url).href,
+  27: new URL('../assets/preview-note-sprites/note27.png', import.meta.url).href,
 };
 
 export const PREVIEW_NOTE_ARROW_URLS: Record<number, string> = {
@@ -33,4 +36,22 @@ export const PREVIEW_NOTE_ARROW_URLS: Record<number, string> = {
   14: new URL('../assets/preview-note-sprites/arrow14.png', import.meta.url).href,
   15: new URL('../assets/preview-note-sprites/arrow15.png', import.meta.url).href,
   16: new URL('../assets/preview-note-sprites/arrow16.png', import.meta.url).href,
+  25: new URL('../assets/preview-note-sprites/arrow25.png', import.meta.url).href,
+  26: new URL('../assets/preview-note-sprites/arrow26.png', import.meta.url).href,
+  27: new URL('../assets/preview-note-sprites/arrow27.png', import.meta.url).href,
+};
+
+export const PREVIEW_HOLD_TEXTURE_URLS: Record<number, string> = {
+  4: new URL('../assets/preview-note-sprites/hold4.png', import.meta.url).href,
+  6: new URL('../assets/preview-note-sprites/hold7.png', import.meta.url).href,
+  7: new URL('../assets/preview-note-sprites/hold7.png', import.meta.url).href,
+  11: new URL('../assets/preview-note-sprites/hold4.png', import.meta.url).href,
+  17: new URL('../assets/preview-note-sprites/hold18.png', import.meta.url).href,
+  18: new URL('../assets/preview-note-sprites/hold18.png', import.meta.url).href,
+  19: new URL('../assets/preview-note-sprites/hold20.png', import.meta.url).href,
+  20: new URL('../assets/preview-note-sprites/hold20.png', import.meta.url).href,
+  21: new URL('../assets/preview-note-sprites/hold22.png', import.meta.url).href,
+  22: new URL('../assets/preview-note-sprites/hold22.png', import.meta.url).href,
+  23: new URL('../assets/preview-note-sprites/hold24.png', import.meta.url).href,
+  24: new URL('../assets/preview-note-sprites/hold24.png', import.meta.url).href,
 };

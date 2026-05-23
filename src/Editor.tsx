@@ -103,7 +103,7 @@ import { getMirroredNoteLane } from './editor/editorNoteTransforms';
 import { buildChartProjectFiles, type ChartProjectFileDetails, type ChartProjectFileEntry } from './editor/chartProjectFiles';
 import { calculateChartProjectFileDetailsInWorker } from './utils/chartProjectFilesWorkerClient';
 import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
-import { PREVIEW_NOTE_ARROW_URLS, PREVIEW_NOTE_TEXTURE_URLS } from './editor/previewNoteSprites';
+import { PREVIEW_HOLD_TEXTURE_URLS, PREVIEW_NOTE_ARROW_URLS, PREVIEW_NOTE_TEXTURE_URLS } from './editor/previewNoteSprites';
 import {
   METADATA_REQUIRED_FIELDS,
   getInvalidMetadataFields,
@@ -343,13 +343,26 @@ const PREVIEW_NOTE_TEXTURE_HEIGHT_SCALE = 0.3;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE = 0.55;
 const PREVIEW_NOTE_ARROW_Y_OFFSET = -16;
+const PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH = 24;
+const PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE = 0.55;
+const PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE = 2;
+const PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT = 64;
 const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
 const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
 const HOLD_END_TYPE_SET = new Set(HOLD_END_TYPES);
-const PREVIEW_NOTE_TEXTURE_OMITTED_TYPES = new Set([6, 11]);
+const PREVIEW_NOTE_TEXTURE_OMITTED_TYPES = new Set([6, 11, 19, 21, 23]);
 const PREVIEW_DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
+const getPreviewHoldTextureAlpha = (connectorType: number) => (
+  PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType) ? 0.44 : 0.25
+);
 const isArrowFlickType = (type: number) => type >= 13 && type <= 16;
+const EDITOR_NUMBERED_NOTE_LABELS: Record<number, string> = {
+  25: '2',
+  26: '3',
+  27: '4',
+};
+const getEditorNumberedNoteLabel = (type: number) => EDITOR_NUMBERED_NOTE_LABELS[type];
 
 const findFirstBeatIndexedEntry = <T,>(entries: BeatIndexedEntry<T>[], beat: number) => {
   let low = 0;
@@ -670,6 +683,7 @@ export default function Editor({
   const preview3DCameraTimestampRef = useRef(0);
   const previewNoteTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewNoteArrowsRef = useRef<Map<number, HTMLImageElement>>(new Map());
+  const previewHoldTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   useEffect(() => {
@@ -699,6 +713,7 @@ export default function Editor({
 
     previewNoteTexturesRef.current.clear();
     previewNoteArrowsRef.current.clear();
+    previewHoldTexturesRef.current.clear();
 
     Object.entries(PREVIEW_NOTE_TEXTURE_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteTexturesRef.current, Number(type), url);
@@ -706,11 +721,15 @@ export default function Editor({
     Object.entries(PREVIEW_NOTE_ARROW_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteArrowsRef.current, Number(type), url);
     });
+    Object.entries(PREVIEW_HOLD_TEXTURE_URLS).forEach(([type, url]) => {
+      loadSprite(previewHoldTexturesRef.current, Number(type), url);
+    });
 
     return () => {
       disposers.forEach(dispose => dispose());
       previewNoteTexturesRef.current.clear();
       previewNoteArrowsRef.current.clear();
+      previewHoldTexturesRef.current.clear();
     };
   }, []);
 
@@ -2853,7 +2872,7 @@ export default function Editor({
     const drawNoteLetter = (
       centerX: number,
       centerY: number,
-      letter: 'S' | 'C' | 'E' | '?',
+      letter: string,
       scale = 1,
     ) => {
       ctx.fillStyle = letter === '?' ? '#000000' : '#ffffff';
@@ -3283,6 +3302,235 @@ export default function Editor({
         ctx.closePath();
         ctx.fill();
       }
+    };
+    const drawPreviewHoldTextureConnector = (
+      connectorType: number,
+      fromNote: Note,
+      fromY: number,
+      toNote: Note,
+      toY: number,
+    ) => {
+      const holdTexture = previewHoldTexturesRef.current.get(connectorType);
+      if (!isLoadedPreviewSprite(holdTexture)) {
+        return false;
+      }
+
+      const minY = Math.min(fromY, toY);
+      const maxY = Math.max(fromY, toY);
+      const connectorHeight = maxY - minY;
+      if (connectorHeight <= SNAP_EPSILON) {
+        return false;
+      }
+
+      const topNote = fromY <= toY ? fromNote : toNote;
+      const bottomNote = fromY <= toY ? toNote : fromNote;
+      const topEdges = getProjectedNoteEdges(topNote, minY);
+      const bottomEdges = getProjectedNoteEdges(bottomNote, maxY);
+      const topWidth = topEdges.right - topEdges.left;
+      const bottomWidth = bottomEdges.right - bottomEdges.left;
+      const widthDelta = Math.abs(bottomWidth - topWidth);
+      const textureAlpha = getPreviewHoldTextureAlpha(connectorType);
+      const sourceCapWidth = Math.min(
+        PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH,
+        holdTexture.naturalWidth / 2,
+      );
+      const sourceCenterWidth = holdTexture.naturalWidth - sourceCapWidth * 2;
+      const baseDestinationCapWidth = sourceCapWidth * PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE;
+      const drawAffineSection = (
+        sourceX: number,
+        sourceWidth: number,
+        destinationTopLeft: number,
+        destinationBottomLeft: number,
+        destinationWidth: number,
+      ) => {
+        if (sourceWidth <= SNAP_EPSILON || destinationWidth <= SNAP_EPSILON) {
+          return;
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(destinationTopLeft, minY);
+        ctx.lineTo(destinationTopLeft + destinationWidth, minY);
+        ctx.lineTo(destinationBottomLeft + destinationWidth, maxY);
+        ctx.lineTo(destinationBottomLeft, maxY);
+        ctx.closePath();
+        ctx.clip();
+        ctx.transform(
+          destinationWidth / sourceWidth,
+          0,
+          (destinationBottomLeft - destinationTopLeft) / holdTexture.naturalHeight,
+          connectorHeight / holdTexture.naturalHeight,
+          destinationTopLeft,
+          minY,
+        );
+        ctx.drawImage(
+          holdTexture,
+          sourceX,
+          0,
+          sourceWidth,
+          holdTexture.naturalHeight,
+          0,
+          0,
+          sourceWidth,
+          holdTexture.naturalHeight,
+        );
+        ctx.restore();
+      };
+      const drawSliceSection = (
+        sourceX: number,
+        sourceWidth: number,
+        sourceY: number,
+        sourceHeight: number,
+        left1: number,
+        right1: number,
+        left2: number,
+        right2: number,
+        y1: number,
+        y2: number,
+      ) => {
+        const destinationX = Math.min(left1, right1, left2, right2);
+        const destinationRight = Math.max(left1, right1, left2, right2);
+        const destinationWidth = destinationRight - destinationX;
+        const destinationHeight = y2 - y1;
+
+        if (
+          sourceWidth <= SNAP_EPSILON
+          || sourceHeight <= SNAP_EPSILON
+          || destinationWidth <= SNAP_EPSILON
+          || destinationHeight <= SNAP_EPSILON
+        ) {
+          return;
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(left1, y1);
+        ctx.lineTo(right1, y1);
+        ctx.lineTo(right2, y2);
+        ctx.lineTo(left2, y2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(
+          holdTexture,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          destinationX,
+          y1,
+          destinationWidth,
+          destinationHeight,
+        );
+        ctx.restore();
+      };
+      const drawSlice = (
+        startProgress: number,
+        endProgress: number,
+      ) => {
+        const sourceY = startProgress * holdTexture.naturalHeight;
+        const sourceHeight = (endProgress - startProgress) * holdTexture.naturalHeight;
+        const y1 = minY + connectorHeight * startProgress;
+        const y2 = minY + connectorHeight * endProgress;
+        const left1 = topEdges.left + (bottomEdges.left - topEdges.left) * startProgress;
+        const right1 = topEdges.right + (bottomEdges.right - topEdges.right) * startProgress;
+        const left2 = topEdges.left + (bottomEdges.left - topEdges.left) * endProgress;
+        const right2 = topEdges.right + (bottomEdges.right - topEdges.right) * endProgress;
+        const topSliceWidth = right1 - left1;
+        const bottomSliceWidth = right2 - left2;
+        const destinationHeight = y2 - y1;
+        const destinationCapWidth = Math.min(
+          baseDestinationCapWidth,
+          topSliceWidth / 2,
+          bottomSliceWidth / 2,
+        );
+
+        if (topSliceWidth <= SNAP_EPSILON || bottomSliceWidth <= SNAP_EPSILON || destinationHeight <= SNAP_EPSILON) {
+          return;
+        }
+
+        if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
+          drawSliceSection(0, holdTexture.naturalWidth, sourceY, sourceHeight, left1, right1, left2, right2, y1, y2);
+          return;
+        }
+
+        drawSliceSection(
+          0,
+          sourceCapWidth,
+          sourceY,
+          sourceHeight,
+          left1,
+          left1 + destinationCapWidth,
+          left2,
+          left2 + destinationCapWidth,
+          y1,
+          y2,
+        );
+        drawSliceSection(
+          sourceCapWidth,
+          sourceCenterWidth,
+          sourceY,
+          sourceHeight,
+          left1 + destinationCapWidth,
+          right1 - destinationCapWidth,
+          left2 + destinationCapWidth,
+          right2 - destinationCapWidth,
+          y1,
+          y2,
+        );
+        drawSliceSection(
+          holdTexture.naturalWidth - sourceCapWidth,
+          sourceCapWidth,
+          sourceY,
+          sourceHeight,
+          right1 - destinationCapWidth,
+          right1,
+          right2 - destinationCapWidth,
+          right2,
+          y1,
+          y2,
+        );
+      };
+
+      if (widthDelta <= SNAP_EPSILON) {
+        ctx.save();
+        ctx.globalAlpha *= textureAlpha;
+        const destinationCapWidth = Math.min(baseDestinationCapWidth, topWidth / 2);
+        if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
+          drawAffineSection(0, holdTexture.naturalWidth, topEdges.left, bottomEdges.left, topWidth);
+        } else {
+          drawAffineSection(0, sourceCapWidth, topEdges.left, bottomEdges.left, destinationCapWidth);
+          drawAffineSection(
+            sourceCapWidth,
+            sourceCenterWidth,
+            topEdges.left + destinationCapWidth,
+            bottomEdges.left + destinationCapWidth,
+            topWidth - destinationCapWidth * 2,
+          );
+          drawAffineSection(
+            holdTexture.naturalWidth - sourceCapWidth,
+            sourceCapWidth,
+            topEdges.right - destinationCapWidth,
+            bottomEdges.right - destinationCapWidth,
+            destinationCapWidth,
+          );
+        }
+        ctx.restore();
+        return true;
+      }
+
+      const sliceCount = Math.min(
+        PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT,
+        Math.max(1, Math.ceil(widthDelta / PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE)),
+      );
+
+      ctx.save();
+      ctx.globalAlpha *= textureAlpha;
+      for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex += 1) {
+        drawSlice(sliceIndex / sliceCount, (sliceIndex + 1) / sliceCount);
+      }
+      ctx.restore();
+
+      return true;
     };
     const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
@@ -3824,13 +4072,24 @@ export default function Editor({
         ctx.clip();
       }
 
-      ctx.fillStyle = getConnectorFill(note.type);
-      drawProjectedConnectorQuad(
-        clippedConnector.fromNote,
-        clippedConnector.fromY,
-        clippedConnector.toNote,
-        clippedConnector.toY,
-      );
+      const didDrawPreviewHoldTexture = isPreviewPlaybackCanvas
+        ? drawPreviewHoldTextureConnector(
+            note.type,
+            clippedConnector.fromNote,
+            clippedConnector.fromY,
+            clippedConnector.toNote,
+            clippedConnector.toY,
+          )
+        : false;
+      if (!didDrawPreviewHoldTexture) {
+        ctx.fillStyle = getConnectorFill(note.type);
+        drawProjectedConnectorQuad(
+          clippedConnector.fromNote,
+          clippedConnector.fromY,
+          clippedConnector.toNote,
+          clippedConnector.toY,
+        );
+      }
       if (shouldClipPreviewConnectorAtJudgementLine) {
         ctx.restore();
       }
@@ -3919,8 +4178,12 @@ export default function Editor({
     for (const segment of visibleHoldConnectorSegments) {
       const previewSegment = segment as PreviewHoldConnectorSegment;
       const groupedSegments = isPreviewPlaybackCanvas ? previewSegment.groupedSegments : undefined;
+      const shouldDrawTexturedSegmentsIndividually = Boolean(
+        groupedSegments
+        && PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type],
+      );
       const shouldFallbackToIndividualSegments = groupedSegments
-        ? !canDrawGroupedHoldConnectorSegments(groupedSegments)
+        ? shouldDrawTexturedSegmentsIndividually || !canDrawGroupedHoldConnectorSegments(groupedSegments)
         : false;
 
       if (shouldFallbackToIndividualSegments) {
@@ -3931,7 +4194,7 @@ export default function Editor({
     }
 
     if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
-      const connectorAlpha = 0.08;
+      const connectorAlpha = 0.15;
       let parentNote = previewStartNote;
       let parentBeat = getBeatAtTime(previewStartNote.time, sortedChanges);
 
@@ -4185,7 +4448,12 @@ export default function Editor({
           ctx.restore();
         }
 
-        if (shouldDrawTopIndicators && (renderedNote.type === 1 || renderedNote.type === 2)) {
+        const numberedNoteLabel = getEditorNumberedNoteLabel(renderedNote.type);
+        if (shouldDrawTopIndicators && numberedNoteLabel) {
+          drawNoteLetter(noteCenterX, appearedY, numberedNoteLabel, combinedScale);
+        }
+
+        if (shouldDrawTopIndicators && !numberedNoteLabel && (renderedNote.type === 1 || renderedNote.type === 2)) {
           ctx.fillStyle = '#ffffff';
           drawInvertedTriangle(noteCenterX, appearedY, Math.min(markAvailableWidth, 12 * combinedScale));
         }
@@ -4293,7 +4561,12 @@ export default function Editor({
         ctx.fillStyle = previewTypeInfo.color;
         ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
 
-        if (curveNoteType === 1 || curveNoteType === 2) {
+        const numberedNoteLabel = getEditorNumberedNoteLabel(curveNoteType);
+        if (numberedNoteLabel) {
+          drawNoteLetter(previewCenterX, previewY, numberedNoteLabel);
+        }
+
+        if (!numberedNoteLabel && (curveNoteType === 1 || curveNoteType === 2)) {
           ctx.fillStyle = '#ffffff';
           drawInvertedTriangle(
             previewCenterX,
@@ -4377,7 +4650,11 @@ export default function Editor({
       ctx.globalAlpha = fillAlpha;
       ctx.fillStyle = previewTypeInfo.color;
       ctx.fillRect(previewX + 2, previewY - 10, previewBodyWidth, 20);
-      if (shouldDrawTopIndicators && (previewType === 1 || previewType === 2)) {
+      const numberedNoteLabel = getEditorNumberedNoteLabel(previewType);
+      if (shouldDrawTopIndicators && numberedNoteLabel) {
+        drawNoteLetter(previewCenterX, previewY, numberedNoteLabel);
+      }
+      if (shouldDrawTopIndicators && !numberedNoteLabel && (previewType === 1 || previewType === 2)) {
         ctx.fillStyle = '#ffffff';
         drawInvertedTriangle(
           previewCenterX,
