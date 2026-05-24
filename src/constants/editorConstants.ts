@@ -49,9 +49,9 @@ export const NOTE_TYPES: Record<number, NoteTypeDefinition> = {
   22: { name: 'Yellow Hold End', color: '#eab308', sound: 'hit.ogg' },
   23: { name: 'Pink Hold Center', color: '#ec4899', sound: null },
   24: { name: 'Pink Hold End', color: '#ec4899', sound: 'hit.ogg' },
-  25: { name: 'Yellow Tap 2', color: '#eab308', sound: 'hit.ogg' },
-  26: { name: 'Yellow Tap 3', color: '#eab308', sound: 'hit.ogg' },
-  27: { name: 'Yellow Tap 4', color: '#eab308', sound: 'hit.ogg' },
+  25: { name: '2-Finger Tap', color: '#eab308', sound: 'hit.ogg' },
+  26: { name: '3-Finger Tap', color: '#eab308', sound: 'hit.ogg' },
+  27: { name: '4-Finger Tap', color: '#eab308', sound: 'hit.ogg' },
 };
 
 export const AVAILABLE_NOTE_TYPES = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];

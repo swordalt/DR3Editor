@@ -336,17 +336,30 @@ interface BeatIndexedEntry<T> {
   change: T;
 }
 
+interface PreviewCachedNoteSprite {
+  canvas: HTMLCanvasElement;
+  width: number;
+  height: number;
+}
+
 type PreviewCanvasLoadPhase = 'idle' | 'visible' | 'full';
 
 const PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING = 32;
 const PREVIEW_NOTE_TEXTURE_HEIGHT_SCALE = 0.3;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE = 0.55;
+const PREVIEW_NOTE_TEXTURE_SECTION_OVERLAP = 1;
+const PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE = 1;
+const PREVIEW_NOTE_TEXTURE_CACHE_MAX_ENTRIES = 512;
 const PREVIEW_NOTE_ARROW_Y_OFFSET = -16;
 const PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE = 0.55;
+const PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP = 1;
 const PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE = 2;
+const PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP = 1;
+const PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT = 24;
 const PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT = 64;
+const PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD = 500;
 const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
 const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
@@ -697,6 +710,8 @@ export default function Editor({
   const previewNoteTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewNoteArrowsRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewHoldTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
+  const decodedPreviewSpritesRef = useRef<WeakSet<HTMLImageElement>>(new WeakSet());
+  const previewNoteSpriteCanvasCacheRef = useRef<Map<string, PreviewCachedNoteSprite>>(new Map());
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   useEffect(() => {
@@ -708,17 +723,41 @@ export default function Editor({
       url: string,
     ) => {
       const image = new Image();
+      let isSettled = false;
       image.decoding = 'async';
       targetMap.set(type, image);
 
       const handleSettled = () => {
+        if (isSettled) {
+          return;
+        }
+
+        isSettled = true;
+        previewNoteSpriteCanvasCacheRef.current.clear();
         setPreviewNoteSpriteLoadVersion(version => version + 1);
       };
+      const handleDecoded = () => {
+        decodedPreviewSpritesRef.current.add(image);
+        handleSettled();
+      };
+      const handleLoad = () => {
+        if (typeof image.decode !== 'function') {
+          handleDecoded();
+          return;
+        }
 
-      image.addEventListener('load', handleSettled);
+        image.decode().then(handleDecoded).catch(() => {
+          if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+            decodedPreviewSpritesRef.current.add(image);
+          }
+          handleSettled();
+        });
+      };
+
+      image.addEventListener('load', handleLoad);
       image.addEventListener('error', handleSettled);
       disposers.push(() => {
-        image.removeEventListener('load', handleSettled);
+        image.removeEventListener('load', handleLoad);
         image.removeEventListener('error', handleSettled);
       });
       image.src = url;
@@ -727,6 +766,8 @@ export default function Editor({
     previewNoteTexturesRef.current.clear();
     previewNoteArrowsRef.current.clear();
     previewHoldTexturesRef.current.clear();
+    decodedPreviewSpritesRef.current = new WeakSet();
+    previewNoteSpriteCanvasCacheRef.current.clear();
 
     Object.entries(PREVIEW_NOTE_TEXTURE_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteTexturesRef.current, Number(type), url);
@@ -743,6 +784,8 @@ export default function Editor({
       previewNoteTexturesRef.current.clear();
       previewNoteArrowsRef.current.clear();
       previewHoldTexturesRef.current.clear();
+      decodedPreviewSpritesRef.current = new WeakSet();
+      previewNoteSpriteCanvasCacheRef.current.clear();
     };
   }, []);
 
@@ -2905,8 +2948,114 @@ export default function Editor({
     };
 
     const isLoadedPreviewSprite = (image: HTMLImageElement | undefined) => (
-      image !== undefined && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+      image !== undefined
+      && decodedPreviewSpritesRef.current.has(image)
+      && image.complete
+      && image.naturalWidth > 0
+      && image.naturalHeight > 0
     );
+
+    const getCachedPreviewNoteSprite = (
+      noteType: number,
+      noteTexture: HTMLImageElement,
+      textureWidth: number,
+      textureHeight: number,
+    ) => {
+      const bucketedWidth = Math.max(
+        1,
+        Math.round(textureWidth / PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE) * PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE,
+      );
+      const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
+      const cacheKey = `${noteType}:${bucketedWidth}:${dprBucket}`;
+      const cachedSprite = previewNoteSpriteCanvasCacheRef.current.get(cacheKey);
+      if (cachedSprite) {
+        return cachedSprite;
+      }
+
+      const sourceCapWidth = Math.min(
+        PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH,
+        noteTexture.naturalWidth / 2,
+      );
+      const destinationCapWidth = Math.min(
+        sourceCapWidth * PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE,
+        bucketedWidth / 2,
+      );
+      const sourceCenterWidth = noteTexture.naturalWidth - sourceCapWidth * 2;
+      const destinationCenterWidth = bucketedWidth - destinationCapWidth * 2;
+      const sourceSectionOverlap = Math.max(0, Math.min(
+        PREVIEW_NOTE_TEXTURE_SECTION_OVERLAP,
+        sourceCapWidth,
+        sourceCenterWidth / 2,
+      ));
+      const destinationSectionOverlap = Math.max(0, Math.min(
+        PREVIEW_NOTE_TEXTURE_SECTION_OVERLAP,
+        destinationCapWidth,
+        destinationCenterWidth / 2,
+      ));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.ceil(bucketedWidth * dprBucket));
+      canvas.height = Math.max(1, Math.ceil(textureHeight * dprBucket));
+
+      const spriteCtx = canvas.getContext('2d');
+      if (!spriteCtx) {
+        return null;
+      }
+
+      spriteCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
+      spriteCtx.clearRect(0, 0, bucketedWidth, textureHeight);
+
+      if (sourceCenterWidth <= 0 || destinationCenterWidth <= 0) {
+        spriteCtx.drawImage(noteTexture, 0, 0, bucketedWidth, textureHeight);
+      } else {
+        spriteCtx.drawImage(
+          noteTexture,
+          0,
+          0,
+          sourceCapWidth,
+          noteTexture.naturalHeight,
+          0,
+          0,
+          destinationCapWidth,
+          textureHeight,
+        );
+        spriteCtx.drawImage(
+          noteTexture,
+          sourceCapWidth - sourceSectionOverlap,
+          0,
+          sourceCenterWidth + sourceSectionOverlap * 2,
+          noteTexture.naturalHeight,
+          destinationCapWidth - destinationSectionOverlap,
+          0,
+          destinationCenterWidth + destinationSectionOverlap * 2,
+          textureHeight,
+        );
+        spriteCtx.drawImage(
+          noteTexture,
+          noteTexture.naturalWidth - sourceCapWidth,
+          0,
+          sourceCapWidth,
+          noteTexture.naturalHeight,
+          destinationCapWidth + destinationCenterWidth,
+          0,
+          destinationCapWidth,
+          textureHeight,
+        );
+      }
+
+      const nextCachedSprite = {
+        canvas,
+        width: bucketedWidth,
+        height: textureHeight,
+      };
+
+      const cache = previewNoteSpriteCanvasCacheRef.current;
+      if (cache.size >= PREVIEW_NOTE_TEXTURE_CACHE_MAX_ENTRIES) {
+        cache.clear();
+      }
+      cache.set(cacheKey, nextCachedSprite);
+
+      return nextCachedSprite;
+    };
 
     const drawPreviewNoteSprite = (
       noteType: number,
@@ -2927,54 +3076,11 @@ export default function Editor({
       const textureX = centerX - textureWidth / 2;
       const textureY = centerY - textureHeight / 2;
 
-      const sourceCapWidth = Math.min(
-        PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH,
-        noteTexture.naturalWidth / 2,
-      );
-      const destinationCapWidth = Math.min(
-        sourceCapWidth * PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE,
-        textureWidth / 2,
-      );
-      const sourceCenterWidth = noteTexture.naturalWidth - sourceCapWidth * 2;
-      const destinationCenterWidth = textureWidth - destinationCapWidth * 2;
-
-      if (sourceCenterWidth <= 0 || destinationCenterWidth <= 0) {
-        ctx.drawImage(noteTexture, textureX, textureY, textureWidth, textureHeight);
-      } else {
-        ctx.drawImage(
-          noteTexture,
-          0,
-          0,
-          sourceCapWidth,
-          noteTexture.naturalHeight,
-          textureX,
-          textureY,
-          destinationCapWidth,
-          textureHeight,
-        );
-        ctx.drawImage(
-          noteTexture,
-          sourceCapWidth,
-          0,
-          sourceCenterWidth,
-          noteTexture.naturalHeight,
-          textureX + destinationCapWidth,
-          textureY,
-          destinationCenterWidth,
-          textureHeight,
-        );
-        ctx.drawImage(
-          noteTexture,
-          noteTexture.naturalWidth - sourceCapWidth,
-          0,
-          sourceCapWidth,
-          noteTexture.naturalHeight,
-          textureX + destinationCapWidth + destinationCenterWidth,
-          textureY,
-          destinationCapWidth,
-          textureHeight,
-        );
+      const cachedSprite = getCachedPreviewNoteSprite(noteType, noteTexture, textureWidth, textureHeight);
+      if (!cachedSprite) {
+        return null;
       }
+      ctx.drawImage(cachedSprite.canvas, textureX, textureY, textureWidth, textureHeight);
 
       return {
         x: textureX,
@@ -3450,14 +3556,17 @@ export default function Editor({
         startProgress: number,
         endProgress: number,
       ) => {
-        const sourceY = startProgress * holdTexture.naturalHeight;
-        const sourceHeight = (endProgress - startProgress) * holdTexture.naturalHeight;
-        const y1 = minY + connectorHeight * startProgress;
-        const y2 = minY + connectorHeight * endProgress;
-        const left1 = topEdges.left + (bottomEdges.left - topEdges.left) * startProgress;
-        const right1 = topEdges.right + (bottomEdges.right - topEdges.right) * startProgress;
-        const left2 = topEdges.left + (bottomEdges.left - topEdges.left) * endProgress;
-        const right2 = topEdges.right + (bottomEdges.right - topEdges.right) * endProgress;
+        const progressOverlap = PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP / connectorHeight;
+        const drawStartProgress = Math.max(0, startProgress - progressOverlap);
+        const drawEndProgress = Math.min(1, endProgress + progressOverlap);
+        const sourceY = drawStartProgress * holdTexture.naturalHeight;
+        const sourceHeight = (drawEndProgress - drawStartProgress) * holdTexture.naturalHeight;
+        const y1 = minY + connectorHeight * drawStartProgress;
+        const y2 = minY + connectorHeight * drawEndProgress;
+        const left1 = topEdges.left + (bottomEdges.left - topEdges.left) * drawStartProgress;
+        const right1 = topEdges.right + (bottomEdges.right - topEdges.right) * drawStartProgress;
+        const left2 = topEdges.left + (bottomEdges.left - topEdges.left) * drawEndProgress;
+        const right2 = topEdges.right + (bottomEdges.right - topEdges.right) * drawEndProgress;
         const topSliceWidth = right1 - left1;
         const bottomSliceWidth = right2 - left2;
         const destinationHeight = y2 - y1;
@@ -3466,6 +3575,17 @@ export default function Editor({
           topSliceWidth / 2,
           bottomSliceWidth / 2,
         );
+        const sourceSectionOverlap = Math.max(0, Math.min(
+          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+          sourceCapWidth,
+          sourceCenterWidth / 2,
+        ));
+        const destinationSectionOverlap = Math.max(0, Math.min(
+          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+          destinationCapWidth,
+          (topSliceWidth - destinationCapWidth * 2) / 2,
+          (bottomSliceWidth - destinationCapWidth * 2) / 2,
+        ));
 
         if (topSliceWidth <= SNAP_EPSILON || bottomSliceWidth <= SNAP_EPSILON || destinationHeight <= SNAP_EPSILON) {
           return;
@@ -3489,14 +3609,14 @@ export default function Editor({
           y2,
         );
         drawSliceSection(
-          sourceCapWidth,
-          sourceCenterWidth,
+          sourceCapWidth - sourceSectionOverlap,
+          sourceCenterWidth + sourceSectionOverlap * 2,
           sourceY,
           sourceHeight,
-          left1 + destinationCapWidth,
-          right1 - destinationCapWidth,
-          left2 + destinationCapWidth,
-          right2 - destinationCapWidth,
+          left1 + destinationCapWidth - destinationSectionOverlap,
+          right1 - destinationCapWidth + destinationSectionOverlap,
+          left2 + destinationCapWidth - destinationSectionOverlap,
+          right2 - destinationCapWidth + destinationSectionOverlap,
           y1,
           y2,
         );
@@ -3518,16 +3638,26 @@ export default function Editor({
         ctx.save();
         ctx.globalAlpha *= textureAlpha;
         const destinationCapWidth = Math.min(baseDestinationCapWidth, topWidth / 2);
+        const sourceSectionOverlap = Math.max(0, Math.min(
+          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+          sourceCapWidth,
+          sourceCenterWidth / 2,
+        ));
+        const destinationSectionOverlap = Math.max(0, Math.min(
+          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+          destinationCapWidth,
+          (topWidth - destinationCapWidth * 2) / 2,
+        ));
         if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
           drawAffineSection(0, holdTexture.naturalWidth, topEdges.left, bottomEdges.left, topWidth);
         } else {
           drawAffineSection(0, sourceCapWidth, topEdges.left, bottomEdges.left, destinationCapWidth);
           drawAffineSection(
-            sourceCapWidth,
-            sourceCenterWidth,
-            topEdges.left + destinationCapWidth,
-            bottomEdges.left + destinationCapWidth,
-            topWidth - destinationCapWidth * 2,
+            sourceCapWidth - sourceSectionOverlap,
+            sourceCenterWidth + sourceSectionOverlap * 2,
+            topEdges.left + destinationCapWidth - destinationSectionOverlap,
+            bottomEdges.left + destinationCapWidth - destinationSectionOverlap,
+            topWidth - destinationCapWidth * 2 + destinationSectionOverlap * 2,
           );
           drawAffineSection(
             holdTexture.naturalWidth - sourceCapWidth,
@@ -3541,9 +3671,18 @@ export default function Editor({
         return true;
       }
 
+      const widthSliceCount = Math.max(
+        1,
+        Math.ceil(widthDelta / PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE),
+      );
+      const heightSliceCap = Math.max(
+        1,
+        Math.ceil(connectorHeight / PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT),
+      );
       const sliceCount = Math.min(
         PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT,
-        Math.max(1, Math.ceil(widthDelta / PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE)),
+        heightSliceCap,
+        widthSliceCount,
       );
 
       ctx.save();
@@ -3565,6 +3704,20 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : [];
+    const previewVisibleTexturedHoldConnectorDrawCount = shouldUsePreviewSprites
+      ? previewVisibleHoldConnectorSegments.reduce((count, segment) => {
+          const previewSegment = segment as PreviewHoldConnectorSegment;
+          if (!PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type]) {
+            return count;
+          }
+
+          return count + (previewSegment.groupedSegments?.length ?? 1);
+        }, 0)
+      : 0;
+    const shouldUsePreviewHoldTextures = (
+      shouldUsePreviewSprites
+      && previewVisibleTexturedHoldConnectorDrawCount <= PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD
+    );
     const activePreviewCameraTiltIntervals = isPreviewPlaybackCanvas
       ? (
           isPreviewPrecomputeEnabled
@@ -4095,7 +4248,7 @@ export default function Editor({
         ctx.clip();
       }
 
-      const didDrawPreviewHoldTexture = shouldUsePreviewSprites
+      const didDrawPreviewHoldTexture = shouldUsePreviewHoldTextures
         ? drawPreviewHoldTextureConnector(
             note.type,
             clippedConnector.fromNote,
@@ -4204,7 +4357,7 @@ export default function Editor({
       const previewSegment = segment as PreviewHoldConnectorSegment;
       const groupedSegments = isPreviewPlaybackCanvas ? previewSegment.groupedSegments : undefined;
       const shouldDrawTexturedSegmentsIndividually = Boolean(
-        shouldUsePreviewSprites
+        shouldUsePreviewHoldTextures
         && groupedSegments
         && PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type],
       );
