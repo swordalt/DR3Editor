@@ -1,5 +1,5 @@
 import type { Note, SpeedChange } from '../types/editorTypes';
-import { APPEAR_MODE_ENTRY_DISTANCE, APPEAR_MODE_H_FLY_DOWN_PIXELS, APPEAR_MODE_H_START_SCALE, APPEAR_MODE_SIDE_ENTRY_MULTIPLIER, PREVIEW_CONNECTOR_TILT_DIVISOR, SNAP_EPSILON, X_POSITION_COUNT } from './editorViewConstants';
+import { APPEAR_MODE_ENTRY_DISTANCE, APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT, APPEAR_MODE_H_FLY_DOWN_PIXELS, APPEAR_MODE_H_START_SCALE, APPEAR_MODE_SIDE_ENTRY_MULTIPLIER, PREVIEW_CONNECTOR_TILT_DIVISOR, SNAP_EPSILON, X_POSITION_COUNT } from './editorViewConstants';
 import type { PreviewCameraMovementInterval, PreviewCameraMovementSegment, PreviewCameraTiltInterval, PreviewCameraTiltSegment, PreviewHoldConnectorSegment, PreviewJudgementNoteEntry, PreviewNotePosition, PreviewNoteRenderEntry, PreviewNoteSpeed, PreviewNoteSpeedKeyframe, SpeedDistancePoint } from './editorLocalTypes';
 
 export const buildSpeedDistanceIndex = (speedChanges: SpeedChange[]) => {
@@ -272,8 +272,9 @@ export const getPreviewAppearModePosition = (
       };
     }
 
-    const yProgress = easeOutCubic(linearProgress);
-    const scaleProgress = easeInCubic(linearProgress);
+    const hProgress = linearProgress ** APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT;
+    const yProgress = easeOutCubic(hProgress);
+    const scaleProgress = easeInCubic(hProgress);
     const startY = y - APPEAR_MODE_H_FLY_DOWN_PIXELS;
     return {
       x,

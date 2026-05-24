@@ -1,6 +1,14 @@
+import { useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PREVIEW_MODE_FORMAT_OPTIONS, type PreviewModeFormat } from '../editor/editorSettings';
 import { translations } from '../lang';
+
+const PREVIEW_MODE_FORMAT_LABELS: Record<PreviewModeFormat, string> = {
+  default: translations.overlays.previewModeFormatDefault,
+  official: translations.overlays.previewModeFormatOfficial,
+  dr3custom: translations.overlays.previewModeFormatDr3Custom,
+};
 
 interface PreviewSettingToggleProps {
   label: string;
@@ -68,12 +76,14 @@ export default function EditorPreviewSidebar({
   isPreviewCameraMovementEnabled,
   isPreviewNoteSpeedChangesEnabled,
   isPreviewNoteAppearModeEnabled,
+  previewModeFormat,
   setIsPreviewSpritesEnabled,
   setIsPreviewChartSpeedChangesEnabled,
   setIsPreviewCameraTiltEnabled,
   setIsPreviewCameraMovementEnabled,
   setIsPreviewNoteSpeedChangesEnabled,
   setIsPreviewNoteAppearModeEnabled,
+  setPreviewModeFormat,
 }: {
   isLeftPanelCompact: boolean;
   isLeftPanelContentVisible: boolean;
@@ -84,14 +94,17 @@ export default function EditorPreviewSidebar({
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
+  previewModeFormat: PreviewModeFormat;
   setIsPreviewSpritesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewChartSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewNoteSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewNoteAppearModeEnabled: Dispatch<SetStateAction<boolean>>;
+  setPreviewModeFormat: Dispatch<SetStateAction<PreviewModeFormat>>;
 }) {
   const text = translations;
+  const [isPreviewModeFormatMenuOpen, setIsPreviewModeFormatMenuOpen] = useState(false);
 
   return (
     <aside className={`${isLeftPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
@@ -109,6 +122,59 @@ export default function EditorPreviewSidebar({
         <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.previewMode}</div>
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
           {text.sidebar.previewAccuracyNotice}
+        </div>
+        <div className={`relative rounded-md border border-white/10 bg-neutral-950/60 px-3 py-2.5 ${isPreviewModeFormatMenuOpen ? 'z-20' : 'z-0'}`}>
+          <div className="mb-2">
+            <p className="text-sm font-medium leading-5 text-white">{text.overlays.previewModeFormat}</p>
+            <p className="mt-1 text-xs leading-5 text-neutral-500">
+              {text.overlays.previewModeFormatDescription}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsPreviewModeFormatMenuOpen((current) => !current)}
+            className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
+            aria-haspopup="menu"
+            aria-expanded={isPreviewModeFormatMenuOpen}
+          >
+            <span>{PREVIEW_MODE_FORMAT_LABELS[previewModeFormat]}</span>
+            <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isPreviewModeFormatMenuOpen ? 'rotate-90' : ''}`} />
+          </button>
+          {isPreviewModeFormatMenuOpen && (
+            <div
+              className="absolute left-3 right-3 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+              role="menu"
+            >
+              {PREVIEW_MODE_FORMAT_OPTIONS.map((format) => {
+                const isDisabled = format === 'dr3custom';
+                const isSelected = previewModeFormat === format;
+
+                return (
+                  <button
+                    key={format}
+                    type="button"
+                    onClick={() => {
+                      if (isDisabled) return;
+                      setPreviewModeFormat(format);
+                      setIsPreviewModeFormatMenuOpen(false);
+                    }}
+                    disabled={isDisabled}
+                    className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-500/20 text-indigo-200'
+                        : isDisabled
+                          ? 'cursor-not-allowed text-neutral-600'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                    }`}
+                    role="menuitem"
+                  >
+                    <span>{PREVIEW_MODE_FORMAT_LABELS[format]}</span>
+                    {isSelected && <Check className="h-3.5 w-3.5" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <PreviewSettingSection title={text.sidebar.previewAppearance}>
           <PreviewSettingToggle

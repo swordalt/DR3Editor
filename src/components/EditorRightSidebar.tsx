@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Copy, FlipHorizontal, Trash2, X } from 'lucide-react';
+import { AlignCenterHorizontal, ChevronLeft, ChevronRight, Copy, FlipHorizontal, Trash2, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
@@ -26,6 +26,7 @@ export default function EditorRightSidebar(props: any) {
     handleCopySelectedNotes,
     handleDeleteSelectedNotes,
     handleMirrorSelectedNotes,
+    handleCenterSelectedNotes,
     notes,
     bpmChanges,
     speedChanges,
@@ -262,6 +263,14 @@ export default function EditorRightSidebar(props: any) {
                         >
                           <FlipHorizontal className="h-3.5 w-3.5" />
                           <span>{text.sidebar.mirror}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCenterSelectedNotes}
+                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
+                        >
+                          <AlignCenterHorizontal className="h-3.5 w-3.5" />
+                          <span>{text.sidebar.center}</span>
                         </button>
                       </div>
                     </div>

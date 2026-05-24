@@ -173,7 +173,6 @@ export default function EditorLayout(props: any) {
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
-        previewModeFormat={previewModeFormat}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
         selectionType={selectionType}
@@ -192,7 +191,6 @@ export default function EditorLayout(props: any) {
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
-        setPreviewModeFormat={setPreviewModeFormat}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
         setSelectionType={setSelectionType}
@@ -273,12 +271,14 @@ export default function EditorLayout(props: any) {
             isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
             isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
             isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+            previewModeFormat={previewModeFormat}
             setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
             setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
             setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
             setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
             setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
             setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
+            setPreviewModeFormat={setPreviewModeFormat}
           />
         )}
 

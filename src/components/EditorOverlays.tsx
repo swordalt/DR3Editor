@@ -12,8 +12,6 @@ import { EDITOR_KEYBIND_GROUPS } from '../editor/editorKeybinds';
 import {
   SELECTION_TYPE_OPTIONS,
   STATISTICS_REFRESH_RATE_OPTIONS,
-  PREVIEW_MODE_FORMAT_OPTIONS,
-  type PreviewModeFormat,
   type SelectionType,
   type StatisticsRefreshRate,
 } from '../editor/editorSettings';
@@ -34,7 +32,6 @@ interface EditorOverlaysProps {
   areTimingChangeIndicatorsAdjusted: boolean;
   isEditorJudgementGlowEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
-  previewModeFormat: PreviewModeFormat;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
   selectionType: SelectionType;
@@ -53,7 +50,6 @@ interface EditorOverlaysProps {
   setAreTimingChangeIndicatorsAdjusted: Dispatch<SetStateAction<boolean>>;
   setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
-  setPreviewModeFormat: Dispatch<SetStateAction<PreviewModeFormat>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
   setSelectionType: Dispatch<SetStateAction<SelectionType>>;
@@ -75,11 +71,6 @@ const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[]
 ];
 
 const DR3FP_PREVIEW_FAILURE_GUIDANCE = translations.status.dr3FpFailureGuidance;
-const PREVIEW_MODE_FORMAT_LABELS: Record<PreviewModeFormat, string> = {
-  default: translations.overlays.previewModeFormatDefault,
-  official: translations.overlays.previewModeFormatOfficial,
-  dr3custom: translations.overlays.previewModeFormatDr3Custom,
-};
 
 type SettingsSectionId = 'editor' | 'appearance' | 'audio';
 type HotkeyRow =
@@ -275,7 +266,6 @@ export default function EditorOverlays({
   areTimingChangeIndicatorsAdjusted,
   isEditorJudgementGlowEnabled,
   isPreviewPrecomputeEnabled,
-  previewModeFormat,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
   selectionType,
@@ -294,7 +284,6 @@ export default function EditorOverlays({
   setAreTimingChangeIndicatorsAdjusted,
   setIsEditorJudgementGlowEnabled,
   setIsPreviewPrecomputeEnabled,
-  setPreviewModeFormat,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
   setSelectionType,
@@ -438,24 +427,6 @@ export default function EditorOverlays({
               onToggle={() => setIsPreviewPrecomputeEnabled((current) => !current)}
             />
           </div>
-
-          <label className="mt-4 block rounded-2xl border border-white/10 bg-neutral-950/60 p-4">
-            <span className="text-sm font-medium text-white">{text.overlays.previewModeFormat}</span>
-            <span className="mt-1 block text-xs leading-5 text-neutral-500">
-              {text.overlays.previewModeFormatDescription}
-            </span>
-            <select
-              value={previewModeFormat}
-              onChange={(e) => setPreviewModeFormat(e.target.value as PreviewModeFormat)}
-              className="mt-3 w-full rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500 disabled:cursor-not-allowed disabled:text-neutral-600"
-            >
-              {PREVIEW_MODE_FORMAT_OPTIONS.map((format) => (
-                <option key={format} value={format} disabled={format === 'dr3custom'}>
-                  {PREVIEW_MODE_FORMAT_LABELS[format]}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isSelectionTypeMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">

@@ -1,6 +1,6 @@
 export const DEFAULT_PIXELS_PER_BEAT = 150;
-export const MIN_PIXELS_PER_BEAT = 60;
-export const MAX_PIXELS_PER_BEAT = 320;
+export const MIN_PIXELS_PER_BEAT = 20;
+export const MAX_PIXELS_PER_BEAT = 500;
 export const EDITOR_SETTINGS_STORAGE_KEY = 'dancerail3-editor:settings';
 export const STATISTICS_REFRESH_RATE_OPTIONS = ['15fps', '30fps', '60fps', 'max'] as const;
 export const SELECTION_TYPE_OPTIONS = ['window', 'crossing'] as const;

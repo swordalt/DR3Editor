@@ -36,6 +36,7 @@ import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 
 import {
   APPEAR_MODE_ENTRY_DISTANCE,
+  APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT,
   APPEAR_MODE_H_FLY_DOWN_PIXELS,
   APPEAR_MODE_H_START_SCALE,
   APPEAR_MODE_OPTIONS,
@@ -364,6 +365,7 @@ const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
 const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
 const HOLD_END_TYPE_SET = new Set(HOLD_END_TYPES);
+const EDITOR_HOLD_CENTER_NOTE_HEIGHT_SCALE = 0.72;
 const PREVIEW_NOTE_TEXTURE_OMITTED_TYPES = new Set(HOLD_CENTER_TYPES);
 PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.delete(17);
 const PREVIEW_CONSTANT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
@@ -848,6 +850,18 @@ export default function Editor({
     setIsExitWarningOpen(true);
   };
 
+  useEffect(() => {
+    if (!isExitWarningEnabled) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isExitWarningEnabled]);
+
   const getAudioContextCtor = () => {
     return window.AudioContext ||
       (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext ||
@@ -1159,7 +1173,26 @@ export default function Editor({
 
     return maxDuration;
   }, [getTimeFromTimepos, notes, speedChanges]);
-  const timelineDuration = Math.max(audioTimelineDuration, chartTimelineDuration);
+  const rawTimelineDuration = Math.max(audioTimelineDuration, chartTimelineDuration);
+  const totalTimelineMeasures = useMemo(() => (
+    Math.max(0, Math.ceil(getTimeposFromTime(rawTimelineDuration) - SNAP_EPSILON))
+  ), [getTimeposFromTime, rawTimelineDuration]);
+  const timelineDuration = useMemo(() => (
+    totalTimelineMeasures > 0 ? getTimeFromTimepos(totalTimelineMeasures) : 0
+  ), [getTimeFromTimepos, totalTimelineMeasures]);
+  const formatTimelineMeasureProgress = useCallback((time: number) => {
+    if (totalTimelineMeasures <= 0) {
+      return '0/0';
+    }
+
+    const clampedTime = Math.max(0, Math.min(time, timelineDuration));
+    const currentMeasure = Math.min(
+      totalTimelineMeasures,
+      Math.max(0, Math.floor(getTimeposFromTime(clampedTime) + SNAP_EPSILON)),
+    );
+
+    return `${currentMeasure}/${totalTimelineMeasures}`;
+  }, [getTimeposFromTime, timelineDuration, totalTimelineMeasures]);
   const bpmIndicatorEntries = useMemo(
     () => timedBpmChanges
       .map(change => ({ beat: change.startBeat, change }))
@@ -1425,6 +1458,30 @@ export default function Editor({
       const mirroredLane = mirroredLaneById.get(note.id);
       return mirroredLane === undefined ? note : { ...note, lane: mirroredLane };
     }));
+    clearActiveNoteInteraction();
+  }, [clearActiveNoteInteraction, recordOperation, selectedNoteIds, setNotes]);
+
+  const handleCenterSelectedNotes = useCallback(() => {
+    const selectedIdSet = new Set(selectedNoteIds);
+    const selectedNotes = stateRef.current.notes.filter(note => selectedIdSet.has(note.id));
+    if (selectedNotes.length === 0) return;
+
+    const groupLeft = Math.min(...selectedNotes.map(note => Math.min(note.lane, note.lane + note.width)));
+    const groupRight = Math.max(...selectedNotes.map(note => Math.max(note.lane, note.lane + note.width)));
+    const groupCenter = (groupLeft + groupRight) / 2;
+    const laneOffset = X_POSITION_COUNT / 2 - groupCenter;
+
+    if (Math.abs(laneOffset) <= SNAP_EPSILON) return;
+
+    recordOperation({
+      category: 'note',
+      title: selectedNotes.length === 1 ? 'Centered note' : `Centered ${selectedNotes.length} notes`,
+      detail: `IDs ${formatGroupedIds(selectedNotes.map(note => note.id))} at xpos 8`,
+    });
+
+    setNotes(prev => prev.map(note => (
+      selectedIdSet.has(note.id) ? { ...note, lane: note.lane + laneOffset } : note
+    )));
     clearActiveNoteInteraction();
   }, [clearActiveNoteInteraction, recordOperation, selectedNoteIds, setNotes]);
 
@@ -2149,10 +2206,10 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, newTime - offsetInSeconds);
     }
     if (timeDisplayRef.current && projectData) {
-      timeDisplayRef.current.textContent = formatTime(newTime, sortedChanges, effectiveGridZoom);
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(newTime);
     }
     renderPausedTimelineAtFullFps();
-  }, [projectData, offsetInSeconds, effectiveGridZoom, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges, timelineDuration]);
+  }, [projectData, offsetInSeconds, effectiveGridZoom, formatTimelineMeasureProgress, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges, timelineDuration]);
 
   const stopHitsounds = () => {
     activeHitSounds.current.forEach(source => {
@@ -2367,7 +2424,7 @@ export default function Editor({
     scheduledHitSoundKeysRef.current.clear();
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(loopStartTime, sortedChanges, effectiveGridZoom);
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(loopStartTime);
     }
     updateProgressBarValue(loopStartTime, true);
 
@@ -2401,7 +2458,7 @@ export default function Editor({
       }
     }
     isLoopingPlaybackRef.current = false;
-  }, [effectiveGridZoom, offset, projectData, resetPreviewJudgementState]);
+  }, [effectiveGridZoom, formatTimelineMeasureProgress, offset, projectData, resetPreviewJudgementState]);
 
   const togglePlay = useCallback(async () => {
     if (!audioRef.current || !projectData) return;
@@ -2438,7 +2495,7 @@ export default function Editor({
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
       audioRef.current.currentTime = Math.max(0, snappedTime - offsetInSeconds);
       if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = formatTime(snappedTime, sortedChanges, effectiveGridZoom);
+        timeDisplayRef.current.textContent = formatTimelineMeasureProgress(snappedTime);
       }
       updateProgressBarValue(snappedTime, true);
     } else {
@@ -2515,7 +2572,7 @@ export default function Editor({
       
       setIsPlaying(true);
     }
-  }, [effectiveGridZoom, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
+  }, [effectiveGridZoom, formatTimelineMeasureProgress, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
 
   const restoreOperationSnapshot = useCallback((snapshot: OperationHistorySnapshot) => {
     if (stateRef.current.isPlaying) {
@@ -3121,7 +3178,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(time, sortedChanges, effectiveGridZoom);
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(time);
     }
     updateProgressBarValue(time);
 
@@ -3282,8 +3339,9 @@ export default function Editor({
 
       if (note.appearMode === 'H') {
         const linearProgress = Math.max(0, Math.min(1, 1 - Math.max(0, visualDistance) / APPEAR_MODE_ENTRY_DISTANCE));
-        const yProgress = easePreviewAppearOut(linearProgress);
-        const scaleProgress = easePreviewAppearIn(linearProgress);
+        const hProgress = linearProgress ** APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT;
+        const yProgress = easePreviewAppearOut(hProgress);
+        const scaleProgress = easePreviewAppearIn(hProgress);
         const startY = projectPreviewY(linearY - APPEAR_MODE_H_FLY_DOWN_PIXELS);
         const startX = getProjectedXFromLane(note.lane, startY);
         const startNotePixelWidth = getProjectedNoteWidth(note.width, startY);
@@ -4474,9 +4532,17 @@ export default function Editor({
       centerX: number;
       centerY: number;
     }> = [];
+    const shouldDrawPreviewNoteAsHOverlay = (entry: typeof orderedVisibleNoteEntries[number]) => (
+      isPreviewPlaybackCanvas
+      && isPreviewNoteAppearModeEnabled
+      && entry.note.appearMode === 'H'
+    );
+    const hPreviewOverlayNoteEntries = orderedVisibleNoteEntries.filter(shouldDrawPreviewNoteAsHOverlay);
 
-    // Draw notes
-    orderedVisibleNoteEntries.forEach((entry) => {
+    const drawVisibleNoteEntry = (
+      entry: typeof orderedVisibleNoteEntries[number],
+      arrowSpriteDraws: typeof previewArrowSpriteDraws,
+    ) => {
       const { note, beat: noteBeat } = entry;
       if (hiddenPreviewNoteIds?.has(note.id)) {
         return;
@@ -4574,7 +4640,10 @@ export default function Editor({
       const appearedScale = appearedPosition.scale;
       const combinedScale = appearedScale * projectedScale;
       const scaledNotePixelWidth = notePixelWidth * appearedScale;
-      const scaledNoteHeight = 20 * combinedScale;
+      const noteHeightScale = HOLD_CENTER_TYPE_SET.has(renderedNote.type)
+        ? EDITOR_HOLD_CENTER_NOTE_HEIGHT_SCALE
+        : 1;
+      const scaledNoteHeight = 20 * combinedScale * noteHeightScale;
       const scaledX = appearedX + (notePixelWidth - scaledNotePixelWidth) / 2;
       const noteCenterX = appearedX + notePixelWidth / 2;
       const noteBodyInset = 2 * combinedScale;
@@ -4603,7 +4672,7 @@ export default function Editor({
       if (previewSpriteBounds) {
         noteSelectionBounds = previewSpriteBounds;
         if (isLoadedPreviewSprite(previewNoteArrowsRef.current.get(renderedNote.type))) {
-          previewArrowSpriteDraws.push({
+          arrowSpriteDraws.push({
             noteId: renderedNote.id,
             noteType: renderedNote.type,
             centerX: noteCenterX,
@@ -4711,6 +4780,15 @@ export default function Editor({
           countRenderedObject();
         }
       }
+    };
+
+    // Draw non-H notes first. H appear-mode notes are rendered as a final overlay so they fly above sprites, arrows, and combo.
+    orderedVisibleNoteEntries.forEach((entry) => {
+      if (shouldDrawPreviewNoteAsHOverlay(entry)) {
+        return;
+      }
+
+      drawVisibleNoteEntry(entry, previewArrowSpriteDraws);
     });
 
     previewArrowSpriteDraws
@@ -4734,11 +4812,14 @@ export default function Editor({
         const previewX = chartStartX + previewNote.lane * xPositionWidth;
         const previewPixelWidth = xPositionWidth * previewNote.width;
         const previewCenterX = previewX + previewPixelWidth / 2;
+        const previewNoteHeight = 20 * (
+          HOLD_CENTER_TYPE_SET.has(curveNoteType) ? EDITOR_HOLD_CENTER_NOTE_HEIGHT_SCALE : 1
+        );
 
         ctx.save();
         ctx.globalAlpha = fillAlpha;
         ctx.fillStyle = previewTypeInfo.color;
-        ctx.fillRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+        ctx.fillRect(previewX + 2, previewY - previewNoteHeight / 2, previewPixelWidth - 4, previewNoteHeight);
 
         const numberedNoteLabel = getEditorNumberedNoteLabel(curveNoteType);
         if (numberedNoteLabel) {
@@ -4804,7 +4885,7 @@ export default function Editor({
         ctx.globalAlpha = outlineAlpha;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
-        ctx.strokeRect(previewX + 2, previewY - 10, previewPixelWidth - 4, 20);
+        ctx.strokeRect(previewX + 2, previewY - previewNoteHeight / 2, previewPixelWidth - 4, previewNoteHeight);
         ctx.setLineDash([6, 4]);
         ctx.strokeRect(previewX, previewY - 12, previewPixelWidth, 24);
         ctx.restore();
@@ -4824,11 +4905,14 @@ export default function Editor({
       const previewTypeInfo = NOTE_TYPES[previewType] || UNKNOWN_NOTE_TYPE;
       const shouldDrawTopIndicators = previewPixelWidth > 0;
       const previewBodyWidth = Math.max(1, previewPixelWidth - 4);
+      const previewNoteHeight = 20 * (
+        HOLD_CENTER_TYPE_SET.has(previewType) ? EDITOR_HOLD_CENTER_NOTE_HEIGHT_SCALE : 1
+      );
 
       ctx.save();
       ctx.globalAlpha = fillAlpha;
       ctx.fillStyle = previewTypeInfo.color;
-      ctx.fillRect(previewX + 2, previewY - 10, previewBodyWidth, 20);
+      ctx.fillRect(previewX + 2, previewY - previewNoteHeight / 2, previewBodyWidth, previewNoteHeight);
       const numberedNoteLabel = getEditorNumberedNoteLabel(previewType);
       if (shouldDrawTopIndicators && numberedNoteLabel) {
         drawNoteLetter(previewCenterX, previewY, numberedNoteLabel);
@@ -4885,7 +4969,7 @@ export default function Editor({
       ctx.globalAlpha = outlineAlpha;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(previewX + 2, previewY - 10, previewBodyWidth, 20);
+      ctx.strokeRect(previewX + 2, previewY - previewNoteHeight / 2, previewBodyWidth, previewNoteHeight);
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = '#ffffff';
       ctx.strokeRect(previewX, previewY - 12, Math.max(1, previewPixelWidth), 24);
@@ -5049,9 +5133,23 @@ export default function Editor({
       countRenderedObject();
     }
 
+    if (hPreviewOverlayNoteEntries.length > 0) {
+      const hPreviewArrowSpriteDraws: typeof previewArrowSpriteDraws = [];
+
+      hPreviewOverlayNoteEntries.forEach((entry) => {
+        drawVisibleNoteEntry(entry, hPreviewArrowSpriteDraws);
+      });
+
+      hPreviewArrowSpriteDraws
+        .sort((a, b) => a.noteId - b.noteId)
+        .forEach(({ noteType, centerX, centerY }) => {
+          drawPreviewArrowSprite(noteType, centerX, centerY);
+        });
+    }
+
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -5691,7 +5789,7 @@ export default function Editor({
       audioRef.current.currentTime = Math.max(0, clampedTime - offsetInSeconds);
     }
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, sortedChanges, effectiveGridZoom);
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(clampedTime);
     }
     updateProgressBarValue(clampedTime, true);
     renderPausedTimelineAtFullFps();
@@ -6601,7 +6699,7 @@ export default function Editor({
     }
 
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = formatTime(clampedTime, timedBpmChanges, effectiveGridZoom);
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(clampedTime);
     }
     updateProgressBarValue(clampedTime, true);
     renderPausedTimelineAtFullFps();
@@ -6734,6 +6832,7 @@ export default function Editor({
     handleCopySelectedNotes,
     handleDeleteSelectedNotes,
     handleMirrorSelectedNotes,
+    handleCenterSelectedNotes,
     notes,
     bpmChanges,
     speedChanges,
@@ -6825,10 +6924,10 @@ export default function Editor({
         hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
         duration={timelineDuration}
         currentTime={currentTime}
+        timelinePositionLabel={formatTimelineMeasureProgress(currentTime)}
         effectiveGridZoom={effectiveGridZoom}
         pixelsPerBeat={pixelsPerBeat}
         playbackSpeed={playbackSpeed}
-        bpmChanges={bpmChanges}
         progressBarRef={progressBarRef}
         timeDisplayRef={timeDisplayRef}
         isDraggingProgress={isDraggingProgress}

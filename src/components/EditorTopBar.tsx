@@ -1,10 +1,10 @@
-import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react';
+import { useState } from 'react';
+import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
 import { ArrowLeft, ChevronDown, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pause, Play, Settings } from 'lucide-react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import { translations } from '../lang';
-import type { BpmChange, ProjectData } from '../types/editorTypes';
-import { convertBpmChangesToTime, formatTime } from '../utils/editorUtils';
+import type { ProjectData } from '../types/editorTypes';
 
 interface EditorTopBarProps {
   projectData: ProjectData | null;
@@ -25,10 +25,10 @@ interface EditorTopBarProps {
   hasExportIncompatibleTimeSignature: boolean;
   duration: number;
   currentTime: number;
+  timelinePositionLabel: string;
   effectiveGridZoom: number;
   pixelsPerBeat: number;
   playbackSpeed: number;
-  bpmChanges: BpmChange[];
   progressBarRef: RefObject<HTMLInputElement | null>;
   timeDisplayRef: RefObject<HTMLDivElement | null>;
   isDraggingProgress: RefObject<boolean>;
@@ -66,10 +66,10 @@ export default function EditorTopBar({
   hasExportIncompatibleTimeSignature,
   duration,
   currentTime,
+  timelinePositionLabel,
   effectiveGridZoom,
   pixelsPerBeat,
   playbackSpeed,
-  bpmChanges,
   progressBarRef,
   timeDisplayRef,
   isDraggingProgress,
@@ -91,6 +91,9 @@ export default function EditorTopBar({
   exportDr3Fp,
 }: EditorTopBarProps) {
   const text = translations;
+  const [customPlaybackSpeedInput, setCustomPlaybackSpeedInput] = useState(() => `${playbackSpeed}`);
+  const parsedCustomPlaybackSpeed = Number(customPlaybackSpeedInput);
+  const isCustomPlaybackSpeedValid = Number.isFinite(parsedCustomPlaybackSpeed) && parsedCustomPlaybackSpeed > 0;
   const outOfBoundsLabel = isOutOfBoundsPlacementEnabled
     ? text.editor.disableOutOfBoundsPlacement
     : text.editor.enableOutOfBoundsPlacement;
@@ -98,38 +101,52 @@ export default function EditorTopBar({
     ? text.editor.disableXPositionGrid
     : text.editor.enableXPositionGrid;
   const playbackLabel = isPlaying ? text.editor.pause : text.editor.play;
+  const applyCustomPlaybackSpeed = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isCustomPlaybackSpeedValid) return;
+
+    const matchingPresetSpeed = PLAYBACK_SPEED_OPTIONS.find(speed => (
+      Math.abs(speed - parsedCustomPlaybackSpeed) <= 0.000001
+    ));
+
+    changePlaybackSpeed(matchingPresetSpeed ?? parsedCustomPlaybackSpeed);
+  };
 
   return (
-    <header className="h-14 border-b border-neutral-800 bg-neutral-900/50 flex items-center justify-between px-4 shrink-0">
-      <div className="flex items-center gap-4 w-1/3">
+    <header className="h-16 shrink-0 border-b border-neutral-800 bg-neutral-950/90 px-3 text-neutral-50 shadow-lg shadow-black/20">
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(22rem,38rem)_minmax(0,1fr)] items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <button
           onClick={openExitWarning}
-          className="p-2 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-white"
+          className="shrink-0 rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
           title={text.editor.backToLanding}
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="h-4 w-px bg-neutral-800" />
-        <div className="flex min-w-0 items-center gap-2">
-          <h1 className="min-w-0 truncate text-sm font-medium">{projectData?.songName || text.editor.untitledProject}</h1>
-          {projectData && (
-            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tierBadge.className}`}>
-              {tierBadge.label}
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-neutral-100">
+            {projectData?.songName || text.editor.untitledProject}
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            {projectData && (
+              <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${tierBadge.className}`}>
+                {tierBadge.label}
+              </span>
+            )}
+            <span className="shrink-0 rounded border border-indigo-400/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-indigo-200">
+              {projectData?.chartFormat ?? text.common.official}
             </span>
-          )}
-          <span className="shrink-0 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-0.5 text-[11px] font-semibold text-indigo-200">
-            {projectData?.chartFormat ?? text.common.official}
-          </span>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-4 max-w-xl gap-3">
+      <div className="flex min-w-0 items-center justify-center gap-3">
         {projectData && (
           <>
             <button
               type="button"
               onClick={() => setIsOutOfBoundsPlacementEnabled(prev => !prev)}
-              className={`shrink-0 p-2 rounded-lg transition-colors ${isOutOfBoundsPlacementEnabled ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'hover:bg-neutral-800 text-neutral-400 hover:text-white'}`}
+              className={`shrink-0 rounded-lg border p-2 transition-colors ${isOutOfBoundsPlacementEnabled ? 'border-amber-400/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white'}`}
               title={outOfBoundsLabel}
               aria-pressed={isOutOfBoundsPlacementEnabled}
               aria-label={outOfBoundsLabel}
@@ -139,17 +156,17 @@ export default function EditorTopBar({
             <button
               type="button"
               onClick={() => setIsXPositionGridEnabled(prev => !prev)}
-              className={`shrink-0 p-2 rounded-lg transition-colors ${isXPositionGridEnabled ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white' : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'}`}
+              className={`shrink-0 rounded-lg border p-2 transition-colors ${isXPositionGridEnabled ? 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white' : 'border-indigo-400/30 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'}`}
               title={xPositionGridLabel}
               aria-pressed={!isXPositionGridEnabled}
               aria-label={xPositionGridLabel}
             >
               {isXPositionGridEnabled ? <Grid2x2 className="w-4 h-4" /> : <Grid2x2X className="w-4 h-4" />}
             </button>
-            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950/40 px-2 py-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 shadow-inner shadow-black/30">
               <button
                 onClick={togglePlay}
-                className={`shrink-0 p-2 rounded-lg transition-colors ${isPlaying ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-neutral-800 text-neutral-400 hover:text-emerald-400'}`}
+                className={`shrink-0 rounded-lg p-2 transition-colors ${isPlaying ? 'bg-emerald-500/20 text-emerald-400' : 'text-neutral-400 hover:bg-neutral-800 hover:text-emerald-400'}`}
                 title={playbackLabel}
               >
                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -186,26 +203,26 @@ export default function EditorTopBar({
                 onChange={handleSeekChange}
                 className="min-w-0 flex-1 h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
-              <div ref={timeDisplayRef} className="shrink-0 text-sm font-mono text-neutral-400">
-                {formatTime(currentTime, convertBpmChangesToTime(bpmChanges), effectiveGridZoom)}
+              <div ref={timeDisplayRef} className="w-14 shrink-0 text-right font-mono text-sm text-neutral-400">
+                {timelinePositionLabel}
               </div>
             </div>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-2 w-1/3 justify-end">
+      <div className="flex min-w-0 items-center justify-end gap-2">
         {projectData && (
-          <>
+          <div className="hidden items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-2 py-1.5 xl:flex">
             {!isPreviewMode && (
-              <div className="text-sm font-mono text-neutral-400 w-20 text-left">
-                {text.editor.snap} <span className="inline-block w-8 text-center">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
+              <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                {text.editor.snap} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
               </div>
             )}
-            <div className="text-sm font-mono text-neutral-400 w-24 text-left">
-              {text.editor.zoom} <span className="inline-block w-10 text-center">{pixelsPerBeat}px</span>
+            <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+              {text.editor.zoom} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{pixelsPerBeat}px</span>
             </div>
-          </>
+          </div>
         )}
         <div className="relative">
           <button
@@ -213,9 +230,15 @@ export default function EditorTopBar({
             onClick={() => {
               setIsExportMenuOpen(false);
               setIsPreviewMenuOpen(false);
-              setIsPlaybackSpeedMenuOpen(current => !current);
+              setIsPlaybackSpeedMenuOpen(current => {
+                if (!current) {
+                  setCustomPlaybackSpeedInput(`${playbackSpeed}`);
+                }
+
+                return !current;
+              });
             }}
-            className="min-w-14 rounded-lg px-2 py-1.5 font-mono text-sm text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
+            className="min-w-14 rounded-lg border border-neutral-800 bg-neutral-900/60 px-2 py-1.5 font-mono text-sm text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-800 hover:text-white"
             title={text.editor.playbackSpeed}
             aria-haspopup="menu"
             aria-expanded={isPlaybackSpeedMenuOpen}
@@ -224,9 +247,32 @@ export default function EditorTopBar({
           </button>
           {isPlaybackSpeedMenuOpen && (
             <div
-              className="absolute right-0 top-full z-50 mt-2 w-24 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+              className="absolute right-0 top-full z-50 mt-2 w-40 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
               role="menu"
             >
+              <form onSubmit={applyCustomPlaybackSpeed} className="mb-1 border-b border-neutral-800 p-1 pb-2">
+                <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                  Custom
+                </label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={customPlaybackSpeedInput}
+                    onChange={(event) => setCustomPlaybackSpeedInput(event.target.value)}
+                    className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 font-mono text-sm text-neutral-200 outline-none transition-colors focus:border-indigo-500"
+                    aria-label={text.editor.playbackSpeed}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!isCustomPlaybackSpeedValid}
+                    className="rounded bg-indigo-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                  >
+                    Set
+                  </button>
+                </div>
+              </form>
               {PLAYBACK_SPEED_OPTIONS.map(speed => (
                 <button
                   key={speed}
@@ -251,7 +297,7 @@ export default function EditorTopBar({
             e.preventDefault();
             openHelp();
           }}
-          className="p-2 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-white"
+          className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
           title={text.editor.hotkeys}
           aria-label={text.editor.openHotkeysHelp}
           aria-haspopup="dialog"
@@ -265,7 +311,7 @@ export default function EditorTopBar({
             e.preventDefault();
             openSettings();
           }}
-          className="p-2 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-white"
+          className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
           title={text.editor.settings}
           aria-haspopup="dialog"
           aria-expanded={isSettingsOpen}
@@ -277,14 +323,14 @@ export default function EditorTopBar({
             type="button"
             disabled={!projectData}
             onClick={togglePreviewMode}
-            className="ml-2 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             title={text.editor.returnToEditorMode}
             aria-pressed={isPreviewMode}
           >
             {text.common.return}
           </button>
         ) : (
-          <div className="relative ml-2">
+          <div className="relative">
             <button
               type="button"
               disabled={!projectData}
@@ -293,7 +339,7 @@ export default function EditorTopBar({
                 setIsPlaybackSpeedMenuOpen(false);
                 setIsPreviewMenuOpen(current => !current);
               }}
-              className="flex items-center gap-2 rounded-lg bg-neutral-800 px-3 py-1.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              className="flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm font-semibold text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-500"
               title={text.editor.previewChartPlayback}
               aria-haspopup="menu"
               aria-expanded={isPreviewMenuOpen}
@@ -335,7 +381,7 @@ export default function EditorTopBar({
             )}
           </div>
         )}
-        <div className="relative ml-2">
+        <div className="relative">
           <button
             type="button"
             disabled={isExportDisabled}
@@ -344,7 +390,7 @@ export default function EditorTopBar({
               setIsPreviewMenuOpen(false);
               setIsExportMenuOpen(current => !current);
             }}
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors text-sm font-medium disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="flex items-center gap-2 rounded-lg bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             title={isExportDisabled ? text.editor.exportDisabled : text.editor.exportLevel}
             aria-haspopup="menu"
             aria-expanded={isExportMenuOpen}
@@ -389,6 +435,7 @@ export default function EditorTopBar({
             </div>
           )}
         </div>
+      </div>
       </div>
     </header>
   );

@@ -193,6 +193,7 @@ export const en = {
     copy: 'Copy',
     delete: 'Delete',
     mirror: 'Mirror',
+    center: 'Center',
     chartSummary: 'Chart Summary',
     totalNotes: 'Total Notes',
     currentBpm: 'Current BPM',
