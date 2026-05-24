@@ -1,10 +1,9 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { translations } from '../lang';
 
 interface PreviewSettingToggleProps {
   label: string;
-  description: string;
   isEnabled: boolean;
   ariaLabel: string;
   onToggle: () => void;
@@ -12,20 +11,14 @@ interface PreviewSettingToggleProps {
 
 function PreviewSettingToggle({
   label,
-  description,
   isEnabled,
   ariaLabel,
   onToggle,
 }: PreviewSettingToggleProps) {
   return (
-    <div className="rounded-lg border border-white/10 bg-neutral-950/60 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-white">{label}</p>
-          <p className="mt-1 text-xs leading-5 text-neutral-500">
-            {description}
-          </p>
-        </div>
+    <div className="rounded-md border border-white/10 bg-neutral-950/60 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 text-sm font-medium leading-5 text-white">{label}</p>
         <button
           type="button"
           role="switch"
@@ -50,14 +43,33 @@ function PreviewSettingToggle({
   );
 }
 
+function PreviewSettingSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{title}</div>
+      {children}
+    </section>
+  );
+}
+
 export default function EditorPreviewSidebar({
   isLeftPanelCompact,
   isLeftPanelContentVisible,
   toggleLeftPanelCompact,
+  isPreviewSpritesEnabled,
+  isPreviewChartSpeedChangesEnabled,
   isPreviewCameraTiltEnabled,
   isPreviewCameraMovementEnabled,
   isPreviewNoteSpeedChangesEnabled,
   isPreviewNoteAppearModeEnabled,
+  setIsPreviewSpritesEnabled,
+  setIsPreviewChartSpeedChangesEnabled,
   setIsPreviewCameraTiltEnabled,
   setIsPreviewCameraMovementEnabled,
   setIsPreviewNoteSpeedChangesEnabled,
@@ -66,10 +78,14 @@ export default function EditorPreviewSidebar({
   isLeftPanelCompact: boolean;
   isLeftPanelContentVisible: boolean;
   toggleLeftPanelCompact: () => void;
+  isPreviewSpritesEnabled: boolean;
+  isPreviewChartSpeedChangesEnabled: boolean;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
+  setIsPreviewSpritesEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewChartSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewNoteSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
@@ -91,37 +107,51 @@ export default function EditorPreviewSidebar({
       {isLeftPanelContentVisible && (
       <div className="flex flex-col gap-4 overflow-y-auto p-4">
         <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.previewMode}</div>
-        <PreviewSettingToggle
-          label={text.sidebar.cameraTilt}
-          description={text.sidebar.cameraTiltDescription}
-          isEnabled={isPreviewCameraTiltEnabled}
-          ariaLabel={text.sidebar.togglePreviewCameraTilt}
-          onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
-        />
-        <PreviewSettingToggle
-          label={text.sidebar.cameraMovement}
-          description={text.sidebar.cameraMovementDescription}
-          isEnabled={isPreviewCameraMovementEnabled}
-          ariaLabel={text.sidebar.togglePreviewCameraMovement}
-          onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
-        />
-        <PreviewSettingToggle
-          label={text.sidebar.noteSpeedChanges}
-          description={text.sidebar.noteSpeedChangesDescription}
-          isEnabled={isPreviewNoteSpeedChangesEnabled}
-          ariaLabel={text.sidebar.togglePreviewNoteSpeedChanges}
-          onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
-        />
-        <PreviewSettingToggle
-          label={text.sidebar.noteAppearMode}
-          description={text.sidebar.noteAppearModeDescription}
-          isEnabled={isPreviewNoteAppearModeEnabled}
-          ariaLabel={text.sidebar.togglePreviewNoteAppearMode}
-          onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
-        />
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
           {text.sidebar.previewAccuracyNotice}
         </div>
+        <PreviewSettingSection title={text.sidebar.previewAppearance}>
+          <PreviewSettingToggle
+            label={text.sidebar.previewSprites}
+            isEnabled={isPreviewSpritesEnabled}
+            ariaLabel={text.sidebar.togglePreviewSprites}
+            onToggle={() => setIsPreviewSpritesEnabled((current) => !current)}
+          />
+        </PreviewSettingSection>
+        <PreviewSettingSection title={text.sidebar.previewCamera}>
+          <PreviewSettingToggle
+            label={text.sidebar.cameraTilt}
+            isEnabled={isPreviewCameraTiltEnabled}
+            ariaLabel={text.sidebar.togglePreviewCameraTilt}
+            onToggle={() => setIsPreviewCameraTiltEnabled((current) => !current)}
+          />
+          <PreviewSettingToggle
+            label={text.sidebar.cameraMovement}
+            isEnabled={isPreviewCameraMovementEnabled}
+            ariaLabel={text.sidebar.togglePreviewCameraMovement}
+            onToggle={() => setIsPreviewCameraMovementEnabled((current) => !current)}
+          />
+        </PreviewSettingSection>
+        <PreviewSettingSection title={text.sidebar.previewChart}>
+          <PreviewSettingToggle
+            label={text.sidebar.chartSpeedChanges}
+            isEnabled={isPreviewChartSpeedChangesEnabled}
+            ariaLabel={text.sidebar.togglePreviewChartSpeedChanges}
+            onToggle={() => setIsPreviewChartSpeedChangesEnabled((current) => !current)}
+          />
+          <PreviewSettingToggle
+            label={text.sidebar.noteSpeedChanges}
+            isEnabled={isPreviewNoteSpeedChangesEnabled}
+            ariaLabel={text.sidebar.togglePreviewNoteSpeedChanges}
+            onToggle={() => setIsPreviewNoteSpeedChangesEnabled((current) => !current)}
+          />
+          <PreviewSettingToggle
+            label={text.sidebar.noteAppearMode}
+            isEnabled={isPreviewNoteAppearModeEnabled}
+            ariaLabel={text.sidebar.togglePreviewNoteAppearMode}
+            onToggle={() => setIsPreviewNoteAppearModeEnabled((current) => !current)}
+          />
+        </PreviewSettingSection>
       </div>
       )}
     </aside>

@@ -351,10 +351,17 @@ const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
 const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
 const HOLD_END_TYPE_SET = new Set(HOLD_END_TYPES);
-const PREVIEW_NOTE_TEXTURE_OMITTED_TYPES = new Set([6, 11, 19, 21, 23]);
+const PREVIEW_NOTE_TEXTURE_OMITTED_TYPES = new Set(HOLD_CENTER_TYPES);
+PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.delete(17);
+const PREVIEW_CONSTANT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const PREVIEW_DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
+const PREVIEW_PINK_HOLD_CONNECTOR_TYPES = new Set([23, 24]);
 const getPreviewHoldTextureAlpha = (connectorType: number) => (
-  PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType) ? 0.44 : 0.25
+  PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(connectorType)
+    ? 1
+    : PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType)
+      ? 0.44
+      : 0.25
 );
 const isArrowFlickType = (type: number) => type >= 13 && type <= 16;
 const EDITOR_NUMBERED_NOTE_LABELS: Record<number, string> = {
@@ -456,6 +463,8 @@ export default function Editor({
   const [isOutOfBoundsPlacementEnabled, setIsOutOfBoundsPlacementEnabled] = useState(initialEditorSettings.isOutOfBoundsPlacementEnabled);
   const [isPreviewPrecomputeEnabled, setIsPreviewPrecomputeEnabled] = useState(initialEditorSettings.isPreviewPrecomputeEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
+  const [isPreviewSpritesEnabled, setIsPreviewSpritesEnabled] = useState(initialEditorSettings.isPreviewSpritesEnabled);
+  const [isPreviewChartSpeedChangesEnabled, setIsPreviewChartSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewChartSpeedChangesEnabled);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
   const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
@@ -570,6 +579,8 @@ export default function Editor({
       isOutOfBoundsPlacementEnabled,
       isPreviewPrecomputeEnabled,
       pixelsPerBeat,
+      isPreviewSpritesEnabled,
+      isPreviewChartSpeedChangesEnabled,
       isPreviewCameraTiltEnabled,
       isPreviewCameraMovementEnabled,
       isPreviewNoteSpeedChangesEnabled,
@@ -595,6 +606,8 @@ export default function Editor({
     isOutOfBoundsPlacementEnabled,
     isPreviewPrecomputeEnabled,
     pixelsPerBeat,
+    isPreviewSpritesEnabled,
+    isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
     isPreviewNoteSpeedChangesEnabled,
@@ -1175,13 +1188,21 @@ export default function Editor({
     () => buildSpeedDistanceIndex(speedChanges),
     [speedChanges],
   );
+  const previewSpeedChanges = isPreviewChartSpeedChangesEnabled
+    ? speedChanges
+    : PREVIEW_CONSTANT_SPEED_CHANGES;
   const previewPlaybackSpeedDistanceIndex = useMemo(
-    () => buildSpeedDistanceIndex(speedChanges.map(change => ({
+    () => buildSpeedDistanceIndex(previewSpeedChanges.map(change => ({
       ...change,
       timepos: getTimeFromTimepos(change.timepos),
     }))),
-    [getTimeFromTimepos, speedChanges],
+    [getTimeFromTimepos, previewSpeedChanges],
   );
+  useEffect(() => {
+    previewComboTimesRef.current = [];
+    previewChartStatisticsIndexRef.current = null;
+    previewPlaybackSpeedDistanceIndexRef.current = [];
+  }, [previewSpeedChanges]);
   const isPreviewCanvasLoadingVisibleOnly = isPreviewMode && previewCanvasLoadPhase === 'visible';
   const previewInitialDistanceWindow = useMemo(() => {
     const viewportHeight = containerRef.current?.clientHeight || window.innerHeight || 720;
@@ -1728,7 +1749,7 @@ export default function Editor({
       const canReusePreviewPrecompute = Boolean(
         cachedPreviewPrecompute
         && cachedPreviewPrecompute.notes === stateRef.current.notes
-        && cachedPreviewPrecompute.speedChanges === stateRef.current.speedChanges
+        && cachedPreviewPrecompute.speedChanges === previewSpeedChanges
         && cachedPreviewPrecompute.bpmChanges === stateRef.current.bpmChanges
         && cachedPreviewPrecompute.playbackSpeedDistanceIndex === previewPlaybackSpeedDistanceIndex
         && cachedPreviewPrecompute.cameraTiltSegments === cameraTiltSegments
@@ -1737,14 +1758,14 @@ export default function Editor({
         ? cachedPreviewPrecompute!
         : {
             notes: stateRef.current.notes,
-            speedChanges: stateRef.current.speedChanges,
+            speedChanges: previewSpeedChanges,
             bpmChanges: stateRef.current.bpmChanges,
             playbackSpeedDistanceIndex: previewPlaybackSpeedDistanceIndex,
             cameraTiltSegments,
             chartStatisticsIndex: buildChartStatisticsIndex({
               getTimeFromTimepos,
               notes: stateRef.current.notes,
-              speedChanges: stateRef.current.speedChanges,
+              speedChanges: previewSpeedChanges,
             }),
             cameraTiltIntervals: previewCameraTiltIntervals,
           };
@@ -1783,6 +1804,7 @@ export default function Editor({
     previewCameraTiltIntervals,
     previewCameraTiltSegments,
     previewPlaybackSpeedDistanceIndex,
+    previewSpeedChanges,
   ]);
   const previewMinimumNoteSpeedMagnitude = useMemo(
     () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
@@ -2998,6 +3020,7 @@ export default function Editor({
     updateProgressBarValue(time);
 
     const isPreviewPlaybackCanvas = isPreviewMode;
+    const shouldUsePreviewSprites = isPreviewPlaybackCanvas && isPreviewSpritesEnabled;
     const currentBeat = isPreviewPlaybackCanvas ? 0 : getBeatAtTime(time, sortedChanges);
     const hitLineY = height - 150;
     const isPreview3DMode = isPreviewPlaybackCanvas && previewDisplayMode === '3d';
@@ -4072,7 +4095,7 @@ export default function Editor({
         ctx.clip();
       }
 
-      const didDrawPreviewHoldTexture = isPreviewPlaybackCanvas
+      const didDrawPreviewHoldTexture = shouldUsePreviewSprites
         ? drawPreviewHoldTextureConnector(
             note.type,
             clippedConnector.fromNote,
@@ -4082,7 +4105,9 @@ export default function Editor({
           )
         : false;
       if (!didDrawPreviewHoldTexture) {
-        ctx.fillStyle = getConnectorFill(note.type);
+        ctx.fillStyle = isPreviewPlaybackCanvas && PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(note.type)
+          ? NOTE_TYPES[note.type].color
+          : getConnectorFill(note.type);
         drawProjectedConnectorQuad(
           clippedConnector.fromNote,
           clippedConnector.fromY,
@@ -4179,7 +4204,8 @@ export default function Editor({
       const previewSegment = segment as PreviewHoldConnectorSegment;
       const groupedSegments = isPreviewPlaybackCanvas ? previewSegment.groupedSegments : undefined;
       const shouldDrawTexturedSegmentsIndividually = Boolean(
-        groupedSegments
+        shouldUsePreviewSprites
+        && groupedSegments
         && PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type],
       );
       const shouldFallbackToIndividualSegments = groupedSegments
@@ -4417,7 +4443,7 @@ export default function Editor({
         ? 1 - editorJudgementOverlayElapsed / EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS
         : 0;
         
-      const previewSpriteBounds = isPreviewPlaybackCanvas
+      const previewSpriteBounds = shouldUsePreviewSprites
         ? drawPreviewNoteSprite(renderedNote.type, noteCenterX, appearedY, scaledNotePixelWidth)
         : null;
 
@@ -4872,7 +4898,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -6027,9 +6053,9 @@ export default function Editor({
     notes,
     precomputedIndex: isPreviewMode && isPreviewPrecomputeEnabled ? previewChartStatisticsIndexRef.current : null,
     shouldShowChartStatistics,
-    speedChanges,
+    speedChanges: isPreviewMode ? previewSpeedChanges : speedChanges,
     timedBpmChanges,
-  }), [getTimeFromTimepos, getTimeposFromTime, isPreviewMode, isPreviewPrecomputeEnabled, liveStatsTime, notes, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
+  }), [getTimeFromTimepos, getTimeposFromTime, isPreviewMode, isPreviewPrecomputeEnabled, liveStatsTime, notes, previewSpeedChanges, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
   const {
     currentEditorBpm,
     currentEditorSpeed,
@@ -6603,6 +6629,8 @@ export default function Editor({
         musicVolume={musicVolume}
         tapSoundVolume={tapSoundVolume}
         flickSoundVolume={flickSoundVolume}
+        isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+        isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
         isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
         isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
         isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
@@ -6626,6 +6654,8 @@ export default function Editor({
         setMusicVolume={setMusicVolume}
         setTapSoundVolume={setTapSoundVolume}
         setFlickSoundVolume={setFlickSoundVolume}
+        setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+        setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
         setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
         setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
         setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}

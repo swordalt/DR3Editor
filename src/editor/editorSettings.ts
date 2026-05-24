@@ -32,6 +32,8 @@ export interface EditorSettings {
   isOutOfBoundsPlacementEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
   pixelsPerBeat: number;
+  isPreviewSpritesEnabled: boolean;
+  isPreviewChartSpeedChangesEnabled: boolean;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
@@ -58,6 +60,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isOutOfBoundsPlacementEnabled: false,
   isPreviewPrecomputeEnabled: true,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
+  isPreviewSpritesEnabled: true,
+  isPreviewChartSpeedChangesEnabled: true,
   isPreviewCameraTiltEnabled: true,
   isPreviewCameraMovementEnabled: true,
   isPreviewNoteSpeedChangesEnabled: true,
@@ -182,6 +186,12 @@ export const loadEditorSettings = (): EditorSettings => {
       pixelsPerBeat: isValidPixelsPerBeat(parsedSettings.pixelsPerBeat)
         ? parsedSettings.pixelsPerBeat
         : DEFAULT_EDITOR_SETTINGS.pixelsPerBeat,
+      isPreviewSpritesEnabled: typeof parsedSettings.isPreviewSpritesEnabled === 'boolean'
+        ? parsedSettings.isPreviewSpritesEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewSpritesEnabled,
+      isPreviewChartSpeedChangesEnabled: typeof parsedSettings.isPreviewChartSpeedChangesEnabled === 'boolean'
+        ? parsedSettings.isPreviewChartSpeedChangesEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewChartSpeedChangesEnabled,
       isPreviewCameraTiltEnabled: typeof parsedSettings.isPreviewCameraTiltEnabled === 'boolean'
         ? parsedSettings.isPreviewCameraTiltEnabled
         : DEFAULT_EDITOR_SETTINGS.isPreviewCameraTiltEnabled,

@@ -46,6 +46,8 @@ export default function EditorLayout(props: any) {
     musicVolume,
     tapSoundVolume,
     flickSoundVolume,
+    isPreviewSpritesEnabled,
+    isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
     isPreviewNoteSpeedChangesEnabled,
@@ -69,6 +71,8 @@ export default function EditorLayout(props: any) {
     setMusicVolume,
     setTapSoundVolume,
     setFlickSoundVolume,
+    setIsPreviewSpritesEnabled,
+    setIsPreviewChartSpeedChangesEnabled,
     setIsPreviewCameraTiltEnabled,
     setIsPreviewCameraMovementEnabled,
     setIsPreviewNoteSpeedChangesEnabled,
@@ -263,10 +267,14 @@ export default function EditorLayout(props: any) {
             isLeftPanelCompact={leftSidebarProps.isLeftPanelCompact}
             isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
             toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
+            isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+            isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
             isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
             isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
             isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
             isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+            setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+            setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
             setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
             setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
             setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
