@@ -14,18 +14,11 @@ const SILENT_IMPORT_AUDIO_MARGIN_SECONDS = 5;
 const SILENT_IMPORT_AUDIO_MIN_SECONDS = 10;
 const EXAMPLES = [
   {
-    id: 'galaxycollapse',
-    label: 'Galaxy Collapse - Tier20 [Official]',
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/galaxycollapse.zip',
-    fileName: 'galaxycollapse.zip',
-    difficulty: '20',
-  },
-  {
-    id: 'hellowind',
-    label: "Ghost-O'-Note - Tier15 [Official]",
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/hellowind.zip',
-    fileName: 'hellowind.zip',
-    difficulty: '15',
+    id: 'eviternity',
+    label: "Eviternity - Tier21 [Official]",
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/eviternity.21.zip',
+    fileName: 'eviternity.21.zip',
+    difficulty: '21',
   },
   {
     id: 'raidboss',
