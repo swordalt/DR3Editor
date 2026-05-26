@@ -343,6 +343,14 @@ interface PreviewCachedNoteSprite {
   height: number;
 }
 
+interface PreviewCachedHoldTexture {
+  canvas: HTMLCanvasElement;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 type PreviewCanvasLoadPhase = 'idle' | 'visible' | 'full';
 
 const PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING = 32;
@@ -356,6 +364,8 @@ const PREVIEW_NOTE_ARROW_Y_OFFSET = -16;
 const PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE = 0.55;
 const PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP = 1;
+const PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE = 2;
+const PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES = 384;
 const PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE = 2;
 const PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP = 1;
 const PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT = 24;
@@ -479,6 +489,7 @@ export default function Editor({
   const [isPreviewPrecomputeEnabled, setIsPreviewPrecomputeEnabled] = useState(initialEditorSettings.isPreviewPrecomputeEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [isPreviewSpritesEnabled, setIsPreviewSpritesEnabled] = useState(initialEditorSettings.isPreviewSpritesEnabled);
+  const [isPreviewHoldSpritesEnabled, setIsPreviewHoldSpritesEnabled] = useState(initialEditorSettings.isPreviewHoldSpritesEnabled);
   const [isPreviewChartSpeedChangesEnabled, setIsPreviewChartSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewChartSpeedChangesEnabled);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
@@ -595,6 +606,7 @@ export default function Editor({
       isPreviewPrecomputeEnabled,
       pixelsPerBeat,
       isPreviewSpritesEnabled,
+      isPreviewHoldSpritesEnabled,
       isPreviewChartSpeedChangesEnabled,
       isPreviewCameraTiltEnabled,
       isPreviewCameraMovementEnabled,
@@ -622,6 +634,7 @@ export default function Editor({
     isPreviewPrecomputeEnabled,
     pixelsPerBeat,
     isPreviewSpritesEnabled,
+    isPreviewHoldSpritesEnabled,
     isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -712,12 +725,16 @@ export default function Editor({
   const previewNoteTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewNoteArrowsRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewHoldTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
+  const previewSpriteBitmapsRef = useRef<WeakMap<HTMLImageElement, ImageBitmap>>(new WeakMap());
   const decodedPreviewSpritesRef = useRef<WeakSet<HTMLImageElement>>(new WeakSet());
   const previewNoteSpriteCanvasCacheRef = useRef<Map<string, PreviewCachedNoteSprite>>(new Map());
+  const previewHoldTextureCanvasCacheRef = useRef<Map<string, PreviewCachedHoldTexture>>(new Map());
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   useEffect(() => {
     const disposers: Array<() => void> = [];
+    const loadedBitmaps: ImageBitmap[] = [];
+    let isDisposed = false;
 
     const loadSprite = (
       targetMap: Map<number, HTMLImageElement>,
@@ -730,25 +747,45 @@ export default function Editor({
       targetMap.set(type, image);
 
       const handleSettled = () => {
+        if (isDisposed) {
+          return;
+        }
+
         if (isSettled) {
           return;
         }
 
         isSettled = true;
         previewNoteSpriteCanvasCacheRef.current.clear();
+        previewHoldTextureCanvasCacheRef.current.clear();
         setPreviewNoteSpriteLoadVersion(version => version + 1);
       };
-      const handleDecoded = () => {
+      const handleDecoded = async () => {
         decodedPreviewSpritesRef.current.add(image);
+        if (typeof createImageBitmap === 'function') {
+          try {
+            const bitmap = await createImageBitmap(image);
+            if (isDisposed) {
+              bitmap.close();
+              return;
+            }
+            loadedBitmaps.push(bitmap);
+            previewSpriteBitmapsRef.current.set(image, bitmap);
+          } catch {
+            // Fall back to drawing the decoded HTMLImageElement.
+          }
+        }
         handleSettled();
       };
       const handleLoad = () => {
         if (typeof image.decode !== 'function') {
-          handleDecoded();
+          void handleDecoded();
           return;
         }
 
-        image.decode().then(handleDecoded).catch(() => {
+        image.decode().then(() => {
+          void handleDecoded();
+        }).catch(() => {
           if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
             decodedPreviewSpritesRef.current.add(image);
           }
@@ -768,8 +805,10 @@ export default function Editor({
     previewNoteTexturesRef.current.clear();
     previewNoteArrowsRef.current.clear();
     previewHoldTexturesRef.current.clear();
+    previewSpriteBitmapsRef.current = new WeakMap();
     decodedPreviewSpritesRef.current = new WeakSet();
     previewNoteSpriteCanvasCacheRef.current.clear();
+    previewHoldTextureCanvasCacheRef.current.clear();
 
     Object.entries(PREVIEW_NOTE_TEXTURE_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteTexturesRef.current, Number(type), url);
@@ -782,12 +821,16 @@ export default function Editor({
     });
 
     return () => {
+      isDisposed = true;
       disposers.forEach(dispose => dispose());
       previewNoteTexturesRef.current.clear();
       previewNoteArrowsRef.current.clear();
       previewHoldTexturesRef.current.clear();
+      loadedBitmaps.forEach(bitmap => bitmap.close());
+      previewSpriteBitmapsRef.current = new WeakMap();
       decodedPreviewSpritesRef.current = new WeakSet();
       previewNoteSpriteCanvasCacheRef.current.clear();
+      previewHoldTextureCanvasCacheRef.current.clear();
     };
   }, []);
 
@@ -3011,6 +3054,9 @@ export default function Editor({
       && image.naturalWidth > 0
       && image.naturalHeight > 0
     );
+    const getPreviewSpriteSource = (image: HTMLImageElement) => (
+      previewSpriteBitmapsRef.current.get(image) ?? image
+    );
 
     const getCachedPreviewNoteSprite = (
       noteType: number,
@@ -3022,6 +3068,7 @@ export default function Editor({
         1,
         Math.round(textureWidth / PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE) * PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE,
       );
+      const noteTextureSource = getPreviewSpriteSource(noteTexture);
       const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
       const cacheKey = `${noteType}:${bucketedWidth}:${dprBucket}`;
       const cachedSprite = previewNoteSpriteCanvasCacheRef.current.get(cacheKey);
@@ -3062,10 +3109,10 @@ export default function Editor({
       spriteCtx.clearRect(0, 0, bucketedWidth, textureHeight);
 
       if (sourceCenterWidth <= 0 || destinationCenterWidth <= 0) {
-        spriteCtx.drawImage(noteTexture, 0, 0, bucketedWidth, textureHeight);
+        spriteCtx.drawImage(noteTextureSource, 0, 0, bucketedWidth, textureHeight);
       } else {
         spriteCtx.drawImage(
-          noteTexture,
+          noteTextureSource,
           0,
           0,
           sourceCapWidth,
@@ -3076,7 +3123,7 @@ export default function Editor({
           textureHeight,
         );
         spriteCtx.drawImage(
-          noteTexture,
+          noteTextureSource,
           sourceCapWidth - sourceSectionOverlap,
           0,
           sourceCenterWidth + sourceSectionOverlap * 2,
@@ -3087,7 +3134,7 @@ export default function Editor({
           textureHeight,
         );
         spriteCtx.drawImage(
-          noteTexture,
+          noteTextureSource,
           noteTexture.naturalWidth - sourceCapWidth,
           0,
           sourceCapWidth,
@@ -3119,6 +3166,7 @@ export default function Editor({
       centerX: number,
       centerY: number,
       textureWidth: number,
+      cacheTextureWidth = textureWidth,
     ) => {
       if (PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.has(noteType)) {
         return null;
@@ -3133,7 +3181,7 @@ export default function Editor({
       const textureX = centerX - textureWidth / 2;
       const textureY = centerY - textureHeight / 2;
 
-      const cachedSprite = getCachedPreviewNoteSprite(noteType, noteTexture, textureWidth, textureHeight);
+      const cachedSprite = getCachedPreviewNoteSprite(noteType, noteTexture, cacheTextureWidth, textureHeight);
       if (!cachedSprite) {
         return null;
       }
@@ -3159,7 +3207,7 @@ export default function Editor({
 
       const arrowCenterY = centerY + PREVIEW_NOTE_ARROW_Y_OFFSET;
       ctx.drawImage(
-        arrowSprite,
+        getPreviewSpriteSource(arrowSprite),
         centerX - arrowSprite.naturalWidth / 2,
         arrowCenterY - arrowSprite.naturalHeight / 2,
       );
@@ -3521,6 +3569,7 @@ export default function Editor({
         PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH,
         holdTexture.naturalWidth / 2,
       );
+      const holdTextureSource = getPreviewSpriteSource(holdTexture);
       const sourceCenterWidth = holdTexture.naturalWidth - sourceCapWidth * 2;
       const baseDestinationCapWidth = sourceCapWidth * PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE;
       const drawAffineSection = (
@@ -3551,7 +3600,7 @@ export default function Editor({
           minY,
         );
         ctx.drawImage(
-          holdTexture,
+          holdTextureSource,
           sourceX,
           0,
           sourceWidth,
@@ -3589,6 +3638,93 @@ export default function Editor({
           return;
         }
 
+        const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
+        const bucketValue = (value: number) => (
+          Math.round(value / PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE) * PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE
+        );
+        const bucketedDestinationWidth = Math.max(1, bucketValue(destinationWidth));
+        const bucketedDestinationHeight = Math.max(1, bucketValue(destinationHeight));
+        const localLeft1 = bucketValue(left1 - destinationX);
+        const localRight1 = bucketValue(right1 - destinationX);
+        const localLeft2 = bucketValue(left2 - destinationX);
+        const localRight2 = bucketValue(right2 - destinationX);
+        const cacheKey = [
+          'slice',
+          connectorType,
+          bucketValue(sourceX),
+          bucketValue(sourceWidth),
+          bucketValue(sourceY),
+          bucketValue(sourceHeight),
+          bucketedDestinationWidth,
+          bucketedDestinationHeight,
+          localLeft1,
+          localRight1,
+          localLeft2,
+          localRight2,
+          dprBucket,
+        ].join(':');
+        let cachedTexture = previewHoldTextureCanvasCacheRef.current.get(cacheKey);
+
+        if (!cachedTexture) {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.ceil(bucketedDestinationWidth * dprBucket));
+          canvas.height = Math.max(1, Math.ceil(bucketedDestinationHeight * dprBucket));
+          const textureCtx = canvas.getContext('2d');
+
+          if (textureCtx) {
+            textureCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
+            textureCtx.clearRect(0, 0, bucketedDestinationWidth, bucketedDestinationHeight);
+            textureCtx.save();
+            textureCtx.beginPath();
+            textureCtx.moveTo(localLeft1, 0);
+            textureCtx.lineTo(localRight1, 0);
+            textureCtx.lineTo(localRight2, bucketedDestinationHeight);
+            textureCtx.lineTo(localLeft2, bucketedDestinationHeight);
+            textureCtx.closePath();
+            textureCtx.clip();
+            textureCtx.drawImage(
+              holdTextureSource,
+              sourceX,
+              sourceY,
+              sourceWidth,
+              sourceHeight,
+              0,
+              0,
+              bucketedDestinationWidth,
+              bucketedDestinationHeight,
+            );
+            textureCtx.restore();
+
+            cachedTexture = {
+              canvas,
+              x: 0,
+              y: 0,
+              width: bucketedDestinationWidth,
+              height: bucketedDestinationHeight,
+            };
+
+            const cache = previewHoldTextureCanvasCacheRef.current;
+            if (cache.size >= PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES) {
+              const oldestKey = cache.keys().next().value;
+              if (oldestKey !== undefined) {
+                cache.delete(oldestKey);
+              }
+            }
+            cache.set(cacheKey, cachedTexture);
+          }
+        }
+
+        if (cachedTexture) {
+          ctx.drawImage(
+            cachedTexture.canvas,
+            destinationX,
+            y1,
+            cachedTexture.width,
+            cachedTexture.height,
+          );
+          return;
+        }
+
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(left1, y1);
@@ -3598,7 +3734,7 @@ export default function Editor({
         ctx.closePath();
         ctx.clip();
         ctx.drawImage(
-          holdTexture,
+          holdTextureSource,
           sourceX,
           sourceY,
           sourceWidth,
@@ -3693,6 +3829,133 @@ export default function Editor({
       };
 
       if (widthDelta <= SNAP_EPSILON) {
+        const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
+        const bucketValue = (value: number) => (
+          Math.round(value / PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE) * PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE
+        );
+        const bucketedWidth = Math.max(1, bucketValue(topWidth));
+        const bucketedHeight = Math.max(1, bucketValue(connectorHeight));
+        const bucketedLeftDelta = bucketValue(bottomEdges.left - topEdges.left);
+        const localLeft = Math.min(0, bucketedLeftDelta);
+        const localTopLeft = -localLeft;
+        const localBottomLeft = bucketedLeftDelta - localLeft;
+        const localWidth = Math.max(bucketedWidth, localBottomLeft + bucketedWidth) - localLeft;
+        const cacheKey = `${connectorType}:${bucketedWidth}:${bucketedHeight}:${bucketedLeftDelta}:${dprBucket}`;
+        let cachedTexture = previewHoldTextureCanvasCacheRef.current.get(cacheKey);
+
+        if (!cachedTexture) {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.ceil(localWidth * dprBucket));
+          canvas.height = Math.max(1, Math.ceil(bucketedHeight * dprBucket));
+          const textureCtx = canvas.getContext('2d');
+
+          if (textureCtx) {
+            const drawCachedAffineSection = (
+              sourceX: number,
+              sourceWidth: number,
+              destinationTopLeft: number,
+              destinationBottomLeft: number,
+              destinationWidth: number,
+            ) => {
+              if (sourceWidth <= SNAP_EPSILON || destinationWidth <= SNAP_EPSILON) {
+                return;
+              }
+
+              textureCtx.save();
+              textureCtx.beginPath();
+              textureCtx.moveTo(destinationTopLeft, 0);
+              textureCtx.lineTo(destinationTopLeft + destinationWidth, 0);
+              textureCtx.lineTo(destinationBottomLeft + destinationWidth, bucketedHeight);
+              textureCtx.lineTo(destinationBottomLeft, bucketedHeight);
+              textureCtx.closePath();
+              textureCtx.clip();
+              textureCtx.transform(
+                destinationWidth / sourceWidth,
+                0,
+                (destinationBottomLeft - destinationTopLeft) / holdTexture.naturalHeight,
+                bucketedHeight / holdTexture.naturalHeight,
+                destinationTopLeft,
+                0,
+              );
+              textureCtx.drawImage(
+                holdTextureSource,
+                sourceX,
+                0,
+                sourceWidth,
+                holdTexture.naturalHeight,
+                0,
+                0,
+                sourceWidth,
+                holdTexture.naturalHeight,
+              );
+              textureCtx.restore();
+            };
+            const destinationCapWidth = Math.min(baseDestinationCapWidth, bucketedWidth / 2);
+            const sourceSectionOverlap = Math.max(0, Math.min(
+              PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+              sourceCapWidth,
+              sourceCenterWidth / 2,
+            ));
+            const destinationSectionOverlap = Math.max(0, Math.min(
+              PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
+              destinationCapWidth,
+              (bucketedWidth - destinationCapWidth * 2) / 2,
+            ));
+
+            textureCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
+            textureCtx.clearRect(0, 0, localWidth, bucketedHeight);
+            textureCtx.globalAlpha = textureAlpha;
+
+            if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
+              drawCachedAffineSection(0, holdTexture.naturalWidth, localTopLeft, localBottomLeft, bucketedWidth);
+            } else {
+              drawCachedAffineSection(0, sourceCapWidth, localTopLeft, localBottomLeft, destinationCapWidth);
+              drawCachedAffineSection(
+                sourceCapWidth - sourceSectionOverlap,
+                sourceCenterWidth + sourceSectionOverlap * 2,
+                localTopLeft + destinationCapWidth - destinationSectionOverlap,
+                localBottomLeft + destinationCapWidth - destinationSectionOverlap,
+                bucketedWidth - destinationCapWidth * 2 + destinationSectionOverlap * 2,
+              );
+              drawCachedAffineSection(
+                holdTexture.naturalWidth - sourceCapWidth,
+                sourceCapWidth,
+                localTopLeft + bucketedWidth - destinationCapWidth,
+                localBottomLeft + bucketedWidth - destinationCapWidth,
+                destinationCapWidth,
+              );
+            }
+
+            cachedTexture = {
+              canvas,
+              x: 0,
+              y: 0,
+              width: localWidth,
+              height: bucketedHeight,
+            };
+
+            const cache = previewHoldTextureCanvasCacheRef.current;
+            if (cache.size >= PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES) {
+              const oldestKey = cache.keys().next().value;
+              if (oldestKey !== undefined) {
+                cache.delete(oldestKey);
+              }
+            }
+            cache.set(cacheKey, cachedTexture);
+          }
+        }
+
+        if (cachedTexture) {
+          ctx.drawImage(
+            cachedTexture.canvas,
+            topEdges.left + localLeft,
+            minY,
+            cachedTexture.width,
+            cachedTexture.height,
+          );
+          return true;
+        }
+
         ctx.save();
         ctx.globalAlpha *= textureAlpha;
         const destinationCapWidth = Math.min(baseDestinationCapWidth, topWidth / 2);
@@ -3762,7 +4025,7 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : [];
-    const previewVisibleTexturedHoldConnectorDrawCount = shouldUsePreviewSprites
+    const previewVisibleTexturedHoldConnectorDrawCount = shouldUsePreviewSprites && isPreviewHoldSpritesEnabled
       ? previewVisibleHoldConnectorSegments.reduce((count, segment) => {
           const previewSegment = segment as PreviewHoldConnectorSegment;
           if (!PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type]) {
@@ -3774,6 +4037,7 @@ export default function Editor({
       : 0;
     const shouldUsePreviewHoldTextures = (
       shouldUsePreviewSprites
+      && isPreviewHoldSpritesEnabled
       && previewVisibleTexturedHoldConnectorDrawCount <= PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD
     );
     const activePreviewCameraTiltIntervals = isPreviewPlaybackCanvas
@@ -3847,25 +4111,28 @@ export default function Editor({
     preview3DCameraTimestampRef.current = tiltNow;
     const preview3DCameraScale = preview3DCameraScaleRef.current;
     const preview3DCameraYOffset = preview3DCameraYOffsetRef.current;
+    const applyPreviewCameraTransform = () => {
+      if (
+        isPreview3DMode
+        && (
+          Math.abs(preview3DCameraScale - 1) > SNAP_EPSILON
+          || Math.abs(preview3DCameraYOffset) > SNAP_EPSILON
+        )
+      ) {
+        ctx.translate(preview3DCameraCenterX, hitLineY + preview3DCameraYOffset);
+        ctx.scale(preview3DCameraScale, preview3DCameraScale);
+        ctx.translate(-preview3DCameraCenterX, -hitLineY);
+      }
+      if (isPreviewPlaybackCanvas && Math.abs(previewCameraRotationRadians) > SNAP_EPSILON) {
+        const editorCanvasCenterX = chartStartX + gridWidth / 2;
+        ctx.translate(editorCanvasCenterX, height / 2);
+        ctx.rotate(previewCameraRotationRadians);
+        ctx.translate(-editorCanvasCenterX, -height / 2);
+      }
+    };
 
     ctx.save();
-    if (
-      isPreview3DMode
-      && (
-        Math.abs(preview3DCameraScale - 1) > SNAP_EPSILON
-        || Math.abs(preview3DCameraYOffset) > SNAP_EPSILON
-      )
-    ) {
-      ctx.translate(preview3DCameraCenterX, hitLineY + preview3DCameraYOffset);
-      ctx.scale(preview3DCameraScale, preview3DCameraScale);
-      ctx.translate(-preview3DCameraCenterX, -hitLineY);
-    }
-    if (isPreviewPlaybackCanvas && Math.abs(previewCameraRotationRadians) > SNAP_EPSILON) {
-      const editorCanvasCenterX = chartStartX + gridWidth / 2;
-      ctx.translate(editorCanvasCenterX, height / 2);
-      ctx.rotate(previewCameraRotationRadians);
-      ctx.translate(-editorCanvasCenterX, -height / 2);
-    }
+    applyPreviewCameraTransform();
 
     // Draw background for the grid area
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
@@ -4665,8 +4932,13 @@ export default function Editor({
         ? 1 - editorJudgementOverlayElapsed / EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS
         : 0;
         
+      const previewSpriteCacheWidth = isPreviewPlaybackCanvas
+        && isPreviewNoteAppearModeEnabled
+        && renderedNote.appearMode === 'H'
+        ? notePixelWidth
+        : scaledNotePixelWidth;
       const previewSpriteBounds = shouldUsePreviewSprites
-        ? drawPreviewNoteSprite(renderedNote.type, noteCenterX, appearedY, scaledNotePixelWidth)
+        ? drawPreviewNoteSprite(renderedNote.type, noteCenterX, appearedY, scaledNotePixelWidth, previewSpriteCacheWidth)
         : null;
 
       if (previewSpriteBounds) {
@@ -5136,6 +5408,8 @@ export default function Editor({
     if (hPreviewOverlayNoteEntries.length > 0) {
       const hPreviewArrowSpriteDraws: typeof previewArrowSpriteDraws = [];
 
+      ctx.save();
+      applyPreviewCameraTransform();
       hPreviewOverlayNoteEntries.forEach((entry) => {
         drawVisibleNoteEntry(entry, hPreviewArrowSpriteDraws);
       });
@@ -5145,11 +5419,12 @@ export default function Editor({
         .forEach(({ noteType, centerX, centerY }) => {
           drawPreviewArrowSprite(noteType, centerX, centerY);
         });
+      ctx.restore();
     }
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHoldSpritesEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -6882,6 +7157,7 @@ export default function Editor({
         tapSoundVolume={tapSoundVolume}
         flickSoundVolume={flickSoundVolume}
         isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+        isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
         isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
         isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
@@ -6907,6 +7183,7 @@ export default function Editor({
         setTapSoundVolume={setTapSoundVolume}
         setFlickSoundVolume={setFlickSoundVolume}
         setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+        setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
         setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
         setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
@@ -6980,3 +7257,4 @@ export default function Editor({
     </>
   );
 }
+

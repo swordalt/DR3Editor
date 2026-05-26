@@ -47,6 +47,7 @@ export default function EditorLayout(props: any) {
     tapSoundVolume,
     flickSoundVolume,
     isPreviewSpritesEnabled,
+    isPreviewHoldSpritesEnabled,
     isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -72,6 +73,7 @@ export default function EditorLayout(props: any) {
     setTapSoundVolume,
     setFlickSoundVolume,
     setIsPreviewSpritesEnabled,
+    setIsPreviewHoldSpritesEnabled,
     setIsPreviewChartSpeedChangesEnabled,
     setIsPreviewCameraTiltEnabled,
     setIsPreviewCameraMovementEnabled,
@@ -266,6 +268,7 @@ export default function EditorLayout(props: any) {
             isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
             toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
             isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+            isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
             isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
             isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
             isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
@@ -273,6 +276,7 @@ export default function EditorLayout(props: any) {
             isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
             previewModeFormat={previewModeFormat}
             setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+            setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
             setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
             setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
             setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}

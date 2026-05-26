@@ -205,6 +205,8 @@ export const en = {
     previewChart: 'Chart',
     previewSprites: 'Note Sprites',
     togglePreviewSprites: 'Toggle preview sprites',
+    previewHoldSprites: 'Hold Sprites',
+    togglePreviewHoldSprites: 'Toggle preview hold sprites',
     chartSpeedChanges: 'Speed Changes',
     togglePreviewChartSpeedChanges: 'Toggle preview chart speed changes',
     cameraTilt: 'Camera Tilt',
