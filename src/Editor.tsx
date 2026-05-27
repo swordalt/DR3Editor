@@ -381,12 +381,13 @@ PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.delete(17);
 const PREVIEW_CONSTANT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const PREVIEW_DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
 const PREVIEW_PINK_HOLD_CONNECTOR_TYPES = new Set([23, 24]);
+const EDITOR_HOLD_CONNECTOR_ALPHA = 0.55;
 const getPreviewHoldTextureAlpha = (connectorType: number) => (
   PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(connectorType)
     ? 1
     : PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType)
-      ? 0.44
-      : 0.25
+      ? 0.62
+      : 0.42
 );
 const isArrowFlickType = (type: number) => type >= 13 && type <= 16;
 const EDITOR_NUMBERED_NOTE_LABELS: Record<number, string> = {
@@ -4600,12 +4601,17 @@ export default function Editor({
         ctx.fillStyle = isPreviewPlaybackCanvas && PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(note.type)
           ? NOTE_TYPES[note.type].color
           : getConnectorFill(note.type);
+        const previousAlpha = ctx.globalAlpha;
+        if (!isPreviewPlaybackCanvas) {
+          ctx.globalAlpha *= EDITOR_HOLD_CONNECTOR_ALPHA;
+        }
         drawProjectedConnectorQuad(
           clippedConnector.fromNote,
           clippedConnector.fromY,
           clippedConnector.toNote,
           clippedConnector.toY,
         );
+        ctx.globalAlpha = previousAlpha;
       }
       if (shouldClipPreviewConnectorAtJudgementLine) {
         ctx.restore();

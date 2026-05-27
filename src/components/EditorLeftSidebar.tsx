@@ -6,6 +6,7 @@ import EditorLeftSpeedPanel from './EditorLeftSpeedPanel';
 import EditorLeftCurveSpeedPanel from './EditorLeftCurveSpeedPanel';
 import EditorLeftCurvePanel from './EditorLeftCurvePanel';
 import EditorLeftUtilityPanel from './EditorLeftUtilityPanel';
+import EditorLeftPersistentControls from './EditorLeftPersistentControls';
 import { translations } from '../lang';
 
 export default function EditorLeftSidebar(props: any) {
@@ -28,13 +29,16 @@ export default function EditorLeftSidebar(props: any) {
         </button>
       </div>
 
-      <EditorLeftMainPanel {...props} />
-      <EditorLeftEditInfoPanel {...props} />
-      <EditorLeftBpmPanel {...props} />
-      <EditorLeftSpeedPanel {...props} />
-      <EditorLeftCurveSpeedPanel {...props} />
-      <EditorLeftCurvePanel {...props} />
-      <EditorLeftUtilityPanel {...props} />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <EditorLeftMainPanel {...props} />
+        <EditorLeftEditInfoPanel {...props} />
+        <EditorLeftBpmPanel {...props} />
+        <EditorLeftSpeedPanel {...props} />
+        <EditorLeftCurveSpeedPanel {...props} />
+        <EditorLeftCurvePanel {...props} />
+        <EditorLeftUtilityPanel {...props} />
+      </div>
+      <EditorLeftPersistentControls {...props} />
     </aside>
   );
 }
