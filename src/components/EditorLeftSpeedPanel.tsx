@@ -3,11 +3,6 @@ import CommitInput from './CommitInput';
 import VirtualizedChangeList from './VirtualizedChangeList';
 import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
 import {
-  CURVE_EASING_FAMILY_OPTIONS,
-  CURVE_EASING_TYPE_OPTIONS,
-  getCurveEasingId,
-} from '../editor/editorViewConstants';
-import {
   formatGroupedIds,
   formatHistoryTimestamp,
   formatNoteLane,
@@ -15,7 +10,6 @@ import {
 } from '../editor/editorHistory';
 import { getBpmChangeTimepos } from '../utils/editorUtils';
 import { translations } from '../lang';
-import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftSpeedPanel(props: any) {
   const {
     isLeftPanelContentVisible,

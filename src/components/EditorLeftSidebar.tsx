@@ -3,6 +3,7 @@ import EditorLeftMainPanel from './EditorLeftMainPanel';
 import EditorLeftEditInfoPanel from './EditorLeftEditInfoPanel';
 import EditorLeftBpmPanel from './EditorLeftBpmPanel';
 import EditorLeftSpeedPanel from './EditorLeftSpeedPanel';
+import EditorLeftCurveSpeedPanel from './EditorLeftCurveSpeedPanel';
 import EditorLeftCurvePanel from './EditorLeftCurvePanel';
 import EditorLeftUtilityPanel from './EditorLeftUtilityPanel';
 import { translations } from '../lang';
@@ -31,6 +32,7 @@ export default function EditorLeftSidebar(props: any) {
       <EditorLeftEditInfoPanel {...props} />
       <EditorLeftBpmPanel {...props} />
       <EditorLeftSpeedPanel {...props} />
+      <EditorLeftCurveSpeedPanel {...props} />
       <EditorLeftCurvePanel {...props} />
       <EditorLeftUtilityPanel {...props} />
     </aside>

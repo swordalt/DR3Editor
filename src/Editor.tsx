@@ -518,6 +518,12 @@ export default function Editor({
   const [curveEasingType, setCurveEasingType] = useState<CurveEasingType>('in');
   const [curveNotesMessage, setCurveNotesMessage] = useState('');
   const [curveIdSelectTarget, setCurveIdSelectTarget] = useState<CurveIdSelectTarget>(null);
+  const [speedCurveStartIdInput, setSpeedCurveStartIdInput] = useState('');
+  const [speedCurveEndIdInput, setSpeedCurveEndIdInput] = useState('');
+  const [speedCurveDensityInput, setSpeedCurveDensityInput] = useState('8');
+  const [speedCurveEasingFamily, setSpeedCurveEasingFamily] = useState<CurveEasingFamily>('linear');
+  const [speedCurveEasingType, setSpeedCurveEasingType] = useState<CurveEasingType>('in');
+  const [speedCurveMessage, setSpeedCurveMessage] = useState('');
   const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null);
   const [copiedNotesPreviewVersion, setCopiedNotesPreviewVersion] = useState(0);
   const [isCtrlHeld, setIsCtrlHeld] = useState(false);
@@ -1237,14 +1243,22 @@ export default function Editor({
     return `${currentMeasure}/${totalTimelineMeasures}`;
   }, [getTimeposFromTime, timelineDuration, totalTimelineMeasures]);
   const bpmIndicatorEntries = useMemo(
-    () => timedBpmChanges
-      .map(change => ({ beat: change.startBeat, change }))
+    () => bpmChanges
+      .map((change, index) => ({
+        beat: getBeatAtTimepos(getBpmChangeTimepos(change), timedBpmChanges),
+        change,
+        id: index + 1,
+      }))
       .sort((a, b) => a.beat - b.beat),
-    [timedBpmChanges],
+    [bpmChanges, timedBpmChanges],
   );
   const speedIndicatorEntries = useMemo(
     () => speedChanges
-      .map(change => ({ beat: getBeatAtTimepos(change.timepos, timedBpmChanges), change }))
+      .map((change, index) => ({
+        beat: getBeatAtTimepos(change.timepos, timedBpmChanges),
+        change,
+        id: index + 1,
+      }))
       .sort((a, b) => a.beat - b.beat),
     [speedChanges, timedBpmChanges],
   );
@@ -4350,25 +4364,25 @@ export default function Editor({
       };
 
       // Queue BPM/Time Signature change indicators on the right side.
-      getBeatIndexedEntriesInRange(bpmIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: changeBeat, change }) => {
+      getBeatIndexedEntriesInRange(bpmIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: changeBeat, change, id }) => {
         const y = hitLineY - (changeBeat - currentBeat) * pixelsPerBeat;
 
         if (y > 0 && y < height) {
           const indicatorKey = getIndicatorKeyAtBeat(changeBeat);
           const bpmLabel = isOfficialChartFormat
-            ? `BPM: ${change.bpm}`
-            : `BPM: ${change.bpm} | ${change.timeSignature}`;
+            ? `BPM: ${change.bpm} [ID=${id}]`
+            : `BPM: ${change.bpm} | ${change.timeSignature} [ID=${id}]`;
           getIndicatorGroup(indicatorKey, y).bpmLabels.push(bpmLabel);
         }
       });
 
       // Queue speed change indicators above BPM changes at the same time position.
-      getBeatIndexedEntriesInRange(speedIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: scBeat, change: sc }) => {
+      getBeatIndexedEntriesInRange(speedIndicatorEntries, visibleStartBeat, visibleEndBeat).forEach(({ beat: scBeat, change: sc, id }) => {
         const y = hitLineY - (scBeat - currentBeat) * pixelsPerBeat;
 
         if (y > 0 && y < height) {
           const indicatorKey = getIndicatorKeyAtBeat(scBeat);
-          getIndicatorGroup(indicatorKey, y).speedLabels.push(`SC: ${sc.speedChange}x`);
+          getIndicatorGroup(indicatorKey, y).speedLabels.push(`SC: ${sc.speedChange}x [ID=${id}]`);
         }
       });
 
@@ -6561,6 +6575,26 @@ export default function Editor({
     && curveEndNote
     && curveStartNote.id !== curveEndNote.id,
   );
+  const parsedSpeedCurveStartId = speedCurveStartIdInput.trim() === '' ? NaN : Number(speedCurveStartIdInput);
+  const parsedSpeedCurveEndId = speedCurveEndIdInput.trim() === '' ? NaN : Number(speedCurveEndIdInput);
+  const speedCurveStartChange = Number.isInteger(parsedSpeedCurveStartId)
+    ? speedChanges[parsedSpeedCurveStartId - 1] || null
+    : null;
+  const speedCurveEndChange = Number.isInteger(parsedSpeedCurveEndId)
+    ? speedChanges[parsedSpeedCurveEndId - 1] || null
+    : null;
+  const parsedSpeedCurveDensity = Number(speedCurveDensityInput);
+  const hasValidSpeedCurveDensity = Number.isInteger(parsedSpeedCurveDensity) && parsedSpeedCurveDensity > 0;
+  const canGenerateSpeedCurveChanges = Boolean(
+    speedCurveStartIdInput.trim() !== ''
+    && speedCurveEndIdInput.trim() !== ''
+    && speedCurveDensityInput.trim() !== ''
+    && hasValidSpeedCurveDensity
+    && CURVE_EASINGS_BY_ID.has(getCurveEasingId(speedCurveEasingFamily, speedCurveEasingType))
+    && speedCurveStartChange
+    && speedCurveEndChange
+    && parsedSpeedCurveStartId !== parsedSpeedCurveEndId,
+  );
   const selectedSingleNote =
     selectedNoteIds.length === 1
       ? notes.find((note) => note.id === selectedNoteIds[0]) || null
@@ -6776,6 +6810,71 @@ export default function Editor({
       category: 'speed',
       title: 'Added speed change',
       detail: `${formatTimingPosition(newChange.timepos)} | ${formatHistoryNumber(newChange.speedChange)}x`,
+    });
+  };
+
+  const handleGenerateSpeedCurveChanges = () => {
+    const startId = speedCurveStartIdInput.trim() === '' ? NaN : Number(speedCurveStartIdInput);
+    const endId = speedCurveEndIdInput.trim() === '' ? NaN : Number(speedCurveEndIdInput);
+    const curveDensity = Number(speedCurveDensityInput);
+    const curveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(speedCurveEasingFamily, speedCurveEasingType));
+
+    if (!Number.isInteger(startId) || !Number.isInteger(endId)) {
+      setSpeedCurveMessage('Start ID and End ID must be whole-number speed change IDs.');
+      return;
+    }
+
+    if (startId === endId) {
+      setSpeedCurveMessage('Start ID and End ID must be different speed changes.');
+      return;
+    }
+
+    if (startId < 1 || startId > speedChanges.length || endId < 1 || endId > speedChanges.length) {
+      setSpeedCurveMessage('Both IDs must match existing speed change rows.');
+      return;
+    }
+
+    if (!Number.isInteger(curveDensity) || curveDensity <= 0) {
+      setSpeedCurveMessage('Density denominator must be a positive whole number.');
+      return;
+    }
+
+    if (!curveEasingOption) {
+      setSpeedCurveMessage('Select a valid easing type.');
+      return;
+    }
+
+    const startChange = speedChanges[startId - 1];
+    const endChange = speedChanges[endId - 1];
+    const startBeat = getBeatAtTimepos(startChange.timepos, timedBpmChanges);
+    const endBeat = getBeatAtTimepos(endChange.timepos, timedBpmChanges);
+    const snapBeats = getCurveSnapBeatsBetween(startBeat, endBeat, curveDensity, timedBpmChanges);
+
+    if (snapBeats.length === 0) {
+      setSpeedCurveMessage(`No 1/${curveDensity} snap positions exist between those speed changes.`);
+      return;
+    }
+
+    const beatSpan = endBeat - startBeat;
+    const generatedChanges = snapBeats.map((beat) => {
+      const progress = beatSpan === 0 ? 0 : (beat - startBeat) / beatSpan;
+      const easedProgress = curveEasingOption.ease(progress);
+      return {
+        timepos: Number(getTimeposFromTime(getTimeAtBeat(beat, timedBpmChanges)).toFixed(6)),
+        speedChange: Number((startChange.speedChange + (endChange.speedChange - startChange.speedChange) * easedProgress).toFixed(6)),
+      };
+    });
+
+    setSpeedChanges([...speedChanges, ...generatedChanges]);
+    renderPausedTimelineAtFullFps();
+    setSpeedCurveMessage(
+      `Generated ${generatedChanges.length} speed changes from #${startId} to #${endId}.`,
+    );
+
+    recordOperation({
+      category: 'speed',
+      title: 'Generated curved speed changes',
+      detail: `${generatedChanges.length} changes, 1/${curveDensity}, ${curveEasingOption.label}, IDs #${startId} -> #${endId}`,
     });
   };
 
@@ -7026,6 +7125,24 @@ export default function Editor({
     updateSpeedChange,
     deleteSpeedChange,
     addSpeedChange,
+    speedCurveStartIdInput,
+    setSpeedCurveStartIdInput,
+    speedCurveEndIdInput,
+    setSpeedCurveEndIdInput,
+    speedCurveStartChange,
+    speedCurveEndChange,
+    speedCurveDensityInput,
+    setSpeedCurveDensityInput,
+    hasValidSpeedCurveDensity,
+    parsedSpeedCurveDensity,
+    speedCurveEasingFamily,
+    setSpeedCurveEasingFamily,
+    speedCurveEasingType,
+    setSpeedCurveEasingType,
+    handleGenerateSpeedCurveChanges,
+    canGenerateSpeedCurveChanges,
+    speedCurveMessage,
+    setSpeedCurveMessage,
     selectedNoteIdSet,
     curveStartIdInput,
     setCurveStartIdInput,

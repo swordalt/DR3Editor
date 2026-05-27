@@ -120,6 +120,9 @@ export default function EditorLeftMainPanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('speedChanges')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.speedChanges}
                 </button>
+                <button onClick={() => setActiveLeftPanel('curveSpeedChanges')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  {text.sidebar.curveSpeedChanges}
+                </button>
                 <button onClick={() => setActiveLeftPanel('curveNotes')} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.curveNotes}
                 </button>

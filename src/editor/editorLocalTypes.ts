@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { BpmChange, EditorMode, ImportLoadStatus, Note, ProjectData, SpeedChange } from '../types/editorTypes';
 
-export type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveNotes' | 'organize' | 'history' | 'chartIssues' | 'bpmTiming';
+export type ActiveLeftPanel = 'main' | 'editInfo' | 'speedChanges' | 'curveSpeedChanges' | 'curveNotes' | 'organize' | 'history' | 'chartIssues' | 'bpmTiming';
 export type CurveIdSelectTarget = 'start' | 'end' | null;
 export type CurveEasingFamily = 'linear' | 'sine' | 'quad' | 'cubic' | 'quart' | 'quint' | 'expo' | 'circ' | 'back' | 'elastic';
 export type CurveEasingType = 'in' | 'out' | 'inOut';
