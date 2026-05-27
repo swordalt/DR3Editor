@@ -1,8 +1,8 @@
 export const en = {
   app: {
-    namePrefix: 'DanceRail3',
-    nameSuffix: 'Editor',
-    description: 'A versatile web-based chart making & editing tool for the rhythm game DanceRail3.',
+    namePrefix: '- DanceRail3',
+    nameSuffix: 'Editor -',
+    description: 'A fan-made web-based chart maker & editor for the rhythm game DanceRail3, staying mostly true to the official DanceRailMaker editor. Supports the official chart format completely.',
     loadingEditor: 'Initializing editor...',
   },
   landing: {
@@ -11,7 +11,7 @@ export const en = {
     importProject: 'Import Project',
     importProjectDescription: 'Import an existing chart file or project.',
     exampleProjects: 'Example Projects',
-    loading: 'Loading example...',
+    loading: 'Fetching project...',
     closeExampleMenu: 'Close example menu',
     chooseChartFormat: 'Choose Chart Format',
     closeChartFormatDialog: 'Close chart format dialog',
