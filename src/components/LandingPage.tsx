@@ -1,18 +1,22 @@
 import React from 'react';
 import {
   Ban,
-  ChevronLeft,
-  ChevronRight,
   FilePlus,
   FileText,
   Github,
   GraduationCap,
-  Image as ImageIcon,
+  HeartHandshake,
+  Image,
   Monitor,
+  Music2,
+  Palette,
   Play,
+  Sparkles,
   Upload,
   X,
 } from 'lucide-react';
+import appLogoUrl from '../assets/dr3editor_logo.png';
+import { changelogEntries } from '../data/changelog';
 import { translations } from '../lang';
 
 interface ExampleOption {
@@ -32,6 +36,20 @@ interface LandingPageProps {
   isAnimationDisabled: boolean;
 }
 
+const STANDARD_HD_WIDTH = 1280;
+const STANDARD_HD_HEIGHT = 720;
+const WIDESCREEN_ASPECT_RATIO = 16 / 9;
+type InfoTab = 'about' | 'source' | 'changelog';
+
+const shouldWarnForDesktopDisplay = () => {
+  const displayWidth = window.screen?.width || window.innerWidth;
+  const displayHeight = window.screen?.height || window.innerHeight;
+  const displayAspectRatio = displayWidth / displayHeight;
+  const isBelowStandardHd = displayWidth < STANDARD_HD_WIDTH || displayHeight < STANDARD_HD_HEIGHT;
+
+  return isBelowStandardHd && displayAspectRatio < WIDESCREEN_ASPECT_RATIO;
+};
+
 export default function LandingPage({
   fileInputRef,
   onCreateProject,
@@ -44,55 +62,29 @@ export default function LandingPage({
   isAnimationDisabled,
 }: LandingPageProps) {
   const [isFormatModalOpen, setIsFormatModalOpen] = React.useState(false);
-  const [activePreviewIndex, setActivePreviewIndex] = React.useState(0);
-  const [activeInfoTab, setActiveInfoTab] = React.useState<'about' | 'source'>('about');
+  const [activeInfoTab, setActiveInfoTab] = React.useState<InfoTab>('about');
   const [isViewportNoticeDismissed, setIsViewportNoticeDismissed] = React.useState(false);
   const [shouldShowViewportNotice, setShouldShowViewportNotice] = React.useState(false);
   const text = translations;
-  const previewSlides = [
-    {
-      title: 'Editor overview',
-      caption: 'Main charting workspace screenshot placeholder.',
-    },
-    {
-      title: 'Timing tools',
-      caption: 'BPM and speed editing screenshot placeholder.',
-    },
-    {
-      title: 'Preview mode',
-      caption: 'Playback preview screenshot placeholder.',
-    },
-  ];
-  const activePreview = previewSlides[activePreviewIndex];
 
   const handleOfficialCreate = () => {
     setIsFormatModalOpen(false);
     onCreateProject();
   };
 
-  const showPreviousPreview = () => {
-    setActivePreviewIndex((currentIndex) => (
-      currentIndex === 0 ? previewSlides.length - 1 : currentIndex - 1
-    ));
-  };
-
-  const showNextPreview = () => {
-    setActivePreviewIndex((currentIndex) => (
-      currentIndex === previewSlides.length - 1 ? 0 : currentIndex + 1
-    ));
-  };
-
   React.useEffect(() => {
-    const viewportNoticeQuery = window.matchMedia('(orientation: portrait), (max-width: 767px)');
+    const mobileViewportQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
     const updateViewportNotice = () => {
-      setShouldShowViewportNotice(viewportNoticeQuery.matches);
+      setShouldShowViewportNotice(mobileViewportQuery.matches || shouldWarnForDesktopDisplay());
     };
 
     updateViewportNotice();
-    viewportNoticeQuery.addEventListener('change', updateViewportNotice);
+    mobileViewportQuery.addEventListener('change', updateViewportNotice);
+    window.addEventListener('resize', updateViewportNotice);
 
     return () => {
-      viewportNoticeQuery.removeEventListener('change', updateViewportNotice);
+      mobileViewportQuery.removeEventListener('change', updateViewportNotice);
+      window.removeEventListener('resize', updateViewportNotice);
     };
   }, []);
 
@@ -108,14 +100,13 @@ export default function LandingPage({
       <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center px-5 py-8 sm:px-8 lg:px-10">
         <header className="text-center animate-[rise-in_500ms_ease-out]">
           <h1 className="text-5xl font-bold tracking-tight text-white sm:text-7xl lg:text-8xl">
-            {text.app.namePrefix}
-            <span className="text-neutral-300"> {text.app.nameSuffix}</span>
+            {text.app.name}
           </h1>
         </header>
 
         <div className="grid items-stretch gap-10 pb-2 pt-16 lg:grid-cols-[minmax(0,0.94fr)_minmax(420px,1.06fr)] lg:gap-14">
           <section className="flex w-full flex-col animate-[rise-in_500ms_ease-out]">
-            <section className="rounded-xl border border-white/10 bg-white/[0.075] p-4 shadow-2xl shadow-black/20">
+            <section className="rounded-xl border border-white/10 bg-neutral-950/75 p-4 shadow-2xl shadow-black/20">
               <div className="mb-3">
                 <h2 className="text-sm font-bold text-white">Actions</h2>
               </div>
@@ -158,7 +149,7 @@ export default function LandingPage({
               </div>
             </section>
 
-            <section className="mt-5 rounded-xl border border-white/10 bg-white/[0.075] p-4 shadow-2xl shadow-black/20">
+            <section className="mt-5 rounded-xl border border-white/10 bg-neutral-950/75 p-4 shadow-2xl shadow-black/20">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-bold text-white">{text.landing.exampleProjects}</h2>
@@ -199,8 +190,8 @@ export default function LandingPage({
             />
           </section>
 
-          <section className="flex animate-[rise-in_650ms_ease-out]">
-            <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-white/[0.075] p-4 shadow-2xl shadow-black/20">
+          <section className="relative min-h-[420px] min-w-0 animate-[rise-in_650ms_ease-out] lg:min-h-0">
+            <div className="absolute inset-0 flex w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-neutral-950/75 p-4 shadow-2xl shadow-black/20">
               <div className="mb-3 flex items-center gap-4">
                 <button
                   type="button"
@@ -217,86 +208,126 @@ export default function LandingPage({
                 >
                   Source
                 </button>
+                <span className="h-4 w-px bg-white/15" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={() => setActiveInfoTab('changelog')}
+                  className={`text-sm font-bold transition-colors ${activeInfoTab === 'changelog' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
+                >
+                  Changelog
+                </button>
               </div>
 
-              {activeInfoTab === 'about' ? (
-                <>
-                  <p className="mb-4 text-sm leading-6 text-neutral-300">
-                    {text.app.description}
-                  </p>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {activeInfoTab === 'about' ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="flex max-w-md flex-col items-center gap-5 text-center">
+                      <div className="flex h-52 w-52 items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] shadow-xl shadow-black/25">
+                        <img
+                          src={appLogoUrl}
+                          alt={`${text.app.name} logo`}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <p className="text-sm leading-6 text-neutral-300">
+                        {text.app.description}
+                      </p>
+                    </div>
+                  </div>
+                ) : activeInfoTab === 'source' ? (
+                  <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2">
+                    <a
+                      href="https://github.com/swordalt/dancerail3-editor"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group flex items-center gap-4 rounded-xl border border-white/10 bg-neutral-950/50 px-5 py-4 text-left transition-colors hover:border-white/25 hover:bg-white/[0.1]"
+                    >
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/10 text-neutral-200 transition-transform group-hover:scale-105">
+                        <Github className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-base font-bold text-white">View Source Code</span>
+                        <span className="mt-1 block truncate text-sm font-medium text-neutral-400">GitHub: swordalt/dancerail3-editor</span>
+                      </span>
+                    </a>
 
-                  <div className="relative min-h-[260px] flex-1 overflow-hidden lg:min-h-0">
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="max-w-sm px-6 text-center">
-                        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-xl border border-white/10 bg-white/10 text-neutral-300">
-                          <ImageIcon className="h-7 w-7" />
+                    <div className="h-px bg-white/10" aria-hidden="true" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <HeartHandshake className="h-4 w-4 text-neutral-400" />
+                        <h2 className="text-sm font-bold text-white">Attribution</h2>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
+                            <Music2 className="h-3.5 w-3.5" />
+                            Assets
+                          </div>
+                          <p className="mt-2 text-sm leading-5 text-neutral-300">
+                            Hitsounds and note sprites from <strong className="font-semibold text-neutral-100">DanceRail3Viewer</strong> by lucarioex.
+                          </p>
                         </div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">WIP screenshot</div>
-                        <h2 className="mt-3 text-2xl font-bold text-white">{activePreview.title}</h2>
-                        <p className="mt-2 text-sm leading-6 text-neutral-400">{activePreview.caption}</p>
+
+                        <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
+                            <Image className="h-3.5 w-3.5" />
+                            Examples & Logo
+                          </div>
+                          <p className="mt-2 text-sm leading-5 text-neutral-300">
+                            Example projects and logo design from <strong className="font-semibold text-neutral-100">DanceRail3</strong> by SoraGame.
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Easings
+                          </div>
+                          <p className="mt-2 text-sm leading-5 text-neutral-300">
+                            Easing references from <strong className="font-semibold text-neutral-100">easings.net</strong> by Andrey Sitnik and Ivan Solovev.
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
+                            <Palette className="h-3.5 w-3.5" />
+                            Inspiration
+                          </div>
+                          <p className="mt-2 text-sm leading-5 text-neutral-300">
+                            Design and functionality inspired by <strong className="font-semibold text-neutral-100">DanceRail3Maker</strong> by lucarioex and <strong className="font-semibold text-neutral-100">PhiEdit</strong> by cmdysj.
+                          </p>
+                        </div>
                       </div>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={showPreviousPreview}
-                      aria-label="Previous editor image"
-                      className="absolute left-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg border border-white/10 bg-neutral-950/40 text-neutral-300 transition-colors hover:border-white/25 hover:bg-white/10 hover:text-white"
-                    >
-                      <ChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={showNextPreview}
-                      aria-label="Next editor image"
-                      className="absolute right-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg border border-white/10 bg-neutral-950/40 text-neutral-300 transition-colors hover:border-white/25 hover:bg-white/10 hover:text-white"
-                    >
-                      <ChevronRight className="h-5 w-5" />
-                    </button>
-
-                    <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2">
-                      {previewSlides.map((slide, index) => (
-                        <button
-                          key={slide.title}
-                          type="button"
-                          onClick={() => setActivePreviewIndex(index)}
-                          aria-label={`Show ${slide.title}`}
-                          className={`h-2.5 rounded-full transition-[background-color,width] ${activePreviewIndex === index ? 'w-8 bg-neutral-200' : 'w-2.5 bg-neutral-600 hover:bg-neutral-400'}`}
-                        />
+                  </div>
+                ) : (
+                  <div className="h-full overflow-y-auto pr-2">
+                    <div className="space-y-4">
+                      {changelogEntries.map((entry) => (
+                        <article
+                          key={`${entry.version}-${entry.date}`}
+                          className="rounded-xl border border-white/10 bg-neutral-950/40 p-4"
+                        >
+                          <div className="flex items-baseline justify-between gap-3">
+                            <h2 className="text-base font-bold text-white">{entry.version}</h2>
+                            <span className="shrink-0 text-xs font-semibold text-neutral-500">{entry.date}</span>
+                          </div>
+                          <ul className="mt-3 space-y-2 text-sm leading-6 text-neutral-300">
+                            {entry.changes.map((change) => (
+                              <li key={change} className="flex gap-2">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-500" aria-hidden="true" />
+                                <span>{change}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </article>
                       ))}
                     </div>
                   </div>
-                </>
-              ) : (
-                <div className="flex min-h-[260px] flex-1 flex-col gap-5 lg:min-h-0">
-                  <a
-                    href="https://github.com/swordalt/dancerail3-editor"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group flex items-center gap-4 rounded-xl border border-white/10 bg-neutral-950/50 px-5 py-4 text-left transition-colors hover:border-white/25 hover:bg-white/[0.1]"
-                  >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/10 text-neutral-200 transition-transform group-hover:scale-105">
-                      <Github className="h-5 w-5" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-base font-bold text-white">View Source Code</span>
-                      <span className="mt-1 block truncate text-sm font-medium text-neutral-400">GitHub: swordalt/dancerail3-editor</span>
-                    </span>
-                  </a>
-
-                  <div className="space-y-3 text-sm leading-6 text-neutral-300">
-                    <p>
-                      DanceRail3 Editor is a fan-made open-source web editor for creating and editing DanceRail3 charts.
-                    </p>
-                    <p>
-                      Hitsounds and note sprites are from '<b>DanceRail3Viewer</b> by lucarioex'. Example projects are from '<b>DanceRail3</b> by SoraGame'. Easings are from '<b>easings.net</b> by Andrey Sitnik and Ivan Solovev'. Design and functionality inspired by both '<b>DanceRail3Maker</b> by lucarioex' as well as '<b>PhiEdit</b> by cmdysj'.
-                    </p>
-                    <p>
-                      Not affiliated with DanceRail3, SoraGame, or official entities in any way, shape, or form.
-                    </p>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </section>
         </div>
@@ -388,17 +419,17 @@ export default function LandingPage({
               </button>
             </div>
             <h2 id="viewport-notice-title" className="text-lg font-bold text-white">
-              Widescreen display recommended
+              Notice
             </h2>
             <p className="mt-2 text-sm leading-6 text-neutral-300">
-              This editor is best used with a horizontal widescreen display, 16:9 or wider. It is not suitable for mobile or portrait-oriented screens.
+              This editor contains mouse/keyboard-exclusive hotkeys, and is best used with a horizontal widescreen display of 16:9 or wider.
             </p>
             <button
               type="button"
               onClick={() => setIsViewportNoticeDismissed(true)}
               className="mt-5 w-full rounded-lg border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:border-white/25 hover:bg-white/15"
             >
-              Continue anyway
+              Acknowledge
             </button>
           </div>
         </div>
