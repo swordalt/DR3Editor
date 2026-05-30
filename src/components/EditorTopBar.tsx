@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
-import { ArrowLeft, ChevronDown, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pause, Play, Settings } from 'lucide-react';
+import { ArrowLeft, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pause, Play, Settings } from 'lucide-react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import { translations } from '../lang';
@@ -10,6 +10,7 @@ interface EditorTopBarProps {
   projectData: ProjectData | null;
   tierBadge: {
     label: string;
+    tierText: string;
     className: string;
   };
   isXPositionGridEnabled: boolean;
@@ -117,8 +118,8 @@ export default function EditorTopBar({
   };
 
   return (
-    <header className="h-16 shrink-0 border-b border-neutral-800 bg-neutral-950/90 px-3 text-neutral-50 shadow-lg shadow-black/20">
-      <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(22rem,38rem)_minmax(0,1fr)] items-center gap-3">
+    <header className="relative h-16 shrink-0 border-b border-neutral-800 bg-neutral-950/90 px-3 text-neutral-50 shadow-lg shadow-black/20">
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-3">
       <div className="flex min-w-0 items-center gap-3">
         <button
           onClick={openExitWarning}
@@ -127,47 +128,124 @@ export default function EditorTopBar({
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-neutral-100">
-            {projectData?.songName || text.editor.untitledProject}
+        <div className="flex h-12 min-w-0 max-w-full items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/60 px-2">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-neutral-100">
+              {projectData?.songName || text.editor.untitledProject}
+            </div>
+            <div className="mt-0.5 min-w-0 truncate text-[11px] font-medium leading-tight text-neutral-400">
+              {projectData?.songArtist || text.editor.songArtist}
+            </div>
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            {projectData && (
-              <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${tierBadge.className}`}>
-                {tierBadge.label}
-              </span>
-            )}
-            <span className="shrink-0 rounded border border-indigo-400/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-indigo-200">
-              {projectData?.chartFormat ?? text.common.official}
+          {projectData && (
+            <span
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border font-mono text-sm font-black leading-none ${tierBadge.className}`}
+              title={tierBadge.label}
+              aria-label={tierBadge.label}
+            >
+              {tierBadge.tierText}
             </span>
-          </div>
+          )}
         </div>
       </div>
 
-      <div className="flex min-w-0 items-center justify-center gap-3">
+      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[clamp(22rem,38vw,38rem)] -translate-x-1/2 -translate-y-1/2">
         {projectData && (
           <>
-            <button
-              type="button"
-              onClick={() => setIsOutOfBoundsPlacementEnabled(prev => !prev)}
-              className={`shrink-0 rounded-lg border p-2 transition-colors ${isOutOfBoundsPlacementEnabled ? 'border-amber-400/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white'}`}
-              title={outOfBoundsLabel}
-              aria-pressed={isOutOfBoundsPlacementEnabled}
-              aria-label={outOfBoundsLabel}
-            >
-              <MoveHorizontal className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsXPositionGridEnabled(prev => !prev)}
-              className={`shrink-0 rounded-lg border p-2 transition-colors ${isXPositionGridEnabled ? 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white' : 'border-indigo-400/30 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'}`}
-              title={xPositionGridLabel}
-              aria-pressed={!isXPositionGridEnabled}
-              aria-label={xPositionGridLabel}
-            >
-              {isXPositionGridEnabled ? <Grid2x2 className="w-4 h-4" /> : <Grid2x2X className="w-4 h-4" />}
-            </button>
-            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 shadow-inner shadow-black/30">
+            <div className="pointer-events-auto absolute right-full top-1/2 mr-3 flex -translate-y-1/2 items-center gap-3">
+              {!isPreviewMode && (
+                <div className="flex h-12 shrink-0 items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsOutOfBoundsPlacementEnabled(prev => !prev)}
+                    className={`shrink-0 rounded-lg border p-2 transition-colors ${isOutOfBoundsPlacementEnabled ? 'border-amber-400/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white'}`}
+                    title={outOfBoundsLabel}
+                    aria-pressed={isOutOfBoundsPlacementEnabled}
+                    aria-label={outOfBoundsLabel}
+                  >
+                    <MoveHorizontal className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsXPositionGridEnabled(prev => !prev)}
+                    className={`shrink-0 rounded-lg border p-2 transition-colors ${isXPositionGridEnabled ? 'border-transparent text-neutral-500 hover:border-neutral-700 hover:bg-neutral-900 hover:text-white' : 'border-indigo-400/30 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'}`}
+                    title={xPositionGridLabel}
+                    aria-pressed={!isXPositionGridEnabled}
+                    aria-label={xPositionGridLabel}
+                  >
+                    {isXPositionGridEnabled ? <Grid2x2 className="w-4 h-4" /> : <Grid2x2X className="w-4 h-4" />}
+                  </button>
+                </div>
+              )}
+              <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExportMenuOpen(false);
+                  setIsPreviewMenuOpen(false);
+                  setIsPlaybackSpeedMenuOpen(current => {
+                    if (!current) {
+                      setCustomPlaybackSpeedInput(`${playbackSpeed}`);
+                    }
+
+                    return !current;
+                  });
+                }}
+                className="flex h-12 items-center rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 text-[11px] font-medium uppercase tracking-wider text-neutral-500 transition-colors hover:border-neutral-700 hover:bg-neutral-800 hover:text-white"
+                title={text.editor.playbackSpeed}
+                aria-haspopup="menu"
+                aria-expanded={isPlaybackSpeedMenuOpen}
+              >
+                Speed <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{formatPlaybackSpeed(playbackSpeed)}</span>
+              </button>
+              {isPlaybackSpeedMenuOpen && (
+                <div
+                  className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  role="menu"
+                >
+                  <form onSubmit={applyCustomPlaybackSpeed} className="mb-1 border-b border-neutral-800 p-1 pb-2">
+                    <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                      Custom
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={customPlaybackSpeedInput}
+                        onChange={(event) => setCustomPlaybackSpeedInput(event.target.value)}
+                        className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 font-mono text-sm text-neutral-200 outline-none transition-colors focus:border-indigo-500"
+                        aria-label={text.editor.playbackSpeed}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!isCustomPlaybackSpeedValid}
+                        className="rounded bg-indigo-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                      >
+                        Set
+                      </button>
+                    </div>
+                  </form>
+                  {PLAYBACK_SPEED_OPTIONS.map(speed => (
+                    <button
+                      key={speed}
+                      type="button"
+                      onClick={() => changePlaybackSpeed(speed)}
+                      className={`w-full rounded px-3 py-2 text-right font-mono text-sm transition-colors ${
+                        playbackSpeed === speed
+                          ? 'bg-indigo-500/20 text-indigo-200'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                      }`}
+                      role="menuitem"
+                    >
+                      {formatPlaybackSpeed(speed)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              </div>
+            </div>
+            <div className="pointer-events-auto flex h-12 min-w-0 w-full items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/70 px-2 shadow-inner shadow-black/30">
               <button
                 onClick={togglePlay}
                 className={`shrink-0 rounded-lg p-2 transition-colors ${isPlaying ? 'bg-emerald-500/20 text-emerald-400' : 'text-neutral-400 hover:bg-neutral-800 hover:text-emerald-400'}`}
@@ -211,180 +289,110 @@ export default function EditorTopBar({
                 {timelinePositionLabel}
               </div>
             </div>
+            <div className="pointer-events-auto absolute left-full top-1/2 ml-3 flex -translate-y-1/2 items-center gap-3">
+              <div className="flex h-12 items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-2">
+                <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                  {text.editor.zoom} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{pixelsPerBeat}px</span>
+                </div>
+                {!isPreviewMode && (
+                  <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                    {text.editor.snap} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </>
         )}
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-2">
-        {projectData && (
-          <div className="hidden items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-2 py-1.5 xl:flex">
-            {!isPreviewMode && (
-              <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                {text.editor.snap} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{effectiveGridZoom === 0 ? '0' : `1/${effectiveGridZoom}`}</span>
-              </div>
-            )}
-            <div className="rounded-lg px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-              {text.editor.zoom} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{pixelsPerBeat}px</span>
-            </div>
-          </div>
-        )}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setIsExportMenuOpen(false);
-              setIsPreviewMenuOpen(false);
-              setIsPlaybackSpeedMenuOpen(current => {
-                if (!current) {
-                  setCustomPlaybackSpeedInput(`${playbackSpeed}`);
-                }
+        <div className="flex min-w-0 flex-1" />
 
-                return !current;
-              });
-            }}
-            className="min-w-14 rounded-lg border border-neutral-800 bg-neutral-900/60 px-2 py-1.5 font-mono text-sm text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-800 hover:text-white"
-            title={text.editor.playbackSpeed}
-            aria-haspopup="menu"
-            aria-expanded={isPlaybackSpeedMenuOpen}
-          >
-            {formatPlaybackSpeed(playbackSpeed)}
-          </button>
-          {isPlaybackSpeedMenuOpen && (
-            <div
-              className="absolute right-0 top-full z-50 mt-2 w-40 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
-              role="menu"
+        <div className="flex shrink-0 items-center justify-end gap-2">
+          <div className="flex h-12 items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 px-1">
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                openHelp();
+              }}
+              className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
+              title={text.editor.hotkeys}
+              aria-label={text.editor.openHotkeysHelp}
+              aria-haspopup="dialog"
+              aria-expanded={isHelpOpen}
             >
-              <form onSubmit={applyCustomPlaybackSpeed} className="mb-1 border-b border-neutral-800 p-1 pb-2">
-                <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                  Custom
-                </label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={customPlaybackSpeedInput}
-                    onChange={(event) => setCustomPlaybackSpeedInput(event.target.value)}
-                    className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 font-mono text-sm text-neutral-200 outline-none transition-colors focus:border-indigo-500"
-                    aria-label={text.editor.playbackSpeed}
-                  />
-                  <button
-                    type="submit"
-                    disabled={!isCustomPlaybackSpeedValid}
-                    className="rounded bg-indigo-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                  >
-                    Set
-                  </button>
-                </div>
-              </form>
-              {PLAYBACK_SPEED_OPTIONS.map(speed => (
-                <button
-                  key={speed}
-                  type="button"
-                  onClick={() => changePlaybackSpeed(speed)}
-                  className={`w-full rounded px-3 py-2 text-right font-mono text-sm transition-colors ${
-                    playbackSpeed === speed
-                      ? 'bg-indigo-500/20 text-indigo-200'
-                      : 'text-neutral-200 hover:bg-neutral-800'
-                  }`}
-                  role="menuitem"
-                >
-                  {formatPlaybackSpeed(speed)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            openHelp();
-          }}
-          className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
-          title={text.editor.hotkeys}
-          aria-label={text.editor.openHotkeysHelp}
-          aria-haspopup="dialog"
-          aria-expanded={isHelpOpen}
-        >
-          <HelpCircle className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            openSettings();
-          }}
-          className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
-          title={text.editor.settings}
-          aria-haspopup="dialog"
-          aria-expanded={isSettingsOpen}
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-        {isPreviewMode ? (
-          <button
-            type="button"
-            disabled={!projectData}
-            onClick={togglePreviewMode}
-            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-            title={text.editor.returnToEditorMode}
-            aria-pressed={isPreviewMode}
+              <HelpCircle className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                openSettings();
+              }}
+              className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white"
+              title={text.editor.settings}
+              aria-haspopup="dialog"
+              aria-expanded={isSettingsOpen}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+          <div
+            className="relative"
+            onMouseEnter={() => {
+              setIsExportMenuOpen(false);
+              setIsPlaybackSpeedMenuOpen(false);
+              setIsPreviewMenuOpen(true);
+            }}
+            onMouseLeave={() => setIsPreviewMenuOpen(false)}
           >
-            {text.common.return}
-          </button>
-        ) : (
-          <div className="relative">
             <button
               type="button"
               disabled={!projectData}
               onClick={() => {
-                setIsExportMenuOpen(false);
-                setIsPlaybackSpeedMenuOpen(false);
-                setIsPreviewMenuOpen(current => !current);
+                setIsPreviewMenuOpen(false);
+                togglePreviewMode();
               }}
-              className="flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm font-semibold text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-500"
-              title={text.editor.previewChartPlayback}
+              className={`relative h-12 shrink-0 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500 ${
+                isPreviewMode
+                  ? 'border-transparent bg-emerald-500 text-white hover:bg-emerald-600'
+                  : 'border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white'
+              }`}
+              title={isPreviewMode ? text.editor.returnToEditorMode : text.editor.previewChartPlayback}
               aria-haspopup="menu"
               aria-expanded={isPreviewMenuOpen}
+              aria-pressed={isPreviewMode}
             >
-              {text.common.preview}
-              <ChevronDown className="h-4 w-4" />
+              <span className="invisible">Preview Mode</span>
+              <span className="absolute inset-0 flex items-center justify-center">
+                {isPreviewMode ? 'Preview Mode' : 'Editor Mode'}
+              </span>
             </button>
             {isPreviewMenuOpen && (
               <div
-                className="absolute right-0 top-full z-50 mt-2 w-36 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                className="absolute right-0 top-full z-50 w-36 pt-2"
                 role="menu"
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPreviewMenuOpen(false);
-                    togglePreviewMode();
-                  }}
-                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-                  role="menuitem"
-                >
-                  {text.overlays.editor}
-                </button>
-                <button
-                  type="button"
-                  disabled={isExportDisabled}
-                  onClick={() => {
-                    if (isExportDisabled) return;
-                    setIsPreviewMenuOpen(false);
-                    void previewDr3Fp();
-                  }}
-                  className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
-                  role="menuitem"
-                  title={isExportDisabled ? text.editor.previewDisabled : text.editor.previewDr3Fp}
-                >
-                  DR3FP
-                </button>
+                <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40">
+                  <button
+                    type="button"
+                    disabled={isExportDisabled}
+                    onClick={() => {
+                      if (isExportDisabled) return;
+                      setIsPreviewMenuOpen(false);
+                      void previewDr3Fp();
+                    }}
+                    className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+                    role="menuitem"
+                    title={isExportDisabled ? text.editor.previewDisabled : text.editor.previewDr3Fp}
+                  >
+                    DR3FP
+                  </button>
+                </div>
               </div>
             )}
           </div>
-        )}
         <div className="relative">
           <button
             type="button"
@@ -394,7 +402,7 @@ export default function EditorTopBar({
               setIsPreviewMenuOpen(false);
               setIsExportMenuOpen(current => !current);
             }}
-            className="flex items-center gap-2 rounded-lg bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="flex h-12 items-center gap-2 rounded-lg bg-indigo-500 px-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             title={isExportDisabled ? text.editor.exportDisabled : text.editor.exportLevel}
             aria-haspopup="menu"
             aria-expanded={isExportMenuOpen}
@@ -438,6 +446,7 @@ export default function EditorTopBar({
               </button>
             </div>
           )}
+        </div>
         </div>
       </div>
       </div>
