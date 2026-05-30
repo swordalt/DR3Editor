@@ -381,6 +381,7 @@ const PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP = 1;
 const PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT = 24;
 const PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT = 64;
 const PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD = 500;
+const EDITOR_STYLE_HOLD_CONNECTOR_EXTRA_INSET_PIXELS = 3;
 const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
 const HOLD_CENTER_TYPE_SET = new Set(HOLD_CENTER_TYPES);
@@ -3801,6 +3802,23 @@ export default function Editor({
         right: noteX + Math.max(inset, notePixelWidth - inset),
       };
     };
+    const getProjectedEditorStyleConnectorEdges = (note: Note, y: number) => {
+      const noteX = getProjectedXFromLane(note.lane, y);
+      const notePixelWidth = getProjectedNoteWidth(note.width, y);
+      const inset = Math.min(
+        Math.max(
+          0,
+          getProjectedNoteBodyInset(notePixelWidth, y)
+            + EDITOR_STYLE_HOLD_CONNECTOR_EXTRA_INSET_PIXELS * getProjectedScale(y),
+        ),
+        Math.max(0, notePixelWidth / 2),
+      );
+
+      return {
+        left: noteX + inset,
+        right: noteX + Math.max(inset, notePixelWidth - inset),
+      };
+    };
     const getInterpolatedConnectorNote = (fromNote: Note, toNote: Note, progress: number): Note => ({
       ...fromNote,
       lane: fromNote.lane + (toNote.lane - fromNote.lane) * progress,
@@ -3879,8 +3897,8 @@ export default function Editor({
       toY: number,
     ) => {
       if (!isPreview3DMode) {
-        const fromEdges = getProjectedNoteEdges(fromNote, fromY);
-        const toEdges = getProjectedNoteEdges(toNote, toY);
+        const fromEdges = getProjectedEditorStyleConnectorEdges(fromNote, fromY);
+        const toEdges = getProjectedEditorStyleConnectorEdges(toNote, toY);
 
         ctx.beginPath();
         ctx.moveTo(fromEdges.left, fromY);
@@ -3904,8 +3922,8 @@ export default function Editor({
         const segmentToNote = getInterpolatedConnectorNote(fromNote, toNote, endProgress);
         const segmentFromY = fromY + (toY - fromY) * startProgress;
         const segmentToY = fromY + (toY - fromY) * endProgress;
-        const fromEdges = getProjectedNoteEdges(segmentFromNote, segmentFromY);
-        const toEdges = getProjectedNoteEdges(segmentToNote, segmentToY);
+        const fromEdges = getProjectedEditorStyleConnectorEdges(segmentFromNote, segmentFromY);
+        const toEdges = getProjectedEditorStyleConnectorEdges(segmentToNote, segmentToY);
 
         ctx.beginPath();
         ctx.moveTo(fromEdges.left, segmentFromY);
@@ -4936,11 +4954,15 @@ export default function Editor({
 
       const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
         && currentPreviewTimepos >= Math.min(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON
-        && currentPreviewTimepos < Math.max(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON;
+        && currentPreviewTimepos <= Math.max(previewSegment.parentTimepos, previewSegment.noteTimepos) + SNAP_EPSILON;
       const shouldClipPreviewConnectorAtJudgementLine = shouldClipPreviewHoldConnectors
         && isPreviewConnectorBeingJudged
-        && Math.max(noteY, parentY) > hitLineY;
-      if (shouldClipPreviewHoldConnectors && isPreviewConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
+        && Math.max(clippedConnector.fromY, clippedConnector.toY) > hitLineY;
+      if (
+        shouldClipPreviewHoldConnectors
+        && isPreviewConnectorBeingJudged
+        && Math.min(clippedConnector.fromY, clippedConnector.toY) >= hitLineY
+      ) {
         return;
       }
 
@@ -5023,8 +5045,9 @@ export default function Editor({
         }
 
         const isConnectorBeingJudged = (
-          currentPreviewTimepos >= Math.min(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
-          && currentPreviewTimepos < Math.max(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
+          isPreviewPlaybackCanvas
+          && currentPreviewTimepos >= Math.min(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
+          && currentPreviewTimepos <= Math.max(groupedSegment.parentTimepos, groupedSegment.noteTimepos) + SNAP_EPSILON
         );
         if (shouldClipPreviewHoldConnectors && isConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
           return false;
@@ -5069,8 +5092,14 @@ export default function Editor({
         && groupedSegments
         && PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type],
       );
+      const shouldDrawEditorStyleSegmentsIndividually = Boolean(
+        groupedSegments
+        && !shouldDrawTexturedSegmentsIndividually,
+      );
       const shouldFallbackToIndividualSegments = groupedSegments
-        ? shouldDrawTexturedSegmentsIndividually || !canDrawGroupedHoldConnectorSegments(groupedSegments)
+        ? shouldDrawTexturedSegmentsIndividually
+          || shouldDrawEditorStyleSegmentsIndividually
+          || !canDrawGroupedHoldConnectorSegments(groupedSegments)
         : false;
 
       if (shouldFallbackToIndividualSegments) {
