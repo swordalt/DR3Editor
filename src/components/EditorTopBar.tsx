@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
-import { ArrowLeft, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pause, Play, Settings } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Download, Grid2x2, Grid2x2X, HelpCircle, LoaderCircle, MoveHorizontal, Pause, Play, Settings, X } from 'lucide-react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import { translations } from '../lang';
 import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { ProjectData } from '../types/editorTypes';
+import type { ExportFormat } from '../types/exportTypes';
+
+type ExportRunResult = 'complete' | 'cancelled' | 'failed';
+type UserExportFormat = Extract<ExportFormat, 'raw' | 'dr3-viewer' | 'dr3-fp'>;
+type ExportDialogStatus = 'idle' | 'exporting' | 'complete' | 'cancelled' | 'failed';
 
 interface EditorTopBarProps {
   projectData: ProjectData | null;
@@ -21,6 +26,7 @@ interface EditorTopBarProps {
   isHelpOpen: boolean;
   isSettingsOpen: boolean;
   isPreviewMode: boolean;
+  isDr3FpPreviewEnabled: boolean;
   isExportMenuOpen: boolean;
   isPreviewMenuOpen: boolean;
   isExportDisabled: boolean;
@@ -50,8 +56,9 @@ interface EditorTopBarProps {
   openSettings: () => void;
   togglePreviewMode: () => void;
   previewDr3Fp: () => Promise<void>;
-  exportDr3Viewer: () => Promise<void>;
-  exportDr3Fp: () => Promise<void>;
+  exportRaw: () => Promise<ExportRunResult>;
+  exportDr3Viewer: () => Promise<ExportRunResult>;
+  exportDr3Fp: () => Promise<ExportRunResult>;
 }
 
 export default function EditorTopBar({
@@ -64,6 +71,7 @@ export default function EditorTopBar({
   isHelpOpen,
   isSettingsOpen,
   isPreviewMode,
+  isDr3FpPreviewEnabled,
   isExportMenuOpen,
   isPreviewMenuOpen,
   isExportDisabled,
@@ -93,11 +101,15 @@ export default function EditorTopBar({
   openSettings,
   togglePreviewMode,
   previewDr3Fp,
+  exportRaw,
   exportDr3Viewer,
   exportDr3Fp,
 }: EditorTopBarProps) {
   const text = translations;
   const [customPlaybackSpeedInput, setCustomPlaybackSpeedInput] = useState(() => `${playbackSpeed}`);
+  const [selectedExportFormat, setSelectedExportFormat] = useState<UserExportFormat>('raw');
+  const [exportDialogStatus, setExportDialogStatus] = useState<ExportDialogStatus>('idle');
+  const [exportDialogStatusMessage, setExportDialogStatusMessage] = useState('Choose a format, then export.');
   const sanitizedCustomPlaybackSpeedInput = stripInputWhitespace(customPlaybackSpeedInput);
   const parsedCustomPlaybackSpeed = Number(sanitizedCustomPlaybackSpeedInput);
   const isCustomPlaybackSpeedValid = Number.isFinite(parsedCustomPlaybackSpeed) && parsedCustomPlaybackSpeed > 0;
@@ -108,6 +120,54 @@ export default function EditorTopBar({
     ? text.editor.disableXPositionGrid
     : text.editor.enableXPositionGrid;
   const playbackLabel = isPlaying ? text.editor.pause : text.editor.play;
+  const exportOptions: Array<{
+    format: UserExportFormat;
+    label: string;
+    description: string;
+  }> = [
+    {
+      format: 'raw',
+      label: text.editor.rawFormat,
+      description: 'Chart, audio, and illustration files with their original names.',
+    },
+    {
+      format: 'dr3-viewer',
+      label: text.editor.dr3ViewerFormat,
+      description: 'ZIP structure for DanceRail3Viewer.',
+    },
+    {
+      format: 'dr3-fp',
+      label: text.editor.dr3FpFormat,
+      description: 'ZIP structure for DR3FV.',
+    },
+  ];
+  const isExportRunning = exportDialogStatus === 'exporting';
+  const hasExportStarted = exportDialogStatus !== 'idle';
+  const isSelectedExportFormatDisabled = isExportDisabled
+    || (selectedExportFormat !== 'raw' && hasExportIncompatibleTimeSignature);
+  const isFormattedExportDisabled = isExportDisabled || hasExportIncompatibleTimeSignature;
+  const runSelectedExport = async () => {
+    if (isSelectedExportFormatDisabled || isExportRunning) return;
+
+    setExportDialogStatus('exporting');
+    setExportDialogStatusMessage('Preparing export...');
+
+    const exportByFormat: Record<UserExportFormat, () => Promise<ExportRunResult>> = {
+      raw: exportRaw,
+      'dr3-viewer': exportDr3Viewer,
+      'dr3-fp': exportDr3Fp,
+    };
+
+    const result = await exportByFormat[selectedExportFormat]();
+    setExportDialogStatus(result);
+    setExportDialogStatusMessage(
+      result === 'complete'
+        ? 'Export complete.'
+        : result === 'cancelled'
+          ? 'Export cancelled.'
+          : 'Export failed. Check the console for details.',
+    );
+  };
   const applyCustomPlaybackSpeed = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isCustomPlaybackSpeedValid) return;
@@ -373,7 +433,7 @@ export default function EditorTopBar({
                 {isPreviewMode ? 'Preview Mode' : 'Editor Mode'}
               </span>
             </button>
-            {isPreviewMenuOpen && (
+            {isPreviewMenuOpen && isDr3FpPreviewEnabled && (
               <div
                 className="absolute right-0 top-full z-50 w-36 pt-2"
                 role="menu"
@@ -381,15 +441,15 @@ export default function EditorTopBar({
                 <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40">
                   <button
                     type="button"
-                    disabled={isExportDisabled}
+                    disabled={isFormattedExportDisabled}
                     onClick={() => {
-                      if (isExportDisabled) return;
+                      if (isFormattedExportDisabled) return;
                       setIsPreviewMenuOpen(false);
                       void previewDr3Fp();
                     }}
                     className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
                     role="menuitem"
-                    title={isExportDisabled ? text.editor.previewDisabled : text.editor.previewDr3Fp}
+                    title={isFormattedExportDisabled ? text.editor.previewDisabled : text.editor.previewDr3Fp}
                   >
                     DR3FP
                   </button>
@@ -404,11 +464,13 @@ export default function EditorTopBar({
             onClick={() => {
               setIsPlaybackSpeedMenuOpen(false);
               setIsPreviewMenuOpen(false);
-              setIsExportMenuOpen(current => !current);
+              setExportDialogStatus('idle');
+              setExportDialogStatusMessage('Choose a format, then export.');
+              setIsExportMenuOpen(true);
             }}
             className="flex h-12 items-center gap-2 rounded-lg bg-indigo-500 px-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             title={isExportDisabled ? text.editor.exportDisabled : text.editor.exportLevel}
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded={isExportMenuOpen}
           >
             <Download className="w-4 h-4" />
@@ -416,38 +478,95 @@ export default function EditorTopBar({
           </button>
           {isExportMenuOpen && (
             <div
-              className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-neutral-700 bg-neutral-950 p-2 shadow-2xl shadow-black/40"
-              role="menu"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-dialog-title"
             >
-              {hasExportIncompatibleTimeSignature && (
-                <p className="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
-                  {text.editor.exportIncompatibleTimeSignature}
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={isExportDisabled}
-                onClick={() => {
-                  setIsExportMenuOpen(false);
-                  void exportDr3Viewer();
-                }}
-                className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
-                role="menuitem"
-              >
-                {text.editor.dr3ViewerFormat}
-              </button>
-              <button
-                type="button"
-                disabled={isExportDisabled}
-                onClick={() => {
-                  setIsExportMenuOpen(false);
-                  void exportDr3Fp();
-                }}
-                className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
-                role="menuitem"
-              >
-                {text.editor.dr3FpFormat}
-              </button>
+              <div className="w-full max-w-md rounded-lg border border-neutral-700 bg-neutral-950 p-5 shadow-2xl shadow-black/50">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 id="export-dialog-title" className="text-lg font-semibold text-neutral-50">
+                      {text.editor.exportLevel}
+                    </h2>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      Select the package format for this chart.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isExportRunning}
+                    onClick={() => setIsExportMenuOpen(false)}
+                    className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-700"
+                    aria-label="Close export dialog"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {hasExportIncompatibleTimeSignature && (
+                  <p className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                    {text.editor.exportIncompatibleTimeSignature}
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {exportOptions.map(option => (
+                    <button
+                      key={option.format}
+                      type="button"
+                      disabled={isExportRunning || (option.format !== 'raw' && hasExportIncompatibleTimeSignature)}
+                      onClick={() => {
+                        setSelectedExportFormat(option.format);
+                        setExportDialogStatus('idle');
+                        setExportDialogStatusMessage('Choose a format, then export.');
+                      }}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed ${
+                        selectedExportFormat === option.format
+                          ? 'border-indigo-400/60 bg-indigo-500/15'
+                          : 'border-neutral-800 bg-neutral-900/70 hover:border-neutral-700 hover:bg-neutral-900'
+                      }`}
+                      aria-pressed={selectedExportFormat === option.format}
+                    >
+                      <span className="block text-sm font-semibold text-neutral-100">{option.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-neutral-400">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-5">
+                  <button
+                    type="button"
+                    disabled={isSelectedExportFormatDisabled || isExportRunning}
+                    onClick={() => void runSelectedExport()}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                  >
+                    {isExportRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {text.editor.export}
+                  </button>
+                  <div
+                    className={`mt-3 flex min-h-10 items-center gap-2 rounded border px-3 py-2 text-sm ${
+                      exportDialogStatus === 'complete'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                        : exportDialogStatus === 'failed'
+                          ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                          : exportDialogStatus === 'cancelled'
+                            ? 'border-neutral-700 bg-neutral-900 text-neutral-300'
+                            : 'border-neutral-800 bg-neutral-900/70 text-neutral-400'
+                    } ${hasExportStarted ? 'visible' : 'invisible'}`}
+                    aria-live="polite"
+                    aria-hidden={!hasExportStarted}
+                  >
+                    {exportDialogStatus === 'exporting' && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                    {exportDialogStatus === 'complete' && <CheckCircle2 className="h-4 w-4" />}
+                    {exportDialogStatus === 'failed' && <AlertCircle className="h-4 w-4" />}
+                    {exportDialogStatus !== 'exporting' && exportDialogStatus !== 'complete' && exportDialogStatus !== 'failed' && (
+                      <span className="h-2 w-2 rounded-full bg-current opacity-70" />
+                    )}
+                    {exportDialogStatusMessage}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

@@ -32,6 +32,7 @@ interface EditorOverlaysProps {
   areTimingChangeIndicatorsAdjusted: boolean;
   isEditorJudgementGlowEnabled: boolean;
   isVSyncEnabled: boolean;
+  isDr3FpPreviewEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
@@ -51,6 +52,7 @@ interface EditorOverlaysProps {
   setAreTimingChangeIndicatorsAdjusted: Dispatch<SetStateAction<boolean>>;
   setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
   setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsDr3FpPreviewEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -268,6 +270,7 @@ export default function EditorOverlays({
   areTimingChangeIndicatorsAdjusted,
   isEditorJudgementGlowEnabled,
   isVSyncEnabled,
+  isDr3FpPreviewEnabled,
   isPreviewPrecomputeEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
@@ -287,6 +290,7 @@ export default function EditorOverlays({
   setAreTimingChangeIndicatorsAdjusted,
   setIsEditorJudgementGlowEnabled,
   setIsVSyncEnabled,
+  setIsDr3FpPreviewEnabled,
   setIsPreviewPrecomputeEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
@@ -429,6 +433,16 @@ export default function EditorOverlays({
               isEnabled={isVSyncEnabled}
               ariaLabel={text.overlays.toggleVSync}
               onToggle={() => setIsVSyncEnabled((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.dr3FpPreview}
+              description={text.overlays.dr3FpPreviewDescription}
+              isEnabled={isDr3FpPreviewEnabled}
+              ariaLabel={text.overlays.toggleDr3FpPreview}
+              onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
             />
           </div>
 

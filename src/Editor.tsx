@@ -4,7 +4,9 @@ import EditorLayout from './components/EditorLayout';
 import EditorFilePreviewModal from './components/EditorFilePreviewModal';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
+import type { ExportFormat } from './types/exportTypes';
 import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerClient';
+import { convertAudioFileToOgg, isOggAudioFile } from './utils/audioOggConversion';
 import { buildLevelText, parseValidatedLevelText } from './utils/levelFormat';
 import { applyAudioPlaybackSpeed } from './editor/audioPlayback';
 import {
@@ -17,7 +19,6 @@ import {
   readAudioTimingCorrection,
   type AudioTimingCorrection,
 } from './editor/audioTiming';
-import { createNormalizedPlaybackAudioUrl } from './editor/audioNormalization';
 import {
   MAX_OPERATION_HISTORY_ENTRIES,
   type OperationHistoryEntry,
@@ -149,6 +150,12 @@ import {
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
 import { translations } from './lang';
+
+type ExportRunResult = 'complete' | 'cancelled' | 'failed';
+
+const convertNonOggAudioFileForProject = async (file: File) => (
+  isOggAudioFile(file) ? file : convertAudioFileToOgg(file)
+);
 
 const getOffsetInSeconds = (offset: string | number) => {
   const parsedOffset = parseFloat(offset.toString());
@@ -464,6 +471,8 @@ export default function Editor({
   const [isModalOpen, setIsModalOpen] = useState(mode === 'new');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isProjectAudioConverting, setIsProjectAudioConverting] = useState(false);
+  const [isAudioOffsetNoticeOpen, setIsAudioOffsetNoticeOpen] = useState(Boolean(initialProjectData?.audioConvertedToOgg));
   const [isDr3FpPreviewInfoOpen, setIsDr3FpPreviewInfoOpen] = useState(false);
   const [dr3FpPreviewStatus, setDr3FpPreviewStatus] = useState<Dr3FpPreviewStatus>(DR3FP_PREVIEW_STATUS.idle);
   const [dr3FpPreviewLogs, setDr3FpPreviewLogs] = useState<Dr3FpPreviewLogEntry[]>([]);
@@ -480,6 +489,7 @@ export default function Editor({
   const [areTimingChangeIndicatorsAdjusted, setAreTimingChangeIndicatorsAdjusted] = useState(initialEditorSettings.areTimingChangeIndicatorsAdjusted);
   const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
   const [isVSyncEnabled, setIsVSyncEnabled] = useState(initialEditorSettings.isVSyncEnabled);
+  const [isDr3FpPreviewEnabled, setIsDr3FpPreviewEnabled] = useState(initialEditorSettings.isDr3FpPreviewEnabled);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -615,6 +625,7 @@ export default function Editor({
       areTimingChangeIndicatorsAdjusted,
       isEditorJudgementGlowEnabled,
       isVSyncEnabled,
+      isDr3FpPreviewEnabled,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -643,6 +654,7 @@ export default function Editor({
     areTimingChangeIndicatorsAdjusted,
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
+    isDr3FpPreviewEnabled,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -683,7 +695,6 @@ export default function Editor({
   const [duration, setDuration] = useState(0);
   const [audioTimingCorrection, setAudioTimingCorrection] = useState<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
   const [playbackAudioUrl, setPlaybackAudioUrl] = useState(initialProjectData?.audioUrl ?? '');
-  const [isPlaybackAudioNormalized, setIsPlaybackAudioNormalized] = useState(false);
   const [fps, setFps] = useState(0);
   const [renderedObjects, setRenderedObjects] = useState(0);
   const [isFpsCounterHovered, setIsFpsCounterHovered] = useState(false);
@@ -695,7 +706,6 @@ export default function Editor({
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioTimingCorrectionRef = useRef<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
-  const isPlaybackAudioNormalizedRef = useRef(false);
   const musicAudioContextRef = useRef<AudioContext | null>(null);
   const musicSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
@@ -1007,60 +1017,18 @@ export default function Editor({
   }, [audioTimingCorrection]);
 
   useEffect(() => {
-    isPlaybackAudioNormalizedRef.current = isPlaybackAudioNormalized;
-  }, [isPlaybackAudioNormalized]);
-
-  useEffect(() => {
     audioTimingCorrectionRef.current = DEFAULT_AUDIO_TIMING_CORRECTION;
     setAudioTimingCorrection(DEFAULT_AUDIO_TIMING_CORRECTION);
     setDuration(0);
   }, [playbackAudioUrl]);
 
   useEffect(() => {
-    const audioFile = projectData?.songFile ?? null;
-    const sourceAudioUrl = projectData?.audioUrl ?? '';
-
-    if (!audioFile || !sourceAudioUrl || !isMp3AudioFile(audioFile)) {
-      setPlaybackAudioUrl(sourceAudioUrl);
-      setIsPlaybackAudioNormalized(false);
-      return;
-    }
-
-    let isCanceled = false;
-    let normalizedUrl = '';
-    setPlaybackAudioUrl(sourceAudioUrl);
-    setIsPlaybackAudioNormalized(false);
-
-    void createNormalizedPlaybackAudioUrl(audioFile)
-      .then((url) => {
-        if (isCanceled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        normalizedUrl = url;
-        setPlaybackAudioUrl(url);
-        setIsPlaybackAudioNormalized(true);
-      })
-      .catch((error) => {
-        console.warn('Failed to normalize MP3 playback audio:', error);
-        if (!isCanceled) {
-          setPlaybackAudioUrl(sourceAudioUrl);
-          setIsPlaybackAudioNormalized(false);
-        }
-      });
-
-    return () => {
-      isCanceled = true;
-      if (normalizedUrl) {
-        URL.revokeObjectURL(normalizedUrl);
-      }
-    };
-  }, [projectData?.audioUrl, projectData?.songFile]);
+    setPlaybackAudioUrl(projectData?.audioUrl ?? '');
+  }, [projectData?.audioUrl]);
 
   const handleAudioLoadedMetadata = useCallback((audio: HTMLAudioElement) => {
     const mediaDuration = audio.duration;
-    const audioFile = isPlaybackAudioNormalizedRef.current ? null : projectData?.songFile ?? null;
+    const audioFile = projectData?.songFile ?? null;
     const initialCorrection = getInitialAudioTimingCorrection(audioFile);
     audioTimingCorrectionRef.current = initialCorrection;
     setAudioTimingCorrection(initialCorrection);
@@ -1110,7 +1078,7 @@ export default function Editor({
         setAudioTimingCorrection(initialCorrection);
         setDuration(mediaDuration);
       });
-  }, [offsetInSeconds, projectData?.songFile, isPlaybackAudioNormalized]);
+  }, [offsetInSeconds, projectData?.songFile]);
 
   const stateRef = useRef<EditorRuntimeState>({
     isPlaying: false,
@@ -1261,7 +1229,7 @@ export default function Editor({
     projectData && isValidDifficulty(projectData.difficulty) &&
     projectData?.songFile,
   );
-  const isExportDisabled = hasExportIncompatibleTimeSignature || !hasRequiredExportMetadata;
+  const isExportDisabled = !hasRequiredExportMetadata;
   const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds]);
   const invalidMetadataFields = useMemo(() => getInvalidMetadataFields(formData), [formData]);
   const visibleInvalidMetadataFields = useMemo(
@@ -1359,28 +1327,25 @@ export default function Editor({
     return getTimeAtBeat(currentMeasureBeat + measureDecimal * currentBeatsPerMeasure, timedBpmChanges);
   }, [timedBpmChanges]);
 
-  const chartTimelineDuration = useMemo(() => {
-    let maxDuration = 0;
+  const lastNoteTime = useMemo(() => (
+    notes.reduce((maxTime, note) => Math.max(maxTime, note.time), 0)
+  ), [notes]);
+  const audioTimelineMeasures = useMemo(() => (
+    Math.max(0, Math.ceil(getTimeposFromTime(audioTimelineDuration) - SNAP_EPSILON))
+  ), [getTimeposFromTime, audioTimelineDuration]);
+  const audioRoundedTimelineDuration = useMemo(() => (
+    audioTimelineMeasures > 0 ? getTimeFromTimepos(audioTimelineMeasures) : 0
+  ), [audioTimelineMeasures, getTimeFromTimepos]);
+  const totalTimelineMeasures = useMemo(() => {
+    if (lastNoteTime <= audioRoundedTimelineDuration + SNAP_EPSILON) {
+      return audioTimelineMeasures;
+    }
 
-    notes.forEach((note) => {
-      if (note.time > maxDuration) {
-        maxDuration = note.time;
-      }
-    });
-
-    speedChanges.forEach((change) => {
-      const changeTime = getTimeFromTimepos(change.timepos);
-      if (changeTime > maxDuration) {
-        maxDuration = changeTime;
-      }
-    });
-
-    return maxDuration;
-  }, [getTimeFromTimepos, notes, speedChanges]);
-  const rawTimelineDuration = Math.max(audioTimelineDuration, chartTimelineDuration);
-  const totalTimelineMeasures = useMemo(() => (
-    Math.max(0, Math.ceil(getTimeposFromTime(rawTimelineDuration) - SNAP_EPSILON))
-  ), [getTimeposFromTime, rawTimelineDuration]);
+    return Math.max(
+      audioTimelineMeasures,
+      Math.ceil(getTimeposFromTime(lastNoteTime) - SNAP_EPSILON),
+    );
+  }, [audioRoundedTimelineDuration, audioTimelineMeasures, getTimeposFromTime, lastNoteTime]);
   const timelineDuration = useMemo(() => (
     totalTimelineMeasures > 0 ? getTimeFromTimepos(totalTimelineMeasures) : 0
   ), [getTimeFromTimepos, totalTimelineMeasures]);
@@ -2266,7 +2231,9 @@ export default function Editor({
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (isProjectAudioConverting) return;
+
     setMetadataTouchedFields(getRequiredMetadataTouchedFields());
 
     if (hasInvalidMetadataFields(invalidMetadataFields)) {
@@ -2275,16 +2242,33 @@ export default function Editor({
     }
 
     const wasProjectCreated = !projectData;
+    let nextSongFile = formData.songFile;
+    let wasAudioConvertedToOgg = false;
     let audioUrl = projectData?.audioUrl || '';
-    if (formData.songFile && formData.songFile !== projectData?.songFile) {
+
+    if (nextSongFile && nextSongFile !== projectData?.songFile) {
+      wasAudioConvertedToOgg = !isOggAudioFile(nextSongFile);
+      setIsProjectAudioConverting(true);
+
+      try {
+        nextSongFile = await convertNonOggAudioFileForProject(nextSongFile);
+      } catch (error) {
+        console.warn('Failed to convert MP3 audio to OGG:', error);
+        alert('The selected MP3 audio could not be converted to OGG.');
+        setIsProjectAudioConverting(false);
+        return;
+      }
+
       if (audioUrl) URL.revokeObjectURL(audioUrl);
-      audioUrl = URL.createObjectURL(formData.songFile);
+      audioUrl = URL.createObjectURL(nextSongFile);
     }
+
     const parsedBpm = parseFloat(formData.songBpm);
     const fallbackBpm = projectData?.bpm || bpmChanges[0]?.bpm || 120;
     const nextBpm = Number.isFinite(parsedBpm) ? parsedBpm : fallbackBpm;
     const sanitizedFormData = {
       ...formData,
+      songFile: nextSongFile,
       songId: stripInputWhitespace(formData.songId),
       songName: stripInputWhitespace(formData.songName),
       songArtist: stripInputWhitespace(formData.songArtist),
@@ -2297,7 +2281,8 @@ export default function Editor({
       chartFormat: projectData?.chartFormat ?? 'Official',
       songBpm: nextBpm.toString(),
       bpm: nextBpm,
-      audioUrl
+      audioUrl,
+      audioConvertedToOgg: wasAudioConvertedToOgg || projectData?.audioConvertedToOgg,
     });
 
     // Imported charts can exist before project metadata is set, so only seed BPMs for actual new projects.
@@ -2306,6 +2291,10 @@ export default function Editor({
     }
 
     setIsModalOpen(false);
+    setIsProjectAudioConverting(false);
+    if (wasAudioConvertedToOgg && !wasProjectCreated) {
+      setIsAudioOffsetNoticeOpen(true);
+    }
     if (activeLeftPanel === 'editInfo') {
       setActiveLeftPanel('main');
     }
@@ -6717,7 +6706,7 @@ export default function Editor({
   };
 
   const previewDr3Fp = async () => {
-    if (!projectData || isExportDisabled) return;
+    if (!isDr3FpPreviewEnabled || !projectData || isExportDisabled || hasExportIncompatibleTimeSignature) return;
 
     if (stateRef.current.isPlaying) {
       await togglePlay();
@@ -6733,12 +6722,19 @@ export default function Editor({
     try {
       let zipBuffer: ArrayBuffer;
       try {
+        const previewProjectData = { ...projectData };
+        const organized = organizeChartForExport();
+
+        if (previewProjectData.songFile && !isOggAudioFile(previewProjectData.songFile)) {
+          previewProjectData.songFile = await convertAudioFileToOgg(previewProjectData.songFile);
+        }
+
         ({ zipBuffer } = await createExportZipInWorker({
           format: 'dr3-fp-preview',
-          projectData,
-          notes,
-          bpmChanges,
-          speedChanges,
+          projectData: previewProjectData,
+          notes: organized.notes,
+          bpmChanges: organized.bpmChanges,
+          speedChanges: organized.speedChanges,
           offset,
         }));
       } catch (err) {
@@ -6788,49 +6784,147 @@ export default function Editor({
     }
   };
 
-  const exportDr3Viewer = async () => {
-    if (!projectData || isExportDisabled) return;
+  const getOrganizedChartSnapshot = (sourceNotes: Note[]) => {
+    const sortedNotes = sourceNotes
+      .map((note, originalIndex) => ({
+        note,
+        originalIndex,
+        timepos: getTimeposFromTime(note.time),
+      }))
+      .sort((a, b) => (
+        (a.timepos - b.timepos)
+        || (a.note.lane - b.note.lane)
+        || (a.note.id - b.note.id)
+        || (a.originalIndex - b.originalIndex)
+      ));
+    const nextIdByOriginalId = new Map<number, number>();
 
-    const songId = projectData.songId || 'level';
-    const difficulty = projectData.difficulty || '0';
-    const fileHandle = await getExportFileHandle(`${songId}.${difficulty}.zip`, 'DR3Viewer');
-    if (fileHandle === undefined) return;
+    sortedNotes.forEach(({ note }, index) => {
+      nextIdByOriginalId.set(note.id, index + 1);
+    });
+
+    const organizedNotes = sourceNotes.map(note => ({
+      ...note,
+      id: nextIdByOriginalId.get(note.id) ?? note.id,
+      parentId: note.parentId === null
+        ? null
+        : nextIdByOriginalId.get(note.parentId) ?? note.parentId,
+    }));
+
+    return {
+      notes: organizedNotes,
+      bpmChanges: [...bpmChanges].sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b)),
+      speedChanges: [...speedChanges].sort((a, b) => a.timepos - b.timepos),
+      nextIdByOriginalId,
+    };
+  };
+
+  const organizeChartForExport = () => {
+    const pendingUpdate = pendingDragUpdateRef.current;
+    const sourceNotes = stateRef.current.notes.map(note => (
+      pendingUpdate && note.id === pendingUpdate.noteId
+        ? { ...note, time: pendingUpdate.time, lane: pendingUpdate.lane }
+        : note
+    ));
+    const organized = getOrganizedChartSnapshot(sourceNotes);
+    const changedCount = organized.notes.reduce((count, note, index) => {
+      const previousNote = sourceNotes[index];
+      return count + (note.id !== previousNote.id || note.parentId !== previousNote.parentId ? 1 : 0);
+    }, 0);
+
+    if (dragUpdateFrameRef.current) {
+      cancelAnimationFrame(dragUpdateFrameRef.current);
+      dragUpdateFrameRef.current = undefined;
+    }
+
+    setNotes(organized.notes);
+    setBpmChanges(organized.bpmChanges);
+    setSpeedChanges(organized.speedChanges);
+    setChartIssues(findChartIssues(organized.notes, getTimeposFromTime));
+    setSelectedNoteIds(prev => prev
+      .map(id => organized.nextIdByOriginalId.get(id))
+      .filter((id): id is number => id !== undefined));
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    setHoverPreview(null);
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+    renderPausedTimelineAtFullFps();
+
+    if (currentParentInput.trim() !== '') {
+      const currentParentId = parseInt(currentParentInput, 10);
+      if (!Number.isNaN(currentParentId)) {
+        const nextParentId = organized.nextIdByOriginalId.get(currentParentId);
+        setCurrentParentInput(nextParentId === undefined ? '' : nextParentId.toString());
+      }
+    }
+
+    recordOperation({
+      category: 'note',
+      title: 'Organized chart for export',
+      detail: changedCount === 0
+        ? `${sourceNotes.length} notes were already in time/xpos order`
+        : `Reassigned ${sourceNotes.length} note IDs by timepos, xpos, then original ID`,
+    });
+
+    return organized;
+  };
+
+  const exportZip = async (
+    format: Exclude<ExportFormat, 'dr3-fp-preview'>,
+    defaultFileName: string,
+    errorLabel: string,
+  ): Promise<ExportRunResult> => {
+    if (!projectData || isExportDisabled) return 'failed';
+    if (format !== 'raw' && hasExportIncompatibleTimeSignature) return 'failed';
+
+    const fileHandle = await getExportFileHandle(defaultFileName, errorLabel);
+    if (fileHandle === undefined) return 'cancelled';
 
     try {
+      const preparedProjectData = { ...projectData };
+      const organized = organizeChartForExport();
+      const preparedNotes = organized.notes;
+      const preparedBpmChanges = organized.bpmChanges;
+      const preparedSpeedChanges = organized.speedChanges;
+
+      if (preparedProjectData.songFile && !isOggAudioFile(preparedProjectData.songFile)) {
+        preparedProjectData.songFile = await convertAudioFileToOgg(preparedProjectData.songFile);
+      }
+
       const { zipBuffer, suggestedName } = await createExportZipInWorker({
-        format: 'dr3-viewer',
-        projectData,
-        notes,
-        bpmChanges,
-        speedChanges,
+        format,
+        projectData: preparedProjectData,
+        notes: preparedNotes,
+        bpmChanges: preparedBpmChanges,
+        speedChanges: preparedSpeedChanges,
         offset,
+        chartFileName: initialChartFileName,
       });
-      await saveZipData(zipBuffer, suggestedName, fileHandle, 'DR3Viewer');
+      await saveZipData(zipBuffer, suggestedName, fileHandle, errorLabel);
+      return 'complete';
     } catch (err) {
-      console.error('DR3Viewer export failed', err);
+      console.error(`${errorLabel} export failed`, err);
+      return 'failed';
     }
   };
 
-  const exportDr3Fp = async () => {
-    if (!projectData || isExportDisabled) return;
+  const exportRaw = () => {
+    const songId = projectData?.songId || 'level';
+    const difficulty = projectData?.difficulty || '0';
+    return exportZip('raw', `${songId}_tier${difficulty}_raw.zip`, 'Raw');
+  };
 
-    const songId = projectData.songId || 'level';
-    const fileHandle = await getExportFileHandle(`${songId}.zip`, 'DR3FP');
-    if (fileHandle === undefined) return;
+  const exportDr3Viewer = () => {
+    const songId = projectData?.songId || 'level';
+    const difficulty = projectData?.difficulty || '0';
+    return exportZip('dr3-viewer', `${songId}_tier${difficulty}.zip`, 'DR3Viewer');
+  };
 
-    try {
-      const { zipBuffer, suggestedName } = await createExportZipInWorker({
-        format: 'dr3-fp',
-        projectData,
-        notes,
-        bpmChanges,
-        speedChanges,
-        offset,
-      });
-      await saveZipData(zipBuffer, suggestedName, fileHandle, 'DR3FP');
-    } catch (err) {
-      console.error('DR3FP export failed', err);
-    }
+  const exportDr3Fp = () => {
+    const songId = projectData?.songId || 'level';
+    const difficulty = projectData?.difficulty || '0';
+    return exportZip('dr3-fp', `${songId}_tier${difficulty}.zip`, 'DR3FV');
   };
 
   const handleOrganizeNotes = () => {
@@ -6842,79 +6936,7 @@ export default function Editor({
 
     window.requestAnimationFrame(() => {
       try {
-        const pendingUpdate = pendingDragUpdateRef.current;
-        const sourceNotes = stateRef.current.notes.map(note => (
-          pendingUpdate && note.id === pendingUpdate.noteId
-            ? { ...note, time: pendingUpdate.time, lane: pendingUpdate.lane }
-            : note
-        ));
-
-        if (sourceNotes.length === 0) {
-          return;
-        }
-
-        if (dragUpdateFrameRef.current) {
-          cancelAnimationFrame(dragUpdateFrameRef.current);
-          dragUpdateFrameRef.current = undefined;
-        }
-
-        const sortedNotes = sourceNotes
-          .map((note, originalIndex) => ({
-            note,
-            originalIndex,
-            timepos: getTimeposFromTime(note.time),
-          }))
-          .sort((a, b) => (
-            (a.timepos - b.timepos)
-            || (a.note.lane - b.note.lane)
-            || (a.note.id - b.note.id)
-            || (a.originalIndex - b.originalIndex)
-          ));
-        const nextIdByOriginalId = new Map<number, number>();
-
-        sortedNotes.forEach(({ note }, index) => {
-          nextIdByOriginalId.set(note.id, index + 1);
-        });
-
-        const organizedNotes = sourceNotes.map(note => ({
-          ...note,
-          id: nextIdByOriginalId.get(note.id) ?? note.id,
-          parentId: note.parentId === null
-            ? null
-            : nextIdByOriginalId.get(note.parentId) ?? note.parentId,
-        }));
-        const changedCount = organizedNotes.reduce((count, note, index) => {
-          const previousNote = sourceNotes[index];
-          return count + (note.id !== previousNote.id || note.parentId !== previousNote.parentId ? 1 : 0);
-        }, 0);
-
-        setNotes(organizedNotes);
-        setChartIssues(findChartIssues(organizedNotes, getTimeposFromTime));
-        setSelectedNoteIds(prev => prev
-          .map(id => nextIdByOriginalId.get(id))
-          .filter((id): id is number => id !== undefined));
-        setDraggingNoteId(null);
-        setSelectionBox(null);
-        setHoverPreview(null);
-        pendingDragUpdateRef.current = null;
-        dragStartNoteRef.current = null;
-        renderPausedTimelineAtFullFps();
-
-        if (currentParentInput.trim() !== '') {
-          const currentParentId = parseInt(currentParentInput, 10);
-          if (!Number.isNaN(currentParentId)) {
-            const nextParentId = nextIdByOriginalId.get(currentParentId);
-            setCurrentParentInput(nextParentId === undefined ? '' : nextParentId.toString());
-          }
-        }
-
-        recordOperation({
-          category: 'note',
-          title: 'Organized notes',
-          detail: changedCount === 0
-            ? `${sourceNotes.length} notes were already in time/xpos order`
-            : `Reassigned ${sourceNotes.length} note IDs by timepos, xpos, then original ID`,
-        });
+        organizeChartForExport();
       } finally {
         setIsOrganizingNotes(false);
       }
@@ -7750,6 +7772,9 @@ export default function Editor({
         showMetadataFieldValidation={showMetadataFieldValidation}
         handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
         handleConfirm={handleConfirm}
+        isProjectAudioConverting={isProjectAudioConverting}
+        isAudioOffsetNoticeOpen={isAudioOffsetNoticeOpen}
+        setIsAudioOffsetNoticeOpen={setIsAudioOffsetNoticeOpen}
         projectData={projectData}
         playbackAudioUrl={playbackAudioUrl}
         audioRef={audioRef}
@@ -7768,6 +7793,7 @@ export default function Editor({
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
+        isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -7794,6 +7820,7 @@ export default function Editor({
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
+        setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
@@ -7844,6 +7871,7 @@ export default function Editor({
         openSettings={openSettings}
         togglePreviewMode={togglePreviewMode}
         previewDr3Fp={previewDr3Fp}
+        exportRaw={exportRaw}
         exportDr3Viewer={exportDr3Viewer}
         exportDr3Fp={exportDr3Fp}
         fps={fps}

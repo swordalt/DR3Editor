@@ -21,6 +21,7 @@ export interface EditorSettings {
   areTimingChangeIndicatorsAdjusted: boolean;
   isEditorJudgementGlowEnabled: boolean;
   isVSyncEnabled: boolean;
+  isDr3FpPreviewEnabled: boolean;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
   musicVolume: number;
@@ -50,6 +51,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   areTimingChangeIndicatorsAdjusted: true,
   isEditorJudgementGlowEnabled: true,
   isVSyncEnabled: true,
+  isDr3FpPreviewEnabled: false,
   selectionType: 'window',
   statisticsRefreshRate: '30fps',
   musicVolume: 1,
@@ -154,6 +156,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isVSyncEnabled: typeof parsedSettings.isVSyncEnabled === 'boolean'
         ? parsedSettings.isVSyncEnabled
         : DEFAULT_EDITOR_SETTINGS.isVSyncEnabled,
+      isDr3FpPreviewEnabled: typeof parsedSettings.isDr3FpPreviewEnabled === 'boolean'
+        ? parsedSettings.isDr3FpPreviewEnabled
+        : DEFAULT_EDITOR_SETTINGS.isDr3FpPreviewEnabled,
       selectionType: isValidSelectionType(parsedSettings.selectionType)
         ? parsedSettings.selectionType
         : DEFAULT_EDITOR_SETTINGS.selectionType,

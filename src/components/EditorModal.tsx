@@ -15,7 +15,8 @@ interface EditorModalProps {
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
+  isConfirming?: boolean;
   formData: EditorFormData;
   setFormData: (data: EditorFormData) => void;
   invalidMetadataFields: MetadataInvalidFields;
@@ -29,6 +30,7 @@ export default function EditorModal({
   isAnimationDisabled,
   onClose,
   onConfirm,
+  isConfirming = false,
   formData,
   setFormData,
   invalidMetadataFields,
@@ -38,7 +40,7 @@ export default function EditorModal({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const illustrationInputRef = React.useRef<HTMLInputElement>(null);
   const text = translations;
-  const isConfirmDisabled = hasInvalidMetadataFields(getInvalidMetadataFields(formData));
+  const isConfirmDisabled = isConfirming || hasInvalidMetadataFields(getInvalidMetadataFields(formData));
   const getInputClassName = (field: MetadataField) => (
     `w-full p-3 bg-neutral-800 rounded-lg border outline-none transition-colors ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
   );
@@ -163,7 +165,7 @@ export default function EditorModal({
                   disabled={isConfirmDisabled}
                   className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  {text.common.confirm}
+                  {isConfirming ? 'Converting...' : text.common.confirm}
                 </button>
               </div>
             </div>

@@ -20,6 +20,9 @@ export default function EditorLayout(props: any) {
     showMetadataFieldValidation,
     handleMetadataFieldKeyDown,
     handleConfirm,
+    isProjectAudioConverting,
+    isAudioOffsetNoticeOpen,
+    setIsAudioOffsetNoticeOpen,
     projectData,
     playbackAudioUrl,
     audioRef,
@@ -37,6 +40,7 @@ export default function EditorLayout(props: any) {
     areTimingChangeIndicatorsAdjusted,
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
+    isDr3FpPreviewEnabled,
     isPreviewPrecomputeEnabled,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
@@ -63,6 +67,7 @@ export default function EditorLayout(props: any) {
     setAreTimingChangeIndicatorsAdjusted,
     setIsEditorJudgementGlowEnabled,
     setIsVSyncEnabled,
+    setIsDr3FpPreviewEnabled,
     setIsPreviewPrecomputeEnabled,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
@@ -113,6 +118,7 @@ export default function EditorLayout(props: any) {
     openSettings,
     togglePreviewMode,
     previewDr3Fp,
+    exportRaw,
     exportDr3Viewer,
     exportDr3Fp,
     fps,
@@ -146,6 +152,7 @@ export default function EditorLayout(props: any) {
         isOpen={isModalOpen} 
         isBackdropBlurDisabled={isBackdropBlurDisabled}
         isAnimationDisabled={isAnimationDisabled}
+        isConfirming={isProjectAudioConverting}
         onClose={() => {
           if (mode === 'new') {
             onBack();
@@ -161,6 +168,58 @@ export default function EditorLayout(props: any) {
         handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
       />
 
+      {isProjectAudioConverting && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
+          <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+            <div className="mb-3 h-1 overflow-hidden rounded-full bg-neutral-800">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-indigo-500" />
+            </div>
+            <div className="text-sm font-semibold text-white">Converting audio</div>
+            <div className="mt-1 text-sm text-neutral-400">
+              This audio will be converted to OGG format before editing.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAudioOffsetNoticeOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audio-offset-notice-title"
+            className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl"
+          >
+            <div className="text-sm font-semibold uppercase tracking-wider text-amber-300">Audio converted</div>
+            <h2 id="audio-offset-notice-title" className="mt-2 text-xl font-semibold text-white">
+              Review the chart offset
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">
+              The audio was converted to OGG before editing. Conversion between formats can shift timing slightly, so check and adjust the offset before charting.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAudioOffsetNoticeOpen(false);
+                  leftSidebarProps?.setActiveLeftPanel?.('bpmTiming');
+                }}
+                className="flex-1 rounded-lg bg-indigo-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+              >
+                Open offset
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAudioOffsetNoticeOpen(false)}
+                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:bg-neutral-700"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <EditorOverlays
         isExitWarningOpen={isExitWarningOpen}
         isSettingsOpen={isSettingsOpen}
@@ -175,6 +234,7 @@ export default function EditorLayout(props: any) {
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
+        isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -194,6 +254,7 @@ export default function EditorLayout(props: any) {
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
+        setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
@@ -216,6 +277,7 @@ export default function EditorLayout(props: any) {
         isHelpOpen={isHelpOpen}
         isSettingsOpen={isSettingsOpen}
         isPreviewMode={isPreviewMode}
+        isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isExportMenuOpen={isExportMenuOpen}
         isPreviewMenuOpen={isPreviewMenuOpen}
         isExportDisabled={isExportDisabled}
@@ -245,6 +307,7 @@ export default function EditorLayout(props: any) {
         openSettings={openSettings}
         togglePreviewMode={togglePreviewMode}
         previewDr3Fp={previewDr3Fp}
+        exportRaw={exportRaw}
         exportDr3Viewer={exportDr3Viewer}
         exportDr3Fp={exportDr3Fp}
       />

@@ -1,4 +1,5 @@
-import { ArrowLeft, X } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, ChevronDown, ChevronRight, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import VirtualizedChangeList from './VirtualizedChangeList';
 import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
@@ -89,6 +90,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
     undoneOperationIds,
   } = props;
   const text = translations;
+  const [isFileTableOpen, setIsFileTableOpen] = useState(false);
   const getMetadataInputClassName = (field: MetadataField) => (
     `w-full p-2 text-sm bg-neutral-800 rounded border outline-none ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
   );
@@ -108,7 +110,10 @@ export default function EditorLeftEditInfoPanel(props: any) {
                 <button onClick={() => setActiveLeftPanel('main')} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.editInfo}</div>
+                <div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.editInfo}</div>
+                  <div className="mt-0.5 text-[11px] text-neutral-500">* means a required field</div>
+                </div>
               </div>
               <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 pb-4">
                 <div>
@@ -173,34 +178,44 @@ export default function EditorLeftEditInfoPanel(props: any) {
                   </label>
                 </div>
                 <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="block text-xs text-neutral-400">{text.sidebar.availableFiles}</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsFileTableOpen(prev => !prev)}
+                    className="mb-2 flex w-full items-center justify-between rounded text-left transition-colors hover:text-white"
+                    aria-expanded={isFileTableOpen}
+                  >
+                    <span className="flex items-center gap-1.5 text-xs text-neutral-400">
+                      {isFileTableOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                      {text.sidebar.availableFiles}
+                    </span>
                     <span className="text-[11px] text-neutral-500">{`${chartProjectFiles.length} files`}</span>
-                  </div>
-                  <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
-                    {chartProjectFiles.map((file) => {
-                      const { id, label, name, detail, Icon } = file;
+                  </button>
+                  {isFileTableOpen && (
+                    <div className="overflow-hidden rounded border border-neutral-800 bg-neutral-900/60">
+                      {chartProjectFiles.map((file) => {
+                        const { id, label, name, detail, Icon } = file;
 
-                      return (
-                      <div key={`${id}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
-                        <button
-                          type="button"
-                          onClick={() => onPreviewProjectFile(file)}
-                          className="flex min-w-0 flex-1 items-center gap-3 rounded text-left transition-colors hover:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        >
-                          <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-medium text-neutral-300">{label}</span>
-                            <span className="block truncate text-xs text-neutral-500" title={name}>{name}</span>
-                          </span>
-                        </button>
-                        <div className="shrink-0 text-[11px] text-neutral-500">
-                          {detail || (id === 'chart' && isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : '')}
+                        return (
+                        <div key={`${id}-${name}`} className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2 last:border-b-0">
+                          <button
+                            type="button"
+                            onClick={() => onPreviewProjectFile(file)}
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded text-left transition-colors hover:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <Icon className="h-4 w-4 shrink-0 text-neutral-500" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-medium text-neutral-300">{label}</span>
+                              <span className="block truncate text-xs text-neutral-500" title={name}>{name}</span>
+                            </span>
+                          </button>
+                          <div className="shrink-0 text-[11px] text-neutral-500">
+                            {detail || (id === 'chart' && isChartProjectFilesPending ? text.sidebar.projectFilesUpdating : '')}
+                          </div>
                         </div>
+                        );
+                      })}
                       </div>
-                      );
-                    })}
-                  </div>
+                  )}
                 </div>
                 <button onClick={handleConfirm} className="w-full p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-semibold mt-2 transition-colors shrink-0">{text.sidebar.saveChanges}</button>
               </div>

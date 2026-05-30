@@ -4,6 +4,7 @@ import LandingPage from './components/LandingPage';
 import { loadEditorSettings } from './editor/editorSettings';
 import { translations } from './lang';
 import type { BpmChange, ImportLoadStatus, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
+import { convertAudioFileToOgg, isOggAudioFile } from './utils/audioOggConversion';
 
 const Editor = lazy(() => import('./Editor'));
 
@@ -160,6 +161,18 @@ const sortByName = <T extends { name: string }>(files: T[]) => (
 const waitForPaint = () => new Promise<void>((resolve) => {
   requestAnimationFrame(() => requestAnimationFrame(resolve));
 });
+
+const convertNonOggAudioFileForProject = async (
+  file: File,
+  onBeforeConvert?: () => Promise<void>,
+) => {
+  if (isOggAudioFile(file)) {
+    return file;
+  }
+
+  await onBeforeConvert?.();
+  return convertAudioFileToOgg(file);
+};
 
 function ImportLoadingOverlay({ status }: { status: ImportLoadStatus }) {
   return (
@@ -415,11 +428,15 @@ export default function App() {
         resolvedImageFile || !imageFileEntry ? Promise.resolve(null) : imageFileEntry.entry.async('blob') as Promise<Blob>,
         infoFile ? infoFile.entry.async('text') as Promise<string> : Promise.resolve(''),
       ]);
-      const audioFile = resolvedAudioFile ?? new File(
+      const sourceAudioFile = resolvedAudioFile ?? new File(
         [audioBlob!],
         audioFileEntry!.name,
         { type: getMimeType(audioFileEntry!.extension) },
       );
+      const wasAudioConvertedToOgg = !isOggAudioFile(sourceAudioFile);
+      const audioFile = await convertNonOggAudioFileForProject(sourceAudioFile, async () => {
+        await updateImportLoadStatus(text.importStatus.convertingAudio);
+      });
       const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob
         ? new File(
             [imageBlob],
@@ -445,6 +462,7 @@ export default function App() {
         songIllustration: imageFile,
         bpm,
         audioUrl: URL.createObjectURL(audioFile),
+        audioConvertedToOgg: wasAudioConvertedToOgg,
       });
     } else {
       setInitialProjectData(createAudioLessImportProjectData({

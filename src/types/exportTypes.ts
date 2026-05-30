@@ -1,6 +1,6 @@
 import type { BpmChange, Note, ProjectData, SpeedChange } from './editorTypes';
 
-export type ExportFormat = 'dr3-viewer' | 'dr3-fp' | 'dr3-fp-preview';
+export type ExportFormat = 'raw' | 'dr3-viewer' | 'dr3-fp' | 'dr3-fp-preview';
 
 export interface ExportWorkerPayload {
   format: ExportFormat;
@@ -9,6 +9,7 @@ export interface ExportWorkerPayload {
   bpmChanges: BpmChange[];
   speedChanges: SpeedChange[];
   offset: string | number;
+  chartFileName?: string | null;
 }
 
 export interface ExportWorkerExportRequest {
