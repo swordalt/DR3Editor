@@ -8,6 +8,17 @@ import { createExportZipInWorker, warmExportWorker } from './utils/exportWorkerC
 import { buildLevelText, parseValidatedLevelText } from './utils/levelFormat';
 import { applyAudioPlaybackSpeed } from './editor/audioPlayback';
 import {
+  DEFAULT_AUDIO_TIMING_CORRECTION,
+  getCorrectedAudioDuration,
+  getInitialAudioTimingCorrection,
+  getMediaTimeFromPlaybackTime,
+  getPlaybackTimeFromMediaTime,
+  isMp3AudioFile,
+  readAudioTimingCorrection,
+  type AudioTimingCorrection,
+} from './editor/audioTiming';
+import { createNormalizedPlaybackAudioUrl } from './editor/audioNormalization';
+import {
   MAX_OPERATION_HISTORY_ENTRIES,
   type OperationHistoryEntry,
   type OperationHistorySnapshot,
@@ -24,7 +35,6 @@ import {
   MAX_PIXELS_PER_BEAT,
   MIN_PIXELS_PER_BEAT,
   type PreviewDisplayMode,
-  type PreviewModeFormat,
   type SelectionType,
   type StatisticsRefreshRate,
   getStatisticsRefreshIntervalMs,
@@ -467,6 +477,7 @@ export default function Editor({
   const [isScrollDirectionInverted, setIsScrollDirectionInverted] = useState(initialEditorSettings.isScrollDirectionInverted);
   const [areTimingChangeIndicatorsAdjusted, setAreTimingChangeIndicatorsAdjusted] = useState(initialEditorSettings.areTimingChangeIndicatorsAdjusted);
   const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
+  const [isVSyncEnabled, setIsVSyncEnabled] = useState(initialEditorSettings.isVSyncEnabled);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -496,7 +507,6 @@ export default function Editor({
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
   const [isPreviewNoteSpeedChangesEnabled, setIsPreviewNoteSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewNoteSpeedChangesEnabled);
   const [isPreviewNoteAppearModeEnabled, setIsPreviewNoteAppearModeEnabled] = useState(initialEditorSettings.isPreviewNoteAppearModeEnabled);
-  const [previewModeFormat, setPreviewModeFormat] = useState<PreviewModeFormat>(initialEditorSettings.previewModeFormat);
   const [previewDisplayMode, setPreviewDisplayMode] = useState<PreviewDisplayMode>(initialEditorSettings.previewDisplayMode);
   const [preview3DTiltDegrees, setPreview3DTiltDegrees] = useState(initialEditorSettings.preview3DTiltDegrees);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
@@ -602,6 +612,7 @@ export default function Editor({
       isScrollDirectionInverted,
       areTimingChangeIndicatorsAdjusted,
       isEditorJudgementGlowEnabled,
+      isVSyncEnabled,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -619,7 +630,6 @@ export default function Editor({
       isPreviewCameraMovementEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewNoteAppearModeEnabled,
-      previewModeFormat,
       previewDisplayMode,
       preview3DTiltDegrees,
     });
@@ -630,6 +640,7 @@ export default function Editor({
     isScrollDirectionInverted,
     areTimingChangeIndicatorsAdjusted,
     isEditorJudgementGlowEnabled,
+    isVSyncEnabled,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -647,7 +658,6 @@ export default function Editor({
     isPreviewCameraMovementEnabled,
     isPreviewNoteSpeedChangesEnabled,
     isPreviewNoteAppearModeEnabled,
-    previewModeFormat,
     previewDisplayMode,
     preview3DTiltDegrees,
   ]);
@@ -669,6 +679,9 @@ export default function Editor({
   const [liveStatsTime, setLiveStatsTime] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [duration, setDuration] = useState(0);
+  const [audioTimingCorrection, setAudioTimingCorrection] = useState<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
+  const [playbackAudioUrl, setPlaybackAudioUrl] = useState(initialProjectData?.audioUrl ?? '');
+  const [isPlaybackAudioNormalized, setIsPlaybackAudioNormalized] = useState(false);
   const [fps, setFps] = useState(0);
   const [renderedObjects, setRenderedObjects] = useState(0);
   const [isFpsCounterHovered, setIsFpsCounterHovered] = useState(false);
@@ -679,6 +692,8 @@ export default function Editor({
   const audioTimelineDuration = duration > 0 ? Math.max(0, duration + offsetInSeconds) : 0;
   
   const audioRef = useRef<HTMLAudioElement>(null);
+  const audioTimingCorrectionRef = useRef<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
+  const isPlaybackAudioNormalizedRef = useRef(false);
   const musicAudioContextRef = useRef<AudioContext | null>(null);
   const musicSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
@@ -692,6 +707,7 @@ export default function Editor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
+  const requestSchedulerRef = useRef<'animationFrame' | 'timeout'>();
   const resizeRenderFrameRef = useRef<number>();
   const hitSoundSchedulerIntervalRef = useRef<number>();
   const pausedTimelineRenderTimeoutRef = useRef<number>();
@@ -707,6 +723,8 @@ export default function Editor({
   const progressBarRef = useRef<HTMLInputElement>(null);
   const isDraggingProgress = useRef(false);
   const isProgressBarInteractive = useRef(false);
+  const audioSeekRequestIdRef = useRef(0);
+  const shouldResumeAfterProgressSeekRef = useRef(false);
   const pendingDragUpdateRef = useRef<PendingDragUpdate | null>(null);
   const dragStartNoteRef = useRef<Note | null>(null);
   const copiedNotesRef = useRef<CopiedNote[]>([]);
@@ -714,6 +732,32 @@ export default function Editor({
   const dragUpdateFrameRef = useRef<number>();
   const hoverPreviewRef = useRef<HoverPreview | null>(null);
   const playRequestIdRef = useRef(0);
+
+  const scheduleEditorUpdate = useCallback((callback: FrameRequestCallback) => {
+    if (isVSyncEnabled) {
+      requestSchedulerRef.current = 'animationFrame';
+      requestRef.current = window.requestAnimationFrame(callback);
+      return;
+    }
+
+    requestSchedulerRef.current = 'timeout';
+    requestRef.current = window.setTimeout(() => callback(performance.now()), 0);
+  }, [isVSyncEnabled]);
+
+  const cancelEditorUpdate = useCallback(() => {
+    if (requestRef.current === undefined) {
+      return;
+    }
+
+    if (requestSchedulerRef.current === 'timeout') {
+      window.clearTimeout(requestRef.current);
+    } else {
+      window.cancelAnimationFrame(requestRef.current);
+    }
+
+    requestRef.current = undefined;
+    requestSchedulerRef.current = undefined;
+  }, []);
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
@@ -956,6 +1000,116 @@ export default function Editor({
     }
   }, []);
 
+  useEffect(() => {
+    audioTimingCorrectionRef.current = audioTimingCorrection;
+  }, [audioTimingCorrection]);
+
+  useEffect(() => {
+    isPlaybackAudioNormalizedRef.current = isPlaybackAudioNormalized;
+  }, [isPlaybackAudioNormalized]);
+
+  useEffect(() => {
+    audioTimingCorrectionRef.current = DEFAULT_AUDIO_TIMING_CORRECTION;
+    setAudioTimingCorrection(DEFAULT_AUDIO_TIMING_CORRECTION);
+    setDuration(0);
+  }, [playbackAudioUrl]);
+
+  useEffect(() => {
+    const audioFile = projectData?.songFile ?? null;
+    const sourceAudioUrl = projectData?.audioUrl ?? '';
+
+    if (!audioFile || !sourceAudioUrl || !isMp3AudioFile(audioFile)) {
+      setPlaybackAudioUrl(sourceAudioUrl);
+      setIsPlaybackAudioNormalized(false);
+      return;
+    }
+
+    let isCanceled = false;
+    let normalizedUrl = '';
+    setPlaybackAudioUrl(sourceAudioUrl);
+    setIsPlaybackAudioNormalized(false);
+
+    void createNormalizedPlaybackAudioUrl(audioFile)
+      .then((url) => {
+        if (isCanceled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        normalizedUrl = url;
+        setPlaybackAudioUrl(url);
+        setIsPlaybackAudioNormalized(true);
+      })
+      .catch((error) => {
+        console.warn('Failed to normalize MP3 playback audio:', error);
+        if (!isCanceled) {
+          setPlaybackAudioUrl(sourceAudioUrl);
+          setIsPlaybackAudioNormalized(false);
+        }
+      });
+
+    return () => {
+      isCanceled = true;
+      if (normalizedUrl) {
+        URL.revokeObjectURL(normalizedUrl);
+      }
+    };
+  }, [projectData?.audioUrl, projectData?.songFile]);
+
+  const handleAudioLoadedMetadata = useCallback((audio: HTMLAudioElement) => {
+    const mediaDuration = audio.duration;
+    const audioFile = isPlaybackAudioNormalizedRef.current ? null : projectData?.songFile ?? null;
+    const initialCorrection = getInitialAudioTimingCorrection(audioFile);
+    audioTimingCorrectionRef.current = initialCorrection;
+    setAudioTimingCorrection(initialCorrection);
+    setDuration(mediaDuration);
+    applyAudioPlaybackSpeed(audio, stateRef.current.playbackSpeed);
+
+    void readAudioTimingCorrection(audioFile, mediaDuration)
+      .then((correction) => {
+        if (audioRef.current !== audio) {
+          return;
+        }
+
+        audioTimingCorrectionRef.current = correction;
+        setAudioTimingCorrection(correction);
+        setDuration(getCorrectedAudioDuration(mediaDuration, correction));
+
+        const now = performance.now();
+        const playbackTime = stateRef.current.isPlaying
+          ? Math.max(
+              0,
+              stateRef.current.playbackStartTime
+                + ((now - stateRef.current.playbackStartPerformanceTime) / 1000)
+                  * stateRef.current.playbackSpeed,
+            )
+          : stateRef.current.currentTime;
+
+        audioSeekRequestIdRef.current += 1;
+        audio.currentTime = getMediaTimeFromPlaybackTime(
+          playbackTime,
+          offsetInSeconds,
+          correction,
+        );
+
+        if (stateRef.current.isPlaying) {
+          stateRef.current.currentTime = playbackTime;
+          stateRef.current.playbackStartTime = playbackTime;
+          stateRef.current.playbackStartPerformanceTime = now;
+          stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+        }
+      })
+      .catch(() => {
+        if (audioRef.current !== audio) {
+          return;
+        }
+
+        audioTimingCorrectionRef.current = initialCorrection;
+        setAudioTimingCorrection(initialCorrection);
+        setDuration(mediaDuration);
+      });
+  }, [offsetInSeconds, projectData?.songFile, isPlaybackAudioNormalized]);
+
   const stateRef = useRef<EditorRuntimeState>({
     isPlaying: false,
     currentTime: 0,
@@ -989,7 +1143,7 @@ export default function Editor({
     } else if (!musicContext && audioRef.current) {
       audioRef.current.volume = musicVolume;
     }
-  }, [musicVolume, projectData?.audioUrl, setupMusicGain]);
+  }, [musicVolume, playbackAudioUrl, setupMusicGain]);
 
   useEffect(() => {
     stateRef.current.isPlaying = isPlaying;
@@ -1094,9 +1248,7 @@ export default function Editor({
 
   const timedBpmChanges = useMemo(() => convertBpmChangesToTime(bpmChanges), [bpmChanges]);
   const isOfficialChartFormat = (projectData?.chartFormat ?? 'Official') === 'Official';
-  const isOfficialPreviewModeFormat = previewModeFormat === 'default'
-    ? isOfficialChartFormat
-    : previewModeFormat === 'official';
+  const usesOfficialPreviewRules = isOfficialChartFormat;
   const hasValidProjectSongId = Boolean(projectData && isValidSongId(projectData.songId));
   const hasExportIncompatibleTimeSignature = useMemo(
     () => !isOfficialChartFormat && bpmChanges.some(change => change.timeSignature.trim() !== '4/4'),
@@ -1625,7 +1777,7 @@ export default function Editor({
           noteSpeed: parsePreviewNoteSpeed(
             getPreviewNoteSpeedSource(
               note,
-              isOfficialPreviewModeFormat,
+              usesOfficialPreviewRules,
               isPreviewNoteSpeedChangesEnabled,
               isPreviewNoteAppearModeEnabled,
             ),
@@ -1638,13 +1790,13 @@ export default function Editor({
     },
     [
       getTimeposFromTime,
-      isOfficialPreviewModeFormat,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
       previewNoteBeatEntriesSource,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
+      usesOfficialPreviewRules,
     ],
   );
   const previewDistanceIndexedNoteRenderEntries = useMemo(
@@ -1718,7 +1870,7 @@ export default function Editor({
           noteSpeed: noteEntry?.noteSpeed ?? parsePreviewNoteSpeed(
             getPreviewNoteSpeedSource(
               segment.note,
-              isOfficialPreviewModeFormat,
+              usesOfficialPreviewRules,
               isPreviewNoteSpeedChangesEnabled,
               isPreviewNoteAppearModeEnabled,
             ),
@@ -1728,7 +1880,7 @@ export default function Editor({
           parentSpeed: parsePreviewNoteSpeed(
             getPreviewConnectorParentSpeedSource(
               segment.parentNote,
-              isOfficialPreviewModeFormat,
+              usesOfficialPreviewRules,
               isPreviewNoteSpeedChangesEnabled,
               isPreviewNoteAppearModeEnabled,
             ),
@@ -1747,7 +1899,6 @@ export default function Editor({
     },
     [
       getTimeposFromTime,
-      isOfficialPreviewModeFormat,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
       isPreviewMode,
@@ -1755,6 +1906,7 @@ export default function Editor({
       previewNoteRenderEntryById,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
+      usesOfficialPreviewRules,
     ],
   );
   const previewHoldConnectorDrawSegments = useMemo(
@@ -2235,9 +2387,9 @@ export default function Editor({
     };
   }, [prepareHitSounds]);
 
-  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
     stopHitsounds();
-    const rawTargetTime = parseFloat(e.target.value);
+    const rawTargetTime = parseFloat(e.currentTarget.value);
     const targetTime = Number.isFinite(rawTargetTime)
       ? Math.min(rawTargetTime, timelineDuration || rawTargetTime)
       : 0;
@@ -2255,19 +2407,133 @@ export default function Editor({
     setCurrentTime(newTime);
     stateRef.current.currentTime = newTime;
     stateRef.current.playbackStartTime = newTime;
-    stateRef.current.playbackStartPerformanceTime = performance.now();
+    const seekStartTime = performance.now();
+    stateRef.current.playbackStartPerformanceTime = seekStartTime;
+    stateRef.current.playbackAudioClockReadyTime = seekStartTime + AUDIO_CLOCK_HANDOFF_DELAY_MS;
     lastPlayedTimeRef.current = newTime;
     hitSoundCursorRef.current = findHitSoundCursor(newTime);
     scheduledHitSoundKeysRef.current.clear();
     
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.max(0, newTime - offsetInSeconds);
+    if (audioRef.current && !isDraggingProgress.current) {
+      const audio = audioRef.current;
+      const seekRequestId = audioSeekRequestIdRef.current + 1;
+      audioSeekRequestIdRef.current = seekRequestId;
+      const mediaTargetTime = getMediaTimeFromPlaybackTime(
+        newTime,
+        offsetInSeconds,
+        audioTimingCorrectionRef.current,
+      );
+      const alignClockAfterSeek = () => {
+        audio.removeEventListener('seeked', alignClockAfterSeek);
+        if (audioSeekRequestIdRef.current !== seekRequestId || !stateRef.current.isPlaying) {
+          return;
+        }
+
+        anchorPlaybackClock(getIntendedPlaybackTime(audio, offsetInSeconds, newTime));
+      };
+
+      if (stateRef.current.isPlaying) {
+        audio.addEventListener('seeked', alignClockAfterSeek, { once: true });
+      }
+
+      audio.currentTime = mediaTargetTime;
+
+      if (stateRef.current.isPlaying && !audio.seeking) {
+        alignClockAfterSeek();
+      }
     }
     if (timeDisplayRef.current && projectData) {
       timeDisplayRef.current.textContent = formatTimelineMeasureProgress(newTime);
     }
     renderPausedTimelineAtFullFps();
   }, [projectData, offsetInSeconds, effectiveGridZoom, formatTimelineMeasureProgress, isPreviewMode, renderPausedTimelineAtFullFps, resetPreviewJudgementState, timedBpmChanges, timelineDuration]);
+
+  const beginProgressSeek = useCallback(() => {
+    isDraggingProgress.current = true;
+    isProgressBarInteractive.current = true;
+    shouldResumeAfterProgressSeekRef.current = stateRef.current.isPlaying;
+
+    if (!stateRef.current.isPlaying) {
+      return;
+    }
+
+    playRequestIdRef.current += 1;
+    clearPlayTimeout();
+    stopHitsounds();
+
+    const audio = audioRef.current;
+    const seekStartTime = Math.max(0, getPlaybackTimeFromClock(audio, offsetInSeconds));
+    audio?.pause();
+    cancelEditorUpdate();
+
+    stateRef.current.isPlaying = false;
+    stateRef.current.currentTime = seekStartTime;
+    stateRef.current.playbackStartTime = seekStartTime;
+    stateRef.current.playbackStartPerformanceTime = performance.now();
+    stateRef.current.playbackAudioClockReadyTime = 0;
+    setIsPlaying(false);
+    setCurrentTime(seekStartTime);
+    lastPlayedTimeRef.current = seekStartTime;
+    hitSoundCursorRef.current = findHitSoundCursor(seekStartTime);
+    scheduledHitSoundKeysRef.current.clear();
+
+    if (timeDisplayRef.current && projectData) {
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(seekStartTime);
+    }
+    updateProgressBarValue(seekStartTime, true);
+  }, [cancelEditorUpdate, formatTimelineMeasureProgress, offsetInSeconds, projectData]);
+
+  const finishProgressSeek = useCallback(async (isStillInteractive: boolean) => {
+    isDraggingProgress.current = false;
+    isProgressBarInteractive.current = isStillInteractive;
+
+    const shouldResume = shouldResumeAfterProgressSeekRef.current;
+    shouldResumeAfterProgressSeekRef.current = false;
+
+    const audio = audioRef.current;
+    if (!audio || !projectData) {
+      return;
+    }
+
+    const seekTime = Math.max(0, stateRef.current.currentTime);
+    const playRequestId = playRequestIdRef.current + 1;
+    playRequestIdRef.current = playRequestId;
+    clearPlayTimeout();
+    stopHitsounds();
+
+    await seekAudioToTime(
+      audio,
+      getMediaTimeFromPlaybackTime(seekTime, offsetInSeconds, audioTimingCorrectionRef.current),
+    );
+
+    if (playRequestIdRef.current !== playRequestId) {
+      return;
+    }
+
+    const calibratedSeekTime = getIntendedPlaybackTime(audio, offsetInSeconds, seekTime);
+    anchorPlaybackClock(calibratedSeekTime);
+
+    if (!shouldResume) {
+      return;
+    }
+
+    const musicContext = setupMusicGain();
+    if (musicContext?.state === 'suspended') {
+      await musicContext.resume().catch(() => {});
+    }
+    applyAudioPlaybackSpeed(audio, stateRef.current.playbackSpeed);
+    void prepareHitSounds();
+    stateRef.current.isPlaying = true;
+    setIsPlaying(true);
+
+    await audio.play().catch(() => {});
+    if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
+      await waitForAudioPlaybackReady(audio, playRequestId);
+    }
+    if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
+      syncPlaybackToAudioClock(audio, offsetInSeconds, calibratedSeekTime);
+    }
+  }, [offsetInSeconds, prepareHitSounds, projectData, setupMusicGain]);
 
   const stopHitsounds = () => {
     activeHitSounds.current.forEach(source => {
@@ -2309,18 +2575,68 @@ export default function Editor({
     return low;
   };
 
-  const syncPlaybackToAudioClock = (audio: HTMLAudioElement, offsetInSeconds: number, fallbackTime: number) => {
-    const now = performance.now();
-    const syncedTime = !audio.paused && !audio.seeking
-      ? Math.max(0, audio.currentTime + offsetInSeconds)
+  const getIntendedPlaybackTime = (
+    audio: HTMLAudioElement | null,
+    offsetInSeconds: number,
+    fallbackTime: number,
+  ) => {
+    const correction = audioTimingCorrectionRef.current;
+    const rawPlaybackTime = audio && correction.isMediaClockReliable && !audio.paused && !audio.seeking
+      ? getPlaybackTimeFromMediaTime(audio.currentTime, offsetInSeconds, correction)
       : fallbackTime;
+    const clampedPlaybackTime = Math.max(0, rawPlaybackTime);
+    const timedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
+    const intendedBeat = getBeatAtTime(clampedPlaybackTime, timedChanges);
+    return getTimeAtBeat(intendedBeat, timedChanges);
+  };
 
-    stateRef.current.currentTime = syncedTime;
-    stateRef.current.playbackStartTime = syncedTime;
+  const anchorPlaybackClock = (time: number, now = performance.now()) => {
+    stateRef.current.currentTime = time;
+    stateRef.current.playbackStartTime = time;
     stateRef.current.playbackStartPerformanceTime = now;
     stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
-    resetHitSoundScheduler(syncedTime, true);
+    resetHitSoundScheduler(time, true);
   };
+
+  const syncPlaybackToAudioClock = (audio: HTMLAudioElement, offsetInSeconds: number, fallbackTime: number) => {
+    const now = performance.now();
+    anchorPlaybackClock(getIntendedPlaybackTime(audio, offsetInSeconds, fallbackTime), now);
+  };
+
+  const waitForAudioPlaybackReady = (audio: HTMLAudioElement, playRequestId: number) => new Promise<void>((resolve) => {
+    if (playRequestIdRef.current !== playRequestId || !stateRef.current.isPlaying) {
+      resolve();
+      return;
+    }
+
+    if (!audio.paused && !audio.seeking && audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+
+    let settled = false;
+    let timeoutId: number | undefined;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      audio.removeEventListener('playing', finish);
+      audio.removeEventListener('timeupdate', finish);
+      audio.removeEventListener('seeked', finish);
+      requestAnimationFrame(() => resolve());
+    };
+
+    audio.addEventListener('playing', finish);
+    audio.addEventListener('timeupdate', finish);
+    audio.addEventListener('seeked', finish);
+    timeoutId = window.setTimeout(finish, AUDIO_CLOCK_HANDOFF_DELAY_MS);
+  });
 
   const scheduleHitSoundsThrough = useCallback((currentTime: number, activePlaybackSpeed: number) => {
     const events = hitSoundEventsRef.current;
@@ -2367,13 +2683,25 @@ export default function Editor({
         + ((now - stateRef.current.playbackStartPerformanceTime) / 1000) * stateRef.current.playbackSpeed,
     );
 
-    if (audio && !audio.paused && !audio.seeking && now >= stateRef.current.playbackAudioClockReadyTime) {
-      const audioTime = Math.max(0, audio.currentTime + offsetInSeconds);
-      const audioDrift = audioTime - projectedTime;
+    if (
+      audio
+      && audioTimingCorrectionRef.current.isMediaClockReliable
+      && !audio.paused
+      && !audio.seeking
+      && now >= stateRef.current.playbackAudioClockReadyTime
+    ) {
+      const audioTime = getPlaybackTimeFromMediaTime(
+        audio.currentTime,
+        offsetInSeconds,
+        audioTimingCorrectionRef.current,
+      );
+      const timedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
+      const intendedAudioTime = getTimeAtBeat(getBeatAtTime(audioTime, timedChanges), timedChanges);
+      const audioDrift = intendedAudioTime - projectedTime;
       if (Math.abs(audioDrift) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
-        stateRef.current.playbackStartTime = audioTime;
+        stateRef.current.playbackStartTime = intendedAudioTime;
         stateRef.current.playbackStartPerformanceTime = now;
-        return audioTime;
+        return intendedAudioTime;
       }
     }
 
@@ -2405,9 +2733,10 @@ export default function Editor({
     if (stateRef.current.isPlaying && audio && audio.paused && offsetInSeconds > 0) {
       clearPlayTimeout();
       const audioStartTime = playbackTime - offsetInSeconds;
-      audio.currentTime = Math.max(0, audioStartTime);
+      audioSeekRequestIdRef.current += 1;
 
       if (audioStartTime < 0) {
+        audio.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
         playTimeoutRef.current = window.setTimeout(() => {
           playTimeoutRef.current = undefined;
           if (stateRef.current.isPlaying && audioRef.current) {
@@ -2416,6 +2745,11 @@ export default function Editor({
           }
         }, (-audioStartTime / nextSpeed) * 1000);
       } else {
+        audio.currentTime = getMediaTimeFromPlaybackTime(
+          playbackTime,
+          offsetInSeconds,
+          audioTimingCorrectionRef.current,
+        );
         audio.play().catch(() => {});
       }
     }
@@ -2425,6 +2759,7 @@ export default function Editor({
   };
 
   const seekAudioToTime = (audio: HTMLAudioElement, time: number) => new Promise<void>((resolve) => {
+    audioSeekRequestIdRef.current += 1;
     const targetTime = Math.max(0, time);
     let settled = false;
     let timeoutId: number | undefined;
@@ -2490,7 +2825,7 @@ export default function Editor({
 
     if (offsetInSeconds > 0) {
       audio.pause();
-      audio.currentTime = 0;
+      audio.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
       playTimeoutRef.current = window.setTimeout(() => {
         playTimeoutRef.current = undefined;
         if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
@@ -2498,7 +2833,12 @@ export default function Editor({
           audioRef.current.play()
             .then(() => {
               if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
-                syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, loopStartTime + offsetInSeconds);
+                waitForAudioPlaybackReady(audioRef.current, playRequestId)
+                  .then(() => {
+                    if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
+                      syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, loopStartTime + offsetInSeconds);
+                    }
+                  });
               }
             })
             .catch(() => {});
@@ -2508,9 +2848,15 @@ export default function Editor({
       return;
     }
 
-    await seekAudioToTime(audio, -offsetInSeconds);
+    await seekAudioToTime(
+      audio,
+      getMediaTimeFromPlaybackTime(loopStartTime, offsetInSeconds, audioTimingCorrectionRef.current),
+    );
     if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
       await audio.play().catch(() => {});
+      if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
+        await waitForAudioPlaybackReady(audio, playRequestId);
+      }
       if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
         syncPlaybackToAudioClock(audio, offsetInSeconds, loopStartTime);
       }
@@ -2528,10 +2874,7 @@ export default function Editor({
       stopHitsounds();
       audioRef.current.pause();
       clearPlayTimeout();
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-      }
+      cancelEditorUpdate();
       stateRef.current.isPlaying = false;
       setIsPlaying(false);
 
@@ -2551,7 +2894,11 @@ export default function Editor({
       stateRef.current.playbackAudioClockReadyTime = 0;
       lastPlayedTimeRef.current = snappedTime;
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
-      audioRef.current.currentTime = Math.max(0, snappedTime - offsetInSeconds);
+      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+        snappedTime,
+        offsetInSeconds,
+        audioTimingCorrectionRef.current,
+      );
       if (timeDisplayRef.current) {
         timeDisplayRef.current.textContent = formatTimelineMeasureProgress(snappedTime);
       }
@@ -2577,7 +2924,7 @@ export default function Editor({
         const audioStartTime = playbackStartTime - offsetInSeconds;
         if (audioStartTime < 0) {
           audioRef.current.pause();
-          audioRef.current.currentTime = 0;
+          audioRef.current.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
           const audioDelaySeconds = -audioStartTime / stateRef.current.playbackSpeed;
           playTimeoutRef.current = window.setTimeout(() => {
             playTimeoutRef.current = undefined;
@@ -2586,14 +2933,22 @@ export default function Editor({
               audioRef.current.play()
                 .then(() => {
                   if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
-                    syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, offsetInSeconds);
+                    waitForAudioPlaybackReady(audioRef.current, playRequestId)
+                      .then(() => {
+                        if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying && audioRef.current) {
+                          syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, offsetInSeconds);
+                        }
+                      });
                   }
                 })
                 .catch(() => {});
             }
           }, audioDelaySeconds * 1000);
         } else {
-          await seekAudioToTime(audioRef.current, audioStartTime);
+          await seekAudioToTime(
+            audioRef.current,
+            getMediaTimeFromPlaybackTime(playbackStartTime, offsetInSeconds, audioTimingCorrectionRef.current),
+          );
           if (playRequestIdRef.current !== playRequestId) {
             return;
           }
@@ -2601,15 +2956,26 @@ export default function Editor({
           if (playRequestIdRef.current !== playRequestId) {
             return;
           }
+          await waitForAudioPlaybackReady(audioRef.current, playRequestId);
+          if (playRequestIdRef.current !== playRequestId) {
+            return;
+          }
           syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, playbackStartTime);
         }
       } else {
         // Advance music: Start music early
-        await seekAudioToTime(audioRef.current, playbackStartTime - offsetInSeconds);
+        await seekAudioToTime(
+          audioRef.current,
+          getMediaTimeFromPlaybackTime(playbackStartTime, offsetInSeconds, audioTimingCorrectionRef.current),
+        );
         if (playRequestIdRef.current !== playRequestId) {
           return;
         }
         await audioRef.current.play().catch(() => {});
+        if (playRequestIdRef.current !== playRequestId) {
+          return;
+        }
+        await waitForAudioPlaybackReady(audioRef.current, playRequestId);
         if (playRequestIdRef.current !== playRequestId) {
           return;
         }
@@ -2630,7 +2996,7 @@ export default function Editor({
       
       setIsPlaying(true);
     }
-  }, [effectiveGridZoom, formatTimelineMeasureProgress, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
+  }, [cancelEditorUpdate, effectiveGridZoom, formatTimelineMeasureProgress, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
 
   const restoreOperationSnapshot = useCallback((snapshot: OperationHistorySnapshot) => {
     if (stateRef.current.isPlaying) {
@@ -2639,10 +3005,7 @@ export default function Editor({
       audioRef.current?.pause();
       clearPlayTimeout();
 
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-      }
+      cancelEditorUpdate();
 
       stateRef.current.isPlaying = false;
       setIsPlaying(false);
@@ -2685,7 +3048,7 @@ export default function Editor({
     stateRef.current.offset = snapshot.offset;
     stateRef.current.bpm = restoredProjectData?.bpm || 120;
     renderPausedTimelineAtFullFps();
-  }, [renderPausedTimelineAtFullFps, setBpmChanges, setNotes, setOffset, setSpeedChanges]);
+  }, [cancelEditorUpdate, renderPausedTimelineAtFullFps, setBpmChanges, setNotes, setOffset, setSpeedChanges]);
 
   const undoLastOperation = useCallback(() => {
     const entry = operationHistory.find(historyEntry => !undoneOperationIds.has(historyEntry.id));
@@ -5503,7 +5866,7 @@ export default function Editor({
         void loopPlaybackToBeginning();
         drawGrid();
         updateRenderedObjectsDisplay();
-        requestRef.current = requestAnimationFrame(update);
+        scheduleEditorUpdate(update);
         return;
       }
 
@@ -5545,13 +5908,14 @@ export default function Editor({
     drawGrid();
     updateRenderedObjectsDisplay();
     if (stateRef.current.isPlaying) {
-      requestRef.current = requestAnimationFrame(update);
+      scheduleEditorUpdate(update);
     } else if (isPausedTimelineRendering && performance.now() < pausedTimelineRenderUntilRef.current) {
-      requestRef.current = requestAnimationFrame(update);
+      scheduleEditorUpdate(update);
     } else {
       requestRef.current = undefined;
+      requestSchedulerRef.current = undefined;
     }
-  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -5560,26 +5924,20 @@ export default function Editor({
       setFps(0);
       updateRenderedObjectsDisplay();
       drawGrid();
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-      }
+      cancelEditorUpdate();
       return;
     }
 
-    if (!requestRef.current) {
+    if (requestRef.current === undefined) {
       fpsFrameCountRef.current = 0;
       fpsWindowStartRef.current = performance.now();
-      requestRef.current = requestAnimationFrame(update);
+      scheduleEditorUpdate(update);
     }
 
     return () => {
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-      }
+      cancelEditorUpdate();
     };
-  }, [drawGrid, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
+  }, [cancelEditorUpdate, drawGrid, scheduleEditorUpdate, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -6081,7 +6439,11 @@ export default function Editor({
     scheduledHitSoundKeysRef.current.clear();
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
-      audioRef.current.currentTime = Math.max(0, clampedTime - offsetInSeconds);
+      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+        clampedTime,
+        offsetInSeconds,
+        audioTimingCorrectionRef.current,
+      );
     }
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTimelineMeasureProgress(clampedTime);
@@ -7075,7 +7437,11 @@ export default function Editor({
 
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
-      audioRef.current.currentTime = Math.max(0, clampedTime - offsetInSeconds);
+      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+        clampedTime,
+        offsetInSeconds,
+        audioTimingCorrectionRef.current,
+      );
     }
 
     if (timeDisplayRef.current) {
@@ -7255,8 +7621,9 @@ export default function Editor({
         handleMetadataFieldKeyDown={handleMetadataFieldKeyDown}
         handleConfirm={handleConfirm}
         projectData={projectData}
+        playbackAudioUrl={playbackAudioUrl}
         audioRef={audioRef}
-        setDuration={setDuration}
+        onAudioLoadedMetadata={handleAudioLoadedMetadata}
         stateRef={stateRef}
         isExitWarningOpen={isExitWarningOpen}
         isSettingsOpen={isSettingsOpen}
@@ -7270,8 +7637,8 @@ export default function Editor({
         isScrollDirectionInverted={isScrollDirectionInverted}
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
+        isVSyncEnabled={isVSyncEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
-        previewModeFormat={previewModeFormat}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
         selectionType={selectionType}
@@ -7296,8 +7663,8 @@ export default function Editor({
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
+        setIsVSyncEnabled={setIsVSyncEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
-        setPreviewModeFormat={setPreviewModeFormat}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
         setSelectionType={setSelectionType}
@@ -7335,6 +7702,8 @@ export default function Editor({
         openExitWarning={openExitWarning}
         togglePlay={togglePlay}
         handleSeekChange={handleSeekChange}
+        beginProgressSeek={beginProgressSeek}
+        finishProgressSeek={finishProgressSeek}
         setIsXPositionGridEnabled={setIsXPositionGridEnabled}
         setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
         setIsExportMenuOpen={setIsExportMenuOpen}

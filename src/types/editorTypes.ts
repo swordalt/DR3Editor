@@ -1,5 +1,5 @@
 export type EditorMode = 'new' | 'import';
-export type ChartFormat = 'Official' | 'DR3Custom';
+export type ChartFormat = 'Official';
 
 export interface ViewState {
   page: 'landing' | 'editor';

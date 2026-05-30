@@ -5,7 +5,6 @@ export const EDITOR_SETTINGS_STORAGE_KEY = 'dancerail3-editor:settings';
 export const STATISTICS_REFRESH_RATE_OPTIONS = ['15fps', '30fps', '60fps', 'max'] as const;
 export const SELECTION_TYPE_OPTIONS = ['window', 'crossing'] as const;
 export const PREVIEW_DISPLAY_MODE_OPTIONS = ['2d', '3d'] as const;
-export const PREVIEW_MODE_FORMAT_OPTIONS = ['default', 'official', 'dr3custom'] as const;
 export const DEFAULT_PREVIEW_3D_TILT_DEGREES = 23.4;
 export const MIN_PREVIEW_3D_TILT_DEGREES = 12;
 export const MAX_PREVIEW_3D_TILT_DEGREES = 32;
@@ -13,7 +12,6 @@ export const MAX_PREVIEW_3D_TILT_DEGREES = 32;
 export type StatisticsRefreshRate = typeof STATISTICS_REFRESH_RATE_OPTIONS[number];
 export type SelectionType = typeof SELECTION_TYPE_OPTIONS[number];
 export type PreviewDisplayMode = typeof PREVIEW_DISPLAY_MODE_OPTIONS[number];
-export type PreviewModeFormat = typeof PREVIEW_MODE_FORMAT_OPTIONS[number];
 
 export interface EditorSettings {
   isExitWarningEnabled: boolean;
@@ -22,6 +20,7 @@ export interface EditorSettings {
   isScrollDirectionInverted: boolean;
   areTimingChangeIndicatorsAdjusted: boolean;
   isEditorJudgementGlowEnabled: boolean;
+  isVSyncEnabled: boolean;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
   musicVolume: number;
@@ -39,7 +38,6 @@ export interface EditorSettings {
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
-  previewModeFormat: PreviewModeFormat;
   previewDisplayMode: PreviewDisplayMode;
   preview3DTiltDegrees: number;
 }
@@ -51,6 +49,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isScrollDirectionInverted: false,
   areTimingChangeIndicatorsAdjusted: true,
   isEditorJudgementGlowEnabled: true,
+  isVSyncEnabled: true,
   selectionType: 'window',
   statisticsRefreshRate: '30fps',
   musicVolume: 1,
@@ -68,7 +67,6 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isPreviewCameraMovementEnabled: true,
   isPreviewNoteSpeedChangesEnabled: true,
   isPreviewNoteAppearModeEnabled: true,
-  previewModeFormat: 'default',
   previewDisplayMode: '2d',
   preview3DTiltDegrees: DEFAULT_PREVIEW_3D_TILT_DEGREES,
 };
@@ -107,11 +105,6 @@ const isValidSelectionType = (value: unknown): value is SelectionType => (
 const isValidPreviewDisplayMode = (value: unknown): value is PreviewDisplayMode => (
   typeof value === 'string' &&
   PREVIEW_DISPLAY_MODE_OPTIONS.includes(value as PreviewDisplayMode)
-);
-
-const isValidPreviewModeFormat = (value: unknown): value is PreviewModeFormat => (
-  typeof value === 'string' &&
-  PREVIEW_MODE_FORMAT_OPTIONS.includes(value as PreviewModeFormat)
 );
 
 const isValidPreview3DTiltDegrees = (value: unknown): value is number => (
@@ -158,6 +151,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isEditorJudgementGlowEnabled: typeof parsedSettings.isEditorJudgementGlowEnabled === 'boolean'
         ? parsedSettings.isEditorJudgementGlowEnabled
         : DEFAULT_EDITOR_SETTINGS.isEditorJudgementGlowEnabled,
+      isVSyncEnabled: typeof parsedSettings.isVSyncEnabled === 'boolean'
+        ? parsedSettings.isVSyncEnabled
+        : DEFAULT_EDITOR_SETTINGS.isVSyncEnabled,
       selectionType: isValidSelectionType(parsedSettings.selectionType)
         ? parsedSettings.selectionType
         : DEFAULT_EDITOR_SETTINGS.selectionType,
@@ -209,9 +205,6 @@ export const loadEditorSettings = (): EditorSettings => {
       isPreviewNoteAppearModeEnabled: typeof parsedSettings.isPreviewNoteAppearModeEnabled === 'boolean'
         ? parsedSettings.isPreviewNoteAppearModeEnabled
         : DEFAULT_EDITOR_SETTINGS.isPreviewNoteAppearModeEnabled,
-      previewModeFormat: isValidPreviewModeFormat(parsedSettings.previewModeFormat)
-        ? parsedSettings.previewModeFormat
-        : DEFAULT_EDITOR_SETTINGS.previewModeFormat,
       previewDisplayMode: isValidPreviewDisplayMode(parsedSettings.previewDisplayMode)
         ? parsedSettings.previewDisplayMode
         : DEFAULT_EDITOR_SETTINGS.previewDisplayMode,

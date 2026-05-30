@@ -57,17 +57,25 @@ export default function EditorRightSidebar(props: any) {
             <div className="p-4 flex flex-col gap-4 overflow-y-auto">
               <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.properties}</div>
               {isPreviewMode ? (
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-                  <div className="text-sm font-medium text-neutral-200">{text.sidebar.previewStatistics}</div>
-                  <div className="mt-3 flex flex-col divide-y divide-neutral-800 text-sm">
-                    <div className="flex items-center justify-between py-2 first:pt-0">
-                      <span className="text-neutral-400">{text.sidebar.currentDistance}</span>
-                      <span className="font-mono text-neutral-100">{currentEditorDistance.toFixed(3)}</span>
+                <div className="flex flex-col gap-4">
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+                    <div className="text-sm font-medium text-neutral-200">{text.sidebar.previewStatistics}</div>
+                    <div className="mt-3 flex flex-col divide-y divide-neutral-800 text-sm">
+                      <div className="flex items-center justify-between py-2 first:pt-0">
+                        <span className="text-neutral-400">{text.sidebar.currentDistance}</span>
+                        <span className="font-mono text-neutral-100">{currentEditorDistance.toFixed(3)}</span>
+                      </div>
+                      <div className="flex items-center justify-between py-2 last:pb-0">
+                        <span className="text-neutral-400">{text.sidebar.currentScore}</span>
+                        <span className="font-mono text-neutral-100">{currentEditorScore}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between py-2 last:pb-0">
-                      <span className="text-neutral-400">{text.sidebar.currentScore}</span>
-                      <span className="font-mono text-neutral-100">{currentEditorScore}</span>
-                    </div>
+                  </div>
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                    {text.sidebar.previewAccuracyNotice}
+                  </div>
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                    {text.sidebar.previewSpritePerformanceNotice}
                   </div>
                 </div>
               ) : selectedSingleNote ? (

@@ -1,8 +1,6 @@
 import React from 'react';
 import {
-  Ban,
   FilePlus,
-  FileText,
   Github,
   GraduationCap,
   HeartHandshake,
@@ -61,16 +59,10 @@ export default function LandingPage({
   isBackdropBlurDisabled,
   isAnimationDisabled,
 }: LandingPageProps) {
-  const [isFormatModalOpen, setIsFormatModalOpen] = React.useState(false);
   const [activeInfoTab, setActiveInfoTab] = React.useState<InfoTab>('about');
   const [isViewportNoticeDismissed, setIsViewportNoticeDismissed] = React.useState(false);
   const [shouldShowViewportNotice, setShouldShowViewportNotice] = React.useState(false);
   const text = translations;
-
-  const handleOfficialCreate = () => {
-    setIsFormatModalOpen(false);
-    onCreateProject();
-  };
 
   React.useEffect(() => {
     const mobileViewportQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
@@ -112,7 +104,7 @@ export default function LandingPage({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
-                  onClick={() => setIsFormatModalOpen(true)}
+                  onClick={onCreateProject}
                   className="group flex min-h-24 cursor-pointer items-center gap-4 rounded-xl border border-white/10 bg-neutral-950/50 px-5 py-4 text-left transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1] active:translate-y-0"
                 >
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-white/10 text-neutral-200 transition-transform group-hover:scale-105">
@@ -332,66 +324,6 @@ export default function LandingPage({
           </section>
         </div>
       </main>
-
-      {isFormatModalOpen && (
-        <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fade-in_180ms_ease-out] ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
-          onMouseDown={() => setIsFormatModalOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="chart-format-title"
-            className="w-full max-w-lg overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 text-left shadow-2xl shadow-black/50 animate-[dialog-in_220ms_ease-out]"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
-              <h2 id="chart-format-title" className="text-xl font-bold text-white">
-                {text.landing.chooseChartFormat}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsFormatModalOpen(false)}
-                aria-label={text.landing.closeChartFormatDialog}
-                className="rounded-lg p-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="grid gap-3 p-6">
-              <button
-                type="button"
-                onClick={handleOfficialCreate}
-                className="group flex w-full items-center gap-4 rounded-xl border border-white/20 bg-white/10 p-4 text-left transition-colors hover:border-white/35 hover:bg-white/15"
-              >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/10 text-neutral-200">
-                  <FileText className="h-5 w-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-semibold text-white">{text.landing.officialFormat}</span>
-                  <span className="mt-1 block text-sm text-neutral-400">{text.landing.officialFormatDescription}</span>
-                </span>
-              </button>
-
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                className="flex w-full cursor-not-allowed items-center gap-4 rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 text-left opacity-55"
-              >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-neutral-800 text-neutral-500">
-                  <Ban className="h-5 w-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-semibold text-neutral-300">{text.landing.customFormat}</span>
-                  <span className="mt-1 block text-sm text-neutral-500">{text.landing.notAvailableYet}</span>
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {shouldShowViewportNotice && !isViewportNoticeDismissed && (
         <div

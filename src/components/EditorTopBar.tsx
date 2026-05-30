@@ -35,7 +35,9 @@ interface EditorTopBarProps {
   isProgressBarInteractive: RefObject<boolean>;
   openExitWarning: () => void;
   togglePlay: () => void;
-  handleSeekChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  handleSeekChange: (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => void;
+  beginProgressSeek: () => void;
+  finishProgressSeek: (isStillInteractive: boolean) => Promise<void>;
   setIsXPositionGridEnabled: Dispatch<SetStateAction<boolean>>;
   setIsOutOfBoundsPlacementEnabled: Dispatch<SetStateAction<boolean>>;
   setIsExportMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -77,6 +79,8 @@ export default function EditorTopBar({
   openExitWarning,
   togglePlay,
   handleSeekChange,
+  beginProgressSeek,
+  finishProgressSeek,
   setIsXPositionGridEnabled,
   setIsOutOfBoundsPlacementEnabled,
   setIsExportMenuOpen,
@@ -184,23 +188,23 @@ export default function EditorTopBar({
                     isProgressBarInteractive.current = false;
                   }
                 }}
-                onMouseDown={() => {
-                  isDraggingProgress.current = true;
-                  isProgressBarInteractive.current = true;
+                onPointerDown={(event) => {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  beginProgressSeek();
                 }}
-                onMouseUp={() => {
-                  isDraggingProgress.current = false;
-                  isProgressBarInteractive.current = true;
+                onPointerUp={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                  void finishProgressSeek(event.pointerType !== 'touch');
                 }}
-                onTouchStart={() => {
-                  isDraggingProgress.current = true;
-                  isProgressBarInteractive.current = true;
+                onPointerCancel={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                  void finishProgressSeek(false);
                 }}
-                onTouchEnd={() => {
-                  isDraggingProgress.current = false;
-                  isProgressBarInteractive.current = false;
-                }}
-                onChange={handleSeekChange}
+                onInput={handleSeekChange}
                 className="min-w-0 flex-1 h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
               <div ref={timeDisplayRef} className="w-14 shrink-0 text-right font-mono text-sm text-neutral-400">

@@ -7,7 +7,6 @@ import EditorLeftSidebar from './EditorLeftSidebar';
 import EditorPreviewSidebar from './EditorPreviewSidebar';
 import EditorCanvasStage from './EditorCanvasStage';
 import EditorRightSidebar from './EditorRightSidebar';
-import { applyAudioPlaybackSpeed } from '../editor/audioPlayback';
 
 export default function EditorLayout(props: any) {
   const {
@@ -22,9 +21,9 @@ export default function EditorLayout(props: any) {
     handleMetadataFieldKeyDown,
     handleConfirm,
     projectData,
+    playbackAudioUrl,
     audioRef,
-    setDuration,
-    stateRef,
+    onAudioLoadedMetadata,
     isExitWarningOpen,
     isSettingsOpen,
     isHelpOpen,
@@ -37,8 +36,8 @@ export default function EditorLayout(props: any) {
     isScrollDirectionInverted,
     areTimingChangeIndicatorsAdjusted,
     isEditorJudgementGlowEnabled,
+    isVSyncEnabled,
     isPreviewPrecomputeEnabled,
-    previewModeFormat,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
     selectionType,
@@ -63,8 +62,8 @@ export default function EditorLayout(props: any) {
     setIsScrollDirectionInverted,
     setAreTimingChangeIndicatorsAdjusted,
     setIsEditorJudgementGlowEnabled,
+    setIsVSyncEnabled,
     setIsPreviewPrecomputeEnabled,
-    setPreviewModeFormat,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
     setSelectionType,
@@ -102,6 +101,8 @@ export default function EditorLayout(props: any) {
     openExitWarning,
     togglePlay,
     handleSeekChange,
+    beginProgressSeek,
+    finishProgressSeek,
     setIsXPositionGridEnabled,
     setIsOutOfBoundsPlacementEnabled,
     setIsExportMenuOpen,
@@ -130,13 +131,12 @@ export default function EditorLayout(props: any) {
       transition={{ duration: isAnimationDisabled ? 0 : 0.3 }}
       className={`h-screen overflow-hidden bg-neutral-950 text-neutral-50 flex flex-col font-sans ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
     >
-      {projectData?.audioUrl && (
+      {playbackAudioUrl && (
         <audio 
           ref={audioRef} 
-          src={projectData.audioUrl} 
+          src={playbackAudioUrl} 
           onLoadedMetadata={(e) => {
-            setDuration(e.currentTarget.duration);
-            applyAudioPlaybackSpeed(e.currentTarget, stateRef.current.playbackSpeed);
+            onAudioLoadedMetadata(e.currentTarget);
           }}
         />
       )}
@@ -174,6 +174,7 @@ export default function EditorLayout(props: any) {
         isScrollDirectionInverted={isScrollDirectionInverted}
         areTimingChangeIndicatorsAdjusted={areTimingChangeIndicatorsAdjusted}
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
+        isVSyncEnabled={isVSyncEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -192,6 +193,7 @@ export default function EditorLayout(props: any) {
         setIsScrollDirectionInverted={setIsScrollDirectionInverted}
         setAreTimingChangeIndicatorsAdjusted={setAreTimingChangeIndicatorsAdjusted}
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
+        setIsVSyncEnabled={setIsVSyncEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
@@ -231,6 +233,8 @@ export default function EditorLayout(props: any) {
         openExitWarning={openExitWarning}
         togglePlay={togglePlay}
         handleSeekChange={handleSeekChange}
+        beginProgressSeek={beginProgressSeek}
+        finishProgressSeek={finishProgressSeek}
         setIsXPositionGridEnabled={setIsXPositionGridEnabled}
         setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
         setIsExportMenuOpen={setIsExportMenuOpen}
@@ -274,7 +278,6 @@ export default function EditorLayout(props: any) {
             isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
             isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
             isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
-            previewModeFormat={previewModeFormat}
             setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
             setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
             setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
@@ -282,7 +285,6 @@ export default function EditorLayout(props: any) {
             setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
             setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
             setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
-            setPreviewModeFormat={setPreviewModeFormat}
           />
         )}
 

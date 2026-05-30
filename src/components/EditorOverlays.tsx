@@ -31,6 +31,7 @@ interface EditorOverlaysProps {
   isScrollDirectionInverted: boolean;
   areTimingChangeIndicatorsAdjusted: boolean;
   isEditorJudgementGlowEnabled: boolean;
+  isVSyncEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
@@ -49,6 +50,7 @@ interface EditorOverlaysProps {
   setIsScrollDirectionInverted: Dispatch<SetStateAction<boolean>>;
   setAreTimingChangeIndicatorsAdjusted: Dispatch<SetStateAction<boolean>>;
   setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -265,6 +267,7 @@ export default function EditorOverlays({
   isScrollDirectionInverted,
   areTimingChangeIndicatorsAdjusted,
   isEditorJudgementGlowEnabled,
+  isVSyncEnabled,
   isPreviewPrecomputeEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
@@ -283,6 +286,7 @@ export default function EditorOverlays({
   setIsScrollDirectionInverted,
   setAreTimingChangeIndicatorsAdjusted,
   setIsEditorJudgementGlowEnabled,
+  setIsVSyncEnabled,
   setIsPreviewPrecomputeEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
@@ -415,6 +419,16 @@ export default function EditorOverlays({
               isEnabled={isEditorJudgementGlowEnabled}
               ariaLabel={text.overlays.toggleEditorJudgementGlow}
               onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.vSync}
+              description={text.overlays.vSyncDescription}
+              isEnabled={isVSyncEnabled}
+              ariaLabel={text.overlays.toggleVSync}
+              onToggle={() => setIsVSyncEnabled((current) => !current)}
             />
           </div>
 
