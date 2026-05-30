@@ -4,7 +4,7 @@ export const EDITOR_KEYBIND_GROUPS = [
   {
     title: translations.hotkeys.playbackAndNavigation,
     bindings: [
-      { keys: ['Space'], description: translations.hotkeys.playPause },
+      { keys: ['Space / P'], description: translations.hotkeys.playPause },
       { keys: ['I'], description: translations.hotkeys.togglePreviewMode },
       { keys: ['Mouse wheel'], description: translations.hotkeys.mouseWheel },
     ],
@@ -25,6 +25,8 @@ export const EDITOR_KEYBIND_GROUPS = [
     bindings: [
       { keys: ['A'], description: translations.hotkeys.previousNoteType },
       { keys: ['D'], description: translations.hotkeys.nextNoteType },
+      { keys: ['B'], description: translations.hotkeys.selectDamageStartNote },
+      { keys: ['T'], description: translations.hotkeys.selectBlueTapNote },
       { keys: ['Q'], description: translations.hotkeys.decreaseNoteWidth },
       { keys: ['E'], description: translations.hotkeys.increaseNoteWidth },
     ],

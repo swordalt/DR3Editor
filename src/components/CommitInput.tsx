@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 
 interface CommitInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'defaultValue' | 'onChange' | 'onBlur' | 'onKeyDown'> {
   value: string | number;
@@ -16,12 +17,17 @@ export default function CommitInput({ value, onCommit, ...inputProps }: CommitIn
   }, [value]);
 
   const commitDraft = () => {
-    if (draftValue === lastCommittedDraftRef.current) {
+    const sanitizedDraftValue = stripInputWhitespace(draftValue);
+    if (sanitizedDraftValue === lastCommittedDraftRef.current) {
+      if (sanitizedDraftValue !== draftValue) {
+        setDraftValue(sanitizedDraftValue);
+      }
       return;
     }
 
-    lastCommittedDraftRef.current = draftValue;
-    onCommit(draftValue);
+    setDraftValue(sanitizedDraftValue);
+    lastCommittedDraftRef.current = sanitizedDraftValue;
+    onCommit(sanitizedDraftValue);
   };
 
   return (

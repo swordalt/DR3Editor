@@ -43,6 +43,7 @@ import {
 } from './editor/editorSettings';
 import { buildNoteRenderIndex, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
 import { findChartIssues, type ChartIssue } from './editor/chartIssues';
+import { stripInputWhitespace } from './utils/inputSanitization';
 
 import {
   APPEAR_MODE_ENTRY_DISTANCE,
@@ -1623,6 +1624,45 @@ export default function Editor({
     setCopiedNotesPreviewVersion(prev => prev + 1);
   }, []);
 
+  const restoreCurrentParentAfterDeletingNotes = useCallback((deletedNotes: Note[]) => {
+    const parsedCurrentParentId = currentParentInput.trim() === ''
+      ? nextNoteIdRef.current - 1
+      : Number(currentParentInput.trim());
+    if (!Number.isInteger(parsedCurrentParentId) || parsedCurrentParentId <= 0) {
+      return;
+    }
+
+    const deletedNoteById = new Map(deletedNotes.map(note => [note.id, note]));
+    const deletedCurrentParent = deletedNoteById.get(parsedCurrentParentId);
+    if (!deletedCurrentParent) {
+      return;
+    }
+
+    const remainingNotes = stateRef.current.notes.filter(note => !deletedNoteById.has(note.id));
+    const getPreviousExistingNoteId = (noteId: number) => (
+      remainingNotes
+        .filter(note => note.id < noteId)
+        .reduce<number | null>((previousId, note) => (
+          previousId === null || note.id > previousId ? note.id : previousId
+        ), null)
+    );
+
+    let nextParentId = deletedCurrentParent.parentId;
+    if (nextParentId === null && HOLD_START_TYPES.includes(deletedCurrentParent.type)) {
+      nextParentId = getPreviousExistingNoteId(deletedCurrentParent.id);
+    }
+
+    while (nextParentId !== null && deletedNoteById.has(nextParentId)) {
+      const deletedParent = deletedNoteById.get(nextParentId);
+      nextParentId = deletedParent?.parentId ?? null;
+      if (nextParentId === null && deletedParent && HOLD_START_TYPES.includes(deletedParent.type)) {
+        nextParentId = getPreviousExistingNoteId(deletedParent.id);
+      }
+    }
+
+    setCurrentParentInput(nextParentId === null ? '' : nextParentId.toString());
+  }, [currentParentInput]);
+
   const handleDeleteSelectedNotes = useCallback(() => {
     const noteIdsToDelete = new Set(selectedNoteIds);
     const deletedNotes = stateRef.current.notes.filter(n => noteIdsToDelete.has(n.id));
@@ -1636,10 +1676,11 @@ export default function Editor({
         : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
     });
 
+    restoreCurrentParentAfterDeletingNotes(deletedNotes);
     setNotes(prev => prev.filter(n => !noteIdsToDelete.has(n.id)));
     setSelectedNoteIds([]);
     clearActiveNoteInteraction();
-  }, [clearActiveNoteInteraction, getNoteHistoryDetail, recordOperation, selectedNoteIds, setNotes]);
+  }, [clearActiveNoteInteraction, getNoteHistoryDetail, recordOperation, restoreCurrentParentAfterDeletingNotes, selectedNoteIds, setNotes]);
 
   const handleMirrorSelectedNotes = useCallback(() => {
     const selectedIdSet = new Set(selectedNoteIds);
@@ -2242,9 +2283,17 @@ export default function Editor({
     const parsedBpm = parseFloat(formData.songBpm);
     const fallbackBpm = projectData?.bpm || bpmChanges[0]?.bpm || 120;
     const nextBpm = Number.isFinite(parsedBpm) ? parsedBpm : fallbackBpm;
+    const sanitizedFormData = {
+      ...formData,
+      songId: stripInputWhitespace(formData.songId),
+      songName: stripInputWhitespace(formData.songName),
+      songArtist: stripInputWhitespace(formData.songArtist),
+      songBpm: stripInputWhitespace(formData.songBpm),
+      difficulty: stripInputWhitespace(formData.difficulty),
+    };
 
     setProjectData({
-      ...formData,
+      ...sanitizedFormData,
       chartFormat: projectData?.chartFormat ?? 'Official',
       songBpm: nextBpm.toString(),
       bpm: nextBpm,
@@ -2265,7 +2314,7 @@ export default function Editor({
     recordOperation({
       category: 'metadata',
       title: wasProjectCreated ? 'Created project metadata' : 'Updated chart metadata',
-      detail: `${formData.songName || 'Untitled Project'} | BPM ${formatHistoryNumber(nextBpm)} | Difficulty ${formData.difficulty || 'None'}`,
+      detail: `${sanitizedFormData.songName || 'Untitled Project'} | BPM ${formatHistoryNumber(nextBpm)} | Difficulty ${sanitizedFormData.difficulty || 'None'}`,
     });
   };
 
@@ -2916,6 +2965,13 @@ export default function Editor({
       }
       applyAudioPlaybackSpeed(audioRef.current, stateRef.current.playbackSpeed);
       void prepareHitSounds();
+      const playbackClockStart = performance.now();
+      stateRef.current.isPlaying = true;
+      stateRef.current.currentTime = playbackStartTime;
+      stateRef.current.playbackStartTime = playbackStartTime;
+      stateRef.current.playbackStartPerformanceTime = playbackClockStart;
+      stateRef.current.playbackAudioClockReadyTime = playbackClockStart + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+      setIsPlaying(true);
       hitSoundCursorRef.current = findHitSoundCursor(playbackStartTime);
       scheduledHitSoundKeysRef.current.clear();
       lastPlayedTimeRef.current = playbackStartTime;
@@ -2987,15 +3043,7 @@ export default function Editor({
       }
       if (!audioRef.current.paused && !audioRef.current.seeking) {
         syncPlaybackToAudioClock(audioRef.current, offsetInSeconds, playbackStartTime);
-      } else {
-        stateRef.current.playbackStartTime = playbackStartTime;
-        stateRef.current.playbackStartPerformanceTime = performance.now();
-        stateRef.current.playbackAudioClockReadyTime = stateRef.current.playbackStartPerformanceTime + AUDIO_CLOCK_HANDOFF_DELAY_MS;
-        stateRef.current.currentTime = playbackStartTime;
       }
-      stateRef.current.isPlaying = true;
-      
-      setIsPlaying(true);
     }
   }, [cancelEditorUpdate, effectiveGridZoom, formatTimelineMeasureProgress, prepareHitSounds, projectData, offset, resetPreviewJudgementState, setupMusicGain, isPreviewMode]);
 
@@ -3095,7 +3143,7 @@ export default function Editor({
           return;
         }
 
-        if (e.code === 'Space') {
+        if (e.code === 'Space' || e.key.toLowerCase() === 'p') {
           e.preventDefault();
           togglePlay();
         }
@@ -3222,7 +3270,7 @@ export default function Editor({
 
       if (!isOnlyKeyPressed(e)) return;
       
-      if (e.code === 'Space') {
+      if (e.code === 'Space' || e.key.toLowerCase() === 'p') {
         e.preventDefault();
         togglePlay();
       }
@@ -3248,6 +3296,14 @@ export default function Editor({
 
       if (e.key.toLowerCase() === 'f') {
         setPixelsPerBeat(prev => Math.max(MIN_PIXELS_PER_BEAT, prev - 20));
+      }
+
+      if (e.key.toLowerCase() === 'b') {
+        setSelectedNoteType(10);
+      }
+
+      if (e.key.toLowerCase() === 't') {
+        setSelectedNoteType(1);
       }
 
       if (e.key.toLowerCase() === 'a') {
@@ -5969,6 +6025,39 @@ export default function Editor({
   }, [cancelEditorUpdate, drawGrid, scheduleEditorUpdate, shouldAnimateCanvas, update, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
+    const resyncVisiblePlayback = () => {
+      if (document.hidden || !stateRef.current.isPlaying || !audioRef.current) {
+        return;
+      }
+
+      const audio = audioRef.current;
+      const offsetInSeconds = parseFloat(offset.toString()) / 1000;
+      if (!audio.paused && !audio.seeking) {
+        syncPlaybackToAudioClock(audio, offsetInSeconds, stateRef.current.currentTime);
+      } else {
+        const now = performance.now();
+        stateRef.current.playbackStartTime = stateRef.current.currentTime;
+        stateRef.current.playbackStartPerformanceTime = now;
+        stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+      }
+
+      fpsFrameCountRef.current = 0;
+      fpsWindowStartRef.current = performance.now();
+
+      if (requestRef.current === undefined) {
+        scheduleEditorUpdate(update);
+      }
+    };
+
+    document.addEventListener('visibilitychange', resyncVisiblePlayback);
+    window.addEventListener('focus', resyncVisiblePlayback);
+    return () => {
+      document.removeEventListener('visibilitychange', resyncVisiblePlayback);
+      window.removeEventListener('focus', resyncVisiblePlayback);
+    };
+  }, [offset, scheduleEditorUpdate, update]);
+
+  useEffect(() => {
     if (!isPlaying) {
       if (hitSoundSchedulerIntervalRef.current !== undefined) {
         window.clearInterval(hitSoundSchedulerIntervalRef.current);
@@ -6252,6 +6341,7 @@ export default function Editor({
               : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
           });
         }
+        restoreCurrentParentAfterDeletingNotes(deletedNotes);
         setNotes(prev => prev.filter(note => !noteIdsToDeleteSet.has(note.id)));
         setSelectedNoteIds(prev => prev.filter(id => !noteIdsToDeleteSet.has(id)));
       }
@@ -7638,6 +7728,13 @@ export default function Editor({
     currentEditorDistance,
     currentEditorCombo,
     currentEditorScore,
+    currentParentInput,
+    setCurrentParentInput,
+    currentParentNote,
+    canUseSelectedAsParent,
+    currentId,
+    selectedNoteType,
+    noteWidth,
   };
 
   return (

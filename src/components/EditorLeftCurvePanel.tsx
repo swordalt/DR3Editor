@@ -14,6 +14,7 @@ import {
   operationCategoryStyles,
 } from '../editor/editorHistory';
 import { formatTime, getBpmChangeTimepos } from '../utils/editorUtils';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 import { translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftCurvePanel(props: any) {
@@ -116,6 +117,7 @@ export default function EditorLeftCurvePanel(props: any) {
                         setCurveStartIdInput(e.target.value);
                         setCurveNotesMessage('');
                       }}
+                      onBlur={() => setCurveStartIdInput(stripInputWhitespace(curveStartIdInput))}
                     />
                     <button
                       type="button"
@@ -156,6 +158,7 @@ export default function EditorLeftCurvePanel(props: any) {
                         setCurveEndIdInput(e.target.value);
                         setCurveNotesMessage('');
                       }}
+                      onBlur={() => setCurveEndIdInput(stripInputWhitespace(curveEndIdInput))}
                     />
                     <button
                       type="button"
@@ -215,6 +218,7 @@ export default function EditorLeftCurvePanel(props: any) {
                         setCurveDensityInput(e.target.value);
                         setCurveNotesMessage('');
                       }}
+                      onBlur={() => setCurveDensityInput(stripInputWhitespace(curveDensityInput))}
                     />
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">

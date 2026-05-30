@@ -4,6 +4,7 @@ import { ArrowLeft, Download, Grid2x2, Grid2x2X, HelpCircle, MoveHorizontal, Pau
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import { translations } from '../lang';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { ProjectData } from '../types/editorTypes';
 
 interface EditorTopBarProps {
@@ -97,7 +98,8 @@ export default function EditorTopBar({
 }: EditorTopBarProps) {
   const text = translations;
   const [customPlaybackSpeedInput, setCustomPlaybackSpeedInput] = useState(() => `${playbackSpeed}`);
-  const parsedCustomPlaybackSpeed = Number(customPlaybackSpeedInput);
+  const sanitizedCustomPlaybackSpeedInput = stripInputWhitespace(customPlaybackSpeedInput);
+  const parsedCustomPlaybackSpeed = Number(sanitizedCustomPlaybackSpeedInput);
   const isCustomPlaybackSpeedValid = Number.isFinite(parsedCustomPlaybackSpeed) && parsedCustomPlaybackSpeed > 0;
   const outOfBoundsLabel = isOutOfBoundsPlacementEnabled
     ? text.editor.disableOutOfBoundsPlacement
@@ -109,6 +111,7 @@ export default function EditorTopBar({
   const applyCustomPlaybackSpeed = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isCustomPlaybackSpeedValid) return;
+    setCustomPlaybackSpeedInput(sanitizedCustomPlaybackSpeedInput);
 
     const matchingPresetSpeed = PLAYBACK_SPEED_OPTIONS.find(speed => (
       Math.abs(speed - parsedCustomPlaybackSpeed) <= 0.000001
@@ -214,6 +217,7 @@ export default function EditorTopBar({
                         step="0.01"
                         value={customPlaybackSpeedInput}
                         onChange={(event) => setCustomPlaybackSpeedInput(event.target.value)}
+                        onBlur={() => setCustomPlaybackSpeedInput(stripInputWhitespace(customPlaybackSpeedInput))}
                         className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 font-mono text-sm text-neutral-200 outline-none transition-colors focus:border-indigo-500"
                         aria-label={text.editor.playbackSpeed}
                       />

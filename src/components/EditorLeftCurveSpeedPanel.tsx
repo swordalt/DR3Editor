@@ -4,6 +4,7 @@ import {
   CURVE_EASING_TYPE_OPTIONS,
 } from '../editor/editorViewConstants';
 import { translations } from '../lang';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 
 export default function EditorLeftCurveSpeedPanel(props: any) {
@@ -58,6 +59,7 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
                     setSpeedCurveStartIdInput(e.target.value);
                     setSpeedCurveMessage('');
                   }}
+                  onBlur={() => setSpeedCurveStartIdInput(stripInputWhitespace(speedCurveStartIdInput))}
                 />
               </label>
               <label className="block min-w-0">
@@ -72,6 +74,7 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
                     setSpeedCurveEndIdInput(e.target.value);
                     setSpeedCurveMessage('');
                   }}
+                  onBlur={() => setSpeedCurveEndIdInput(stripInputWhitespace(speedCurveEndIdInput))}
                 />
               </label>
             </div>
@@ -95,6 +98,7 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
                     setSpeedCurveDensityInput(e.target.value);
                     setSpeedCurveMessage('');
                   }}
+                  onBlur={() => setSpeedCurveDensityInput(stripInputWhitespace(speedCurveDensityInput))}
                 />
               </div>
               <div className="mt-1 text-xs text-neutral-500">

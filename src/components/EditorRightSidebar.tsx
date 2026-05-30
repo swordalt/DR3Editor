@@ -2,8 +2,9 @@ import { AlignCenterHorizontal, ChevronLeft, ChevronRight, Copy, FlipHorizontal,
 import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
-import { formatHistoryNumber } from '../editor/editorHistory';
+import { formatHistoryNumber, formatNoteLane } from '../editor/editorHistory';
 import { translations } from '../lang';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { Note } from '../types/editorTypes';
 
 export default function EditorRightSidebar(props: any) {
@@ -35,6 +36,13 @@ export default function EditorRightSidebar(props: any) {
     currentEditorDistance,
     currentEditorCombo,
     currentEditorScore,
+    canUseSelectedAsParent,
+    currentId,
+    currentParentInput,
+    currentParentNote,
+    noteWidth,
+    selectedNoteType,
+    setCurrentParentInput,
   } = props;
   const text = translations;
   const isSelectedNoteSpeedLocked = Boolean(
@@ -43,18 +51,25 @@ export default function EditorRightSidebar(props: any) {
     && isOfficialNoteSpeedLockedType(selectedSingleNote.type),
   );
 
-  return (        <aside className={`${isRightPanelCompact ? 'w-12' : 'w-64'} shrink-0 border-l border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}>
-          <div className={`p-2 border-b border-neutral-800 flex ${isRightPanelContentVisible ? 'justify-start' : 'justify-center'}`}>
+  return (        <aside
+          className={`${isRightPanelCompact ? 'w-12 cursor-pointer hover:bg-neutral-800/30' : 'w-64'} shrink-0 border-l border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}
+          onClick={isRightPanelCompact ? toggleRightPanelCompact : undefined}
+        >
+          <div className="border-b border-neutral-800">
             <button
-              onClick={toggleRightPanelCompact}
-              className={`flex items-center gap-2 rounded text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors ${isRightPanelContentVisible ? 'px-2 py-1 text-xs font-medium' : 'p-1'}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleRightPanelCompact();
+              }}
+              className={`flex w-full items-center gap-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white ${isRightPanelContentVisible ? 'justify-start px-4 py-3 text-xs font-medium' : 'justify-center p-3'}`}
             >
               {isRightPanelCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               {isRightPanelContentVisible && <span>{text.sidebar.collapseWindow}</span>}
             </button>
           </div>
           {isRightPanelContentVisible && (
-            <div className="p-4 flex flex-col gap-4 overflow-y-auto">
+            <>
+            <div className="min-h-0 flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
               <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.properties}</div>
               {isPreviewMode ? (
                 <div className="flex flex-col gap-4">
@@ -327,6 +342,66 @@ export default function EditorRightSidebar(props: any) {
                 )
               )}
             </div>
+            {!isPreviewMode && (
+              <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-neutral-800 p-4">
+                <div className="mb-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.currentParent}</div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={currentParentInput}
+                    placeholder={text.sidebar.auto}
+                    className="w-full rounded border border-neutral-700 bg-neutral-800 p-2 text-sm outline-none focus:border-indigo-500"
+                    onChange={(e) => setCurrentParentInput(e.target.value)}
+                    onBlur={() => setCurrentParentInput(stripInputWhitespace(currentParentInput))}
+                  />
+                  <div className="mt-2 text-xs text-neutral-400">
+                    {currentParentNote
+                      ? `ID ${currentParentNote.id} | XPos ${formatNoteLane(currentParentNote.lane)} | Type ${NOTE_TYPES[currentParentNote.type]?.name || currentParentNote.type}`
+                      : currentParentInput.trim() === ''
+                        ? 'Auto-select current ID when placing.'
+                        : 'No note exists with that ID.'}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => setCurrentParentInput('')}
+                      className="flex-1 rounded bg-neutral-800 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-700"
+                    >
+                      {text.sidebar.auto}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (selectedSingleNote) {
+                          setCurrentParentInput(selectedSingleNote.id.toString());
+                        }
+                      }}
+                      disabled={!canUseSelectedAsParent}
+                      className="flex-1 rounded bg-neutral-800 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-700 disabled:bg-neutral-900 disabled:text-neutral-600"
+                    >
+                      {text.sidebar.useSelected}
+                    </button>
+                  </div>
+                  <div className="mt-2 text-xs text-neutral-500">
+                    Current ID: {currentId}
+                  </div>
+                </div>
+
+                <div className="border-t border-neutral-800 pt-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.selectedNote}</div>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded border border-neutral-700 shadow-sm"
+                      style={{ backgroundColor: NOTE_TYPES[selectedNoteType]?.color || '#3b82f6' }}
+                    />
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium text-neutral-300">{NOTE_TYPES[selectedNoteType]?.name || 'Unknown'} ({selectedNoteType})</span>
+                      <span className="text-xs text-neutral-400">Width: {noteWidth} / 16</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </aside>
   );

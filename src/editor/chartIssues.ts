@@ -20,6 +20,7 @@ export interface ChartIssue {
 const DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
 const CAMERA_CENTER_X_POSITION = 8;
 const CAMERA_X_POSITION_HALF_RANGE = 10;
+const GOOD_HIT_WINDOW_SECONDS = 0.1;
 const POSITION_EPSILON = 0.000001;
 
 const getNoteEndLane = (note: Note) => note.lane + note.width;
@@ -75,6 +76,76 @@ const buildCameraMovementSegments = (notes: Note[], notesById: Map<number, Note>
   ))
   .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime));
 
+const doRangesOverlap = (
+  firstMin: number,
+  firstMax: number,
+  secondMin: number,
+  secondMax: number,
+) => (
+  firstMax >= secondMin - POSITION_EPSILON
+  && firstMin <= secondMax + POSITION_EPSILON
+);
+
+const isCameraXPositionRangeHittable = (
+  cameraXPositionMin: number,
+  cameraXPositionMax: number,
+  note: Note,
+) => doRangesOverlap(
+  Math.min(cameraXPositionMin, cameraXPositionMax),
+  Math.max(cameraXPositionMin, cameraXPositionMax),
+  note.lane - CAMERA_X_POSITION_HALF_RANGE,
+  getNoteEndLane(note) + CAMERA_X_POSITION_HALF_RANGE,
+);
+
+const canNoteBeHitWithinCameraRange = (
+  cameraMovementIntervals: ReturnType<typeof buildPreviewCameraMovementIntervals>,
+  note: Note,
+) => {
+  const hitWindowStartTime = note.time - GOOD_HIT_WINDOW_SECONDS;
+  const hitWindowEndTime = note.time + GOOD_HIT_WINDOW_SECONDS;
+  let uncheckedStartTime = hitWindowStartTime;
+
+  for (const interval of cameraMovementIntervals) {
+    if (interval.endTime < hitWindowStartTime - SNAP_EPSILON) {
+      continue;
+    }
+
+    if (interval.startTime > hitWindowEndTime + SNAP_EPSILON) {
+      break;
+    }
+
+    const gapEndTime = Math.min(interval.startTime, hitWindowEndTime);
+    if (
+      gapEndTime > uncheckedStartTime + SNAP_EPSILON
+      && isCameraXPositionRangeHittable(CAMERA_CENTER_X_POSITION, CAMERA_CENTER_X_POSITION, note)
+    ) {
+      return true;
+    }
+
+    const overlapStartTime = Math.max(hitWindowStartTime, interval.startTime);
+    const overlapEndTime = Math.min(hitWindowEndTime, interval.endTime);
+    if (overlapEndTime >= overlapStartTime - SNAP_EPSILON) {
+      const startCameraXPosition = CAMERA_CENTER_X_POSITION
+        + interval.offsetAtStart
+        + interval.slope * (overlapStartTime - interval.startTime);
+      const endCameraXPosition = CAMERA_CENTER_X_POSITION
+        + interval.offsetAtStart
+        + interval.slope * (overlapEndTime - interval.startTime);
+
+      if (isCameraXPositionRangeHittable(startCameraXPosition, endCameraXPosition, note)) {
+        return true;
+      }
+
+      uncheckedStartTime = Math.max(uncheckedStartTime, overlapEndTime);
+    }
+  }
+
+  return (
+    uncheckedStartTime < hitWindowEndTime - SNAP_EPSILON
+    && isCameraXPositionRangeHittable(CAMERA_CENTER_X_POSITION, CAMERA_CENTER_X_POSITION, note)
+  );
+};
+
 export const findChartIssues = (
   notes: Note[],
   getTimeposFromTime: (time: number) => number,
@@ -122,6 +193,32 @@ export const findChartIssues = (
     });
   });
 
+  notes.forEach((note) => {
+    if (!canTypeHaveParent(note.type) || note.parentId === null) {
+      return;
+    }
+
+    const parentNote = notesById.get(note.parentId);
+    if (!parentNote || !Number.isFinite(note.time) || !Number.isFinite(parentNote.time)) {
+      return;
+    }
+
+    if (note.time + SNAP_EPSILON >= parentNote.time) {
+      return;
+    }
+
+    const timepos = timeposByNoteId.get(note.id) ?? null;
+    issues.push({
+      id: nextIssueId++,
+      severity: 'warning',
+      category: 'hold',
+      title: 'Hold Child Before Parent',
+      detail: `Note #${note.id} is before parent #${parentNote.id}`,
+      noteIds: [parentNote.id, note.id],
+      timepos,
+    });
+  });
+
   if (notes.some(isPinkCameraNote)) {
     const cameraMovementSegments = buildCameraMovementSegments(notes, notesById);
     const cameraMovementIntervals = buildPreviewCameraMovementIntervals(cameraMovementSegments);
@@ -135,6 +232,10 @@ export const findChartIssues = (
         return;
       }
 
+      if (canNoteBeHitWithinCameraRange(cameraMovementIntervals, note)) {
+        return;
+      }
+
       const cameraXPosition = CAMERA_CENTER_X_POSITION + getPreviewCameraXPositionOffset(cameraMovementIntervals, note.time);
       if (!Number.isFinite(cameraXPosition)) {
         return;
@@ -142,14 +243,6 @@ export const findChartIssues = (
 
       const minVisibleXPosition = cameraXPosition - CAMERA_X_POSITION_HALF_RANGE;
       const maxVisibleXPosition = cameraXPosition + CAMERA_X_POSITION_HALF_RANGE;
-      const noteEndLane = getNoteEndLane(note);
-
-      if (
-        noteEndLane >= minVisibleXPosition - POSITION_EPSILON
-        && note.lane <= maxVisibleXPosition + POSITION_EPSILON
-      ) {
-        return;
-      }
 
       const timepos = timeposByNoteId.get(note.id) ?? null;
       issues.push({
@@ -157,7 +250,7 @@ export const findChartIssues = (
         severity: 'warning',
         category: 'camera',
         title: 'Note Outside Camera Range',
-        detail: `Note #${note.id} ${formatNotePosition(note)} is outside camera range x${formatNoteLane(minVisibleXPosition)} to x${formatNoteLane(maxVisibleXPosition)} at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (camera x${formatNoteLane(cameraXPosition)})`,
+        detail: `Note #${note.id} ${formatNotePosition(note)} is outside camera range x${formatNoteLane(minVisibleXPosition)} to x${formatNoteLane(maxVisibleXPosition)} throughout the +/-100ms GOOD hit window at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (camera x${formatNoteLane(cameraXPosition)} at note time)`,
         noteIds: [note.id],
         timepos,
       });

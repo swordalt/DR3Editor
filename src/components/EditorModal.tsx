@@ -8,6 +8,7 @@ import {
   type MetadataField,
   type MetadataInvalidFields,
 } from '../editor/metadataValidation';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 
 interface EditorModalProps {
   isOpen: boolean;
@@ -41,6 +42,13 @@ export default function EditorModal({
   const getInputClassName = (field: MetadataField) => (
     `w-full p-3 bg-neutral-800 rounded-lg border outline-none transition-colors ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
   );
+  const sanitizeMetadataField = (field: keyof Pick<EditorFormData, 'songId' | 'songName' | 'songArtist' | 'songBpm' | 'difficulty'>) => {
+    setFormData({ ...formData, [field]: stripInputWhitespace(formData[field]) });
+  };
+  const commitValidatedMetadataField = (field: MetadataField) => {
+    sanitizeMetadataField(field);
+    showMetadataFieldValidation(field);
+  };
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -83,12 +91,12 @@ export default function EditorModal({
                 value={formData.songId}
                 required
                 className={getInputClassName('songId')}
-                onBlur={() => showMetadataFieldValidation('songId')}
+                onBlur={() => commitValidatedMetadataField('songId')}
                 onKeyDown={(event) => handleMetadataFieldKeyDown('songId', event)}
                 onChange={(e) => setFormData({...formData, songId: e.target.value})}
               />
-              <input type="text" placeholder={text.modal.songName} value={formData.songName} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
-              <input type="text" placeholder={text.modal.songArtist} value={formData.songArtist} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
+              <input type="text" placeholder={text.modal.songName} value={formData.songName} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onBlur={() => sanitizeMetadataField('songName')} onChange={(e) => setFormData({...formData, songName: e.target.value})} />
+              <input type="text" placeholder={text.modal.songArtist} value={formData.songArtist} className="w-full p-3 bg-neutral-800 rounded-lg border border-neutral-700 focus:border-indigo-500 outline-none transition-colors" onBlur={() => sanitizeMetadataField('songArtist')} onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
               <input
                 type="text"
                 inputMode="decimal"
@@ -96,7 +104,7 @@ export default function EditorModal({
                 value={formData.songBpm}
                 required
                 className={getInputClassName('songBpm')}
-                onBlur={() => showMetadataFieldValidation('songBpm')}
+                onBlur={() => commitValidatedMetadataField('songBpm')}
                 onKeyDown={(event) => handleMetadataFieldKeyDown('songBpm', event)}
                 onChange={(e) => setFormData({...formData, songBpm: e.target.value})}
               />
@@ -107,7 +115,7 @@ export default function EditorModal({
                 value={formData.difficulty}
                 required
                 className={getInputClassName('difficulty')}
-                onBlur={() => showMetadataFieldValidation('difficulty')}
+                onBlur={() => commitValidatedMetadataField('difficulty')}
                 onKeyDown={(event) => handleMetadataFieldKeyDown('difficulty', event)}
                 onChange={(e) => setFormData({...formData, difficulty: e.target.value})}
               />

@@ -2,6 +2,7 @@ import { ArrowLeft, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import VirtualizedChangeList from './VirtualizedChangeList';
 import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
+import { stripInputWhitespace } from '../utils/inputSanitization';
 import {
   CURVE_EASING_FAMILY_OPTIONS,
   CURVE_EASING_TYPE_OPTIONS,
@@ -91,6 +92,13 @@ export default function EditorLeftEditInfoPanel(props: any) {
   const getMetadataInputClassName = (field: MetadataField) => (
     `w-full p-2 text-sm bg-neutral-800 rounded border outline-none ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
   );
+  const sanitizeMetadataField = (field: 'songId' | 'songName' | 'songArtist' | 'difficulty') => {
+    setFormData({ ...formData, [field]: stripInputWhitespace(formData[field]) });
+  };
+  const commitValidatedMetadataField = (field: 'songId' | 'difficulty') => {
+    sanitizeMetadataField(field);
+    showMetadataFieldValidation(field);
+  };
 
   return (
     <>
@@ -110,18 +118,18 @@ export default function EditorLeftEditInfoPanel(props: any) {
                     value={formData.songId}
                     required
                     className={getMetadataInputClassName('songId')}
-                    onBlur={() => showMetadataFieldValidation('songId')}
+                    onBlur={() => commitValidatedMetadataField('songId')}
                     onKeyDown={(event) => handleMetadataFieldKeyDown('songId', event)}
                     onChange={(e) => setFormData({...formData, songId: e.target.value})}
                   />
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">{text.modal.songName}</label>
-                  <input type="text" value={formData.songName} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songName: e.target.value})} />
+                  <input type="text" value={formData.songName} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onBlur={() => sanitizeMetadataField('songName')} onChange={(e) => setFormData({...formData, songName: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">{text.modal.songArtist}</label>
-                  <input type="text" value={formData.songArtist} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
+                  <input type="text" value={formData.songArtist} className="w-full p-2 text-sm bg-neutral-800 rounded border border-neutral-700 focus:border-indigo-500 outline-none" onBlur={() => sanitizeMetadataField('songArtist')} onChange={(e) => setFormData({...formData, songArtist: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs text-neutral-400 mb-1">{text.modal.difficultyRequired}</label>
@@ -131,7 +139,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
                     value={formData.difficulty}
                     required
                     className={getMetadataInputClassName('difficulty')}
-                    onBlur={() => showMetadataFieldValidation('difficulty')}
+                    onBlur={() => commitValidatedMetadataField('difficulty')}
                     onKeyDown={(event) => handleMetadataFieldKeyDown('difficulty', event)}
                     onChange={(e) => setFormData({...formData, difficulty: e.target.value})}
                   />
