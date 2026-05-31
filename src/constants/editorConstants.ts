@@ -1,3 +1,5 @@
+import { formatTranslation, translations } from '../lang';
+
 export interface NoteTypeDefinition {
   name: string;
   color: string;
@@ -5,7 +7,7 @@ export interface NoteTypeDefinition {
 }
 
 export const UNKNOWN_NOTE_TYPE: NoteTypeDefinition = {
-  name: 'Unknown',
+  name: translations.noteTypes.unknown,
   color: '#ffffff',
   sound: null,
 };
@@ -27,31 +29,32 @@ export const getConnectorFill = (noteType: number) => {
 };
 
 export const NOTE_TYPES: Record<number, NoteTypeDefinition> = {
-  1: { name: 'Blue Tap', color: '#0080ff', sound: 'hit.ogg' },
-  2: { name: 'Yellow Tap', color: '#ffc864', sound: 'hit.ogg' },
-  3: { name: 'Orange Hold Start', color: '#ffc0a0', sound: 'hit.ogg' },
-  4: { name: 'Orange Hold End', color: '#ff8040', sound: 'hit.ogg' },
-  5: { name: 'Blue Hold Start', color: '#80c0ff', sound: 'hit.ogg' },
-  6: { name: 'Blue Hold Center', color: '#80c0ff', sound: null },
-  7: { name: 'Blue Hold End', color: '#80c0ff', sound: 'hit.ogg' },
-  9: { name: 'Circle Flick', color: '#00ffff', sound: 'flick.ogg' },
-  10: { name: 'Damage', color: '#870000', sound: 'hit.ogg' },
-  11: { name: 'Orange Hold Center', color: '#ff8040', sound: null },
-  13: { name: 'Flick Left', color: '#00ffff', sound: 'flick.ogg' },
-  14: { name: 'Flick Right', color: '#ff80ff', sound: 'flick.ogg' },
-  15: { name: 'Flick Up', color: '#00ff80', sound: 'flick.ogg' },
-  16: { name: 'Flick Down', color: '#8000ff', sound: 'flick.ogg' },
-  17: { name: 'Damage Middle', color: '#700000', sound: null },
-  18: { name: 'Damage End', color: '#700000', sound: 'hit.ogg' },
-  19: { name: 'Green Hold Center', color: '#68ff3f', sound: null },
-  20: { name: 'Green Hold End', color: '#68ff3f', sound: 'hit.ogg' },
-  21: { name: 'Yellow Hold Center', color: '#f8ff3f', sound: null },
-  22: { name: 'Yellow Hold End', color: '#f8ff3f', sound: 'hit.ogg' },
-  23: { name: 'Pink Hold Center', color: '#feb4b4', sound: null },
-  24: { name: 'Pink Hold End', color: '#feb4b4', sound: 'hit.ogg' },
-  25: { name: '2-Finger Tap', color: '#00fc41', sound: 'hit.ogg' },
-  26: { name: '3-Finger Tap', color: '#fc8500', sound: 'hit.ogg' },
-  27: { name: '4-Finger Tap', color: '#ff0000', sound: 'hit.ogg' },
+  1: { name: translations.noteTypes[1], color: '#0080ff', sound: 'hit.ogg' },
+  2: { name: translations.noteTypes[2], color: '#ffc864', sound: 'hit.ogg' },
+  3: { name: translations.noteTypes[3], color: '#ffc0a0', sound: 'hit.ogg' },
+  4: { name: translations.noteTypes[4], color: '#ff8040', sound: 'hit.ogg' },
+  5: { name: translations.noteTypes[5], color: '#80c0ff', sound: 'hit.ogg' },
+  6: { name: translations.noteTypes[6], color: '#80c0ff', sound: null },
+  7: { name: translations.noteTypes[7], color: '#80c0ff', sound: 'hit.ogg' },
+  9: { name: translations.noteTypes[9], color: '#00ffff', sound: 'flick.ogg' },
+  10: { name: translations.noteTypes[10], color: '#870000', sound: 'hit.ogg' },
+  11: { name: translations.noteTypes[11], color: '#ff8040', sound: null },
+  13: { name: translations.noteTypes[13], color: '#00ffff', sound: 'flick.ogg' },
+  14: { name: translations.noteTypes[14], color: '#ff80ff', sound: 'flick.ogg' },
+  15: { name: translations.noteTypes[15], color: '#00ff80', sound: 'flick.ogg' },
+  16: { name: translations.noteTypes[16], color: '#8000ff', sound: 'flick.ogg' },
+  17: { name: translations.noteTypes[17], color: '#700000', sound: null },
+  18: { name: translations.noteTypes[18], color: '#700000', sound: 'hit.ogg' },
+  19: { name: translations.noteTypes[19], color: '#68ff3f', sound: null },
+  20: { name: translations.noteTypes[20], color: '#68ff3f', sound: 'hit.ogg' },
+  21: { name: translations.noteTypes[21], color: '#f8ff3f', sound: null },
+  22: { name: translations.noteTypes[22], color: '#f8ff3f', sound: 'hit.ogg' },
+  23: { name: translations.noteTypes[23], color: '#feb4b4', sound: null },
+  24: { name: translations.noteTypes[24], color: '#feb4b4', sound: 'hit.ogg' },
+  25: { name: translations.noteTypes[25], color: '#00fc41', sound: 'hit.ogg' },
+  26: { name: translations.noteTypes[26], color: '#fc8500', sound: 'hit.ogg' },
+  27: { name: translations.noteTypes[27], color: '#ff0000', sound: 'hit.ogg' },
 };
 
 export const AVAILABLE_NOTE_TYPES = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
+export const formatUnknownNoteTypeName = (type: number) => formatTranslation(translations.noteTypes.type, { type });

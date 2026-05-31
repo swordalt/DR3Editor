@@ -100,7 +100,7 @@ export default function LandingPage({
           <section className="flex w-full flex-col animate-[rise-in_500ms_ease-out]">
             <section className="rounded-xl border border-white/10 bg-neutral-950/75 p-4 shadow-2xl shadow-black/20">
               <div className="mb-3">
-                <h2 className="text-sm font-bold text-white">Actions</h2>
+                <h2 className="text-sm font-bold text-white">{text.landing.actions}</h2>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
@@ -135,7 +135,7 @@ export default function LandingPage({
                     <GraduationCap className="h-5 w-5" />
                   </span>
                 <span className="min-w-0">
-                  <span className="block text-base font-bold text-white">Tutorial</span>
+                  <span className="block text-base font-bold text-white">{text.landing.tutorial}</span>
                 </span>
               </button>
               </div>
@@ -167,7 +167,7 @@ export default function LandingPage({
                       </span>
                       <span className="truncate text-sm font-semibold text-neutral-200 group-hover:text-white">{example.label}</span>
                     </span>
-                    <span className="hidden shrink-0 text-xs font-medium text-neutral-500 sm:block">Load</span>
+                    <span className="hidden shrink-0 text-xs font-medium text-neutral-500 sm:block">{text.landing.load}</span>
                   </button>
                 ))}
               </div>
@@ -190,7 +190,7 @@ export default function LandingPage({
                   onClick={() => setActiveInfoTab('about')}
                   className={`text-sm font-bold transition-colors ${activeInfoTab === 'about' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
                 >
-                  About
+                  {text.landing.about}
                 </button>
                 <span className="h-4 w-px bg-white/15" aria-hidden="true" />
                 <button
@@ -198,7 +198,7 @@ export default function LandingPage({
                   onClick={() => setActiveInfoTab('source')}
                   className={`text-sm font-bold transition-colors ${activeInfoTab === 'source' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
                 >
-                  Source
+                  {text.landing.source}
                 </button>
                 <span className="h-4 w-px bg-white/15" aria-hidden="true" />
                 <button
@@ -206,7 +206,7 @@ export default function LandingPage({
                   onClick={() => setActiveInfoTab('changelog')}
                   className={`text-sm font-bold transition-colors ${activeInfoTab === 'changelog' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
                 >
-                  Changelog
+                  {text.landing.changelog}
                 </button>
               </div>
 
@@ -238,8 +238,8 @@ export default function LandingPage({
                         <Github className="h-5 w-5" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-base font-bold text-white">View Source Code</span>
-                        <span className="mt-1 block truncate text-sm font-medium text-neutral-400">GitHub: swordalt/dancerail3-editor</span>
+                        <span className="block text-base font-bold text-white">{text.landing.viewSourceCode}</span>
+                        <span className="mt-1 block truncate text-sm font-medium text-neutral-400">{text.landing.repositoryLabel}</span>
                       </span>
                     </a>
 
@@ -248,47 +248,47 @@ export default function LandingPage({
                     <div className="space-y-3">
                       <div className="flex items-center gap-2">
                         <HeartHandshake className="h-4 w-4 text-neutral-400" />
-                        <h2 className="text-sm font-bold text-white">Attribution</h2>
+                        <h2 className="text-sm font-bold text-white">{text.landing.attribution}</h2>
                       </div>
 
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
                             <Music2 className="h-3.5 w-3.5" />
-                            Assets
+                            {text.landing.assets}
                           </div>
                           <p className="mt-2 text-sm leading-5 text-neutral-300">
-                            Hitsounds and note sprites from <strong className="font-semibold text-neutral-100">DanceRail3Viewer</strong> by lucarioex.
+                            {text.landing.assetsAttributionPrefix} <strong className="font-semibold text-neutral-100">DanceRail3Viewer</strong> {text.landing.assetsAttributionSuffix}
                           </p>
                         </div>
 
                         <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
                             <Image className="h-3.5 w-3.5" />
-                            Examples & Logo
+                            {text.landing.examplesAndLogo}
                           </div>
                           <p className="mt-2 text-sm leading-5 text-neutral-300">
-                            Example projects and logo design from <strong className="font-semibold text-neutral-100">DanceRail3</strong> by SoraGame.
+                            {text.landing.examplesAndLogoAttributionPrefix} <strong className="font-semibold text-neutral-100">DanceRail3</strong> {text.landing.examplesAndLogoAttributionSuffix}
                           </p>
                         </div>
 
                         <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
                             <Sparkles className="h-3.5 w-3.5" />
-                            Easings
+                            {text.landing.easings}
                           </div>
                           <p className="mt-2 text-sm leading-5 text-neutral-300">
-                            Easing references from <strong className="font-semibold text-neutral-100">easings.net</strong> by Andrey Sitnik and Ivan Solovev.
+                            {text.landing.easingsAttributionPrefix} <strong className="font-semibold text-neutral-100">easings.net</strong> {text.landing.easingsAttributionSuffix}
                           </p>
                         </div>
 
                         <div className="rounded-lg border border-white/10 bg-neutral-950/40 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase text-neutral-500">
                             <Palette className="h-3.5 w-3.5" />
-                            Inspiration
+                            {text.landing.inspiration}
                           </div>
                           <p className="mt-2 text-sm leading-5 text-neutral-300">
-                            Design and functionality inspired by <strong className="font-semibold text-neutral-100">DanceRail3Maker</strong> by lucarioex and <strong className="font-semibold text-neutral-100">PhiEdit</strong> by cmdysj.
+                            {text.landing.inspirationAttributionPrefix} <strong className="font-semibold text-neutral-100">DanceRail3Maker</strong> {text.landing.inspirationAttributionMiddle} <strong className="font-semibold text-neutral-100">PhiEdit</strong> {text.landing.inspirationAttributionSuffix}
                           </p>
                         </div>
                       </div>
@@ -327,14 +327,14 @@ export default function LandingPage({
 
       {shouldShowViewportNotice && !isViewportNoticeDismissed && (
         <div
-          className={`fixed inset-0 z-[70] flex items-center justify-center p-4 animate-[fade-in_180ms_ease-out] ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
+          className={`fixed inset-0 z-[70] flex items-center justify-center p-4 animate-[fade-in_180ms_ease-out] ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/55 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}
           onMouseDown={() => setIsViewportNoticeDismissed(true)}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="viewport-notice-title"
-            className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-900 p-5 text-left shadow-2xl shadow-black/50 animate-[dialog-in_220ms_ease-out]"
+            className="w-full max-w-sm rounded-3xl border border-white/10 bg-neutral-950/90 p-5 text-left shadow-2xl shadow-black/50 animate-[dialog-in_220ms_ease-out]"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between gap-4">
@@ -344,24 +344,24 @@ export default function LandingPage({
               <button
                 type="button"
                 onClick={() => setIsViewportNoticeDismissed(true)}
-                aria-label="Dismiss display notice"
+                aria-label={text.landing.dismissDisplayNotice}
                 className="rounded-lg p-2 text-neutral-400 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             <h2 id="viewport-notice-title" className="text-lg font-bold text-white">
-              Notice
+              {text.landing.notice}
             </h2>
             <p className="mt-2 text-sm leading-6 text-neutral-300">
-              This editor contains mouse/keyboard-exclusive hotkeys, and is best used with a horizontal widescreen display of 16:9 or wider.
+              {text.landing.displayNotice}
             </p>
             <button
               type="button"
               onClick={() => setIsViewportNoticeDismissed(true)}
               className="mt-5 w-full rounded-lg border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:border-white/25 hover:bg-white/15"
             >
-              Acknowledge
+              {text.landing.acknowledge}
             </button>
           </div>
         </div>

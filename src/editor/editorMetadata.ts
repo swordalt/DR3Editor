@@ -1,8 +1,12 @@
+import { formatTranslation, translations } from '../lang';
+
 export const getTierBadge = (difficulty?: string) => {
   const difficultyText = difficulty?.trim() || '';
   const difficultyValue = Number.parseInt(difficultyText, 10);
   const tier = Number.isFinite(difficultyValue) ? Math.max(0, difficultyValue) : 0;
-  const label = tier === 0 ? 'Tier ?' : `Tier ${difficultyText || tier}`;
+  const label = tier === 0
+    ? translations.editor.tierUnknown
+    : formatTranslation(translations.editor.tier, { difficulty: difficultyText || tier });
   const tierText = tier === 0 ? '?' : difficultyText || `${tier}`;
 
   if (tier >= 21) {

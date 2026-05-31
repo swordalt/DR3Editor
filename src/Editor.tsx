@@ -149,12 +149,12 @@ import {
   type Dr3FpPreviewLogEntry,
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
-import { translations } from './lang';
+import { formatTranslation, translations } from './lang';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
 
-const convertNonOggAudioFileForProject = async (file: File) => (
-  isOggAudioFile(file) ? file : convertAudioFileToOgg(file)
+const convertNonOggAudioFileForProject = async (file: File, shouldConvertAudio: boolean) => (
+  shouldConvertAudio && !isOggAudioFile(file) ? convertAudioFileToOgg(file) : file
 );
 
 const getOffsetInSeconds = (offset: string | number) => {
@@ -389,6 +389,9 @@ const PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP = 1;
 const PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT = 24;
 const PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT = 64;
 const PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD = 500;
+const HOLD_CONNECTOR_VERTICAL_OUTLINE_WIDTH = 5;
+const HOLD_CONNECTOR_VERTICAL_OUTLINE_ALPHA = 0.8;
+const NATIVE_HOLD_CONNECTOR_ALPHA = 0.36;
 const EDITOR_STYLE_HOLD_CONNECTOR_EXTRA_INSET_PIXELS = 3;
 const HOLD_CONNECTOR_TYPE_SET = new Set(HOLD_CONNECTOR_TYPES);
 const HOLD_START_TYPE_SET = new Set(HOLD_START_TYPES);
@@ -400,13 +403,34 @@ PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.delete(17);
 const PREVIEW_CONSTANT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const PREVIEW_DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
 const PREVIEW_PINK_HOLD_CONNECTOR_TYPES = new Set([23, 24]);
-const EDITOR_HOLD_CONNECTOR_ALPHA = 0.55;
+const NATIVE_HOLD_CONNECTOR_SPRITE_COLORS: Record<number, { body: string; outline: string }> = {
+  3: { body: '#623700', outline: '#fe8f00' },
+  4: { body: '#623700', outline: '#fe8f00' },
+  5: { body: '#004062', outline: '#00a7fe' },
+  6: { body: '#004062', outline: '#00a7fe' },
+  7: { body: '#004062', outline: '#00a7fe' },
+  8: { body: '#636363', outline: '#ffffff' },
+  10: { body: '#620000', outline: '#fe0000' },
+  11: { body: '#623700', outline: '#fe8f00' },
+  17: { body: '#620000', outline: '#fe0000' },
+  18: { body: '#620000', outline: '#fe0000' },
+  19: { body: '#356200', outline: '#89fe00' },
+  20: { body: '#356200', outline: '#89fe00' },
+  21: { body: '#5e6200', outline: '#f5fe00' },
+  22: { body: '#5e6200', outline: '#f5fe00' },
+  23: { body: '#ff8080', outline: '#ffc0c0' },
+  24: { body: '#ff8080', outline: '#ffc0c0' },
+};
 const getPreviewHoldTextureAlpha = (connectorType: number) => (
   PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(connectorType)
     ? 1
     : PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType)
       ? 0.62
       : 0.42
+);
+const getNativeHoldConnectorSpriteColors = (connectorType: number) => (
+  NATIVE_HOLD_CONNECTOR_SPRITE_COLORS[connectorType]
+  || { body: '#636363', outline: '#ffffff' }
 );
 const isArrowFlickType = (type: number) => type >= 13 && type <= 16;
 const EDITOR_NUMBERED_NOTE_LABELS: Record<number, string> = {
@@ -490,6 +514,7 @@ export default function Editor({
   const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
   const [isVSyncEnabled, setIsVSyncEnabled] = useState(initialEditorSettings.isVSyncEnabled);
   const [isDr3FpPreviewEnabled, setIsDr3FpPreviewEnabled] = useState(initialEditorSettings.isDr3FpPreviewEnabled);
+  const [isAudioConversionEnabled, setIsAudioConversionEnabled] = useState(initialEditorSettings.isAudioConversionEnabled);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -626,6 +651,7 @@ export default function Editor({
       isEditorJudgementGlowEnabled,
       isVSyncEnabled,
       isDr3FpPreviewEnabled,
+      isAudioConversionEnabled,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -655,6 +681,7 @@ export default function Editor({
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
     isDr3FpPreviewEnabled,
+    isAudioConversionEnabled,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -1635,10 +1662,12 @@ export default function Editor({
 
     recordOperation({
       category: 'note',
-      title: deletedNotes.length === 1 ? 'Deleted note' : `Deleted ${deletedNotes.length} notes`,
+      title: deletedNotes.length === 1
+        ? text.operations.deletedNote
+        : formatTranslation(text.operations.deletedNotes, { count: deletedNotes.length }),
       detail: deletedNotes.length === 1
         ? getNoteHistoryDetail(deletedNotes[0])
-        : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
+        : formatTranslation(text.operations.idsDetail, { ids: formatGroupedIds(deletedNotes.map(note => note.id)) }),
     });
 
     restoreCurrentParentAfterDeletingNotes(deletedNotes);
@@ -1667,8 +1696,10 @@ export default function Editor({
 
     recordOperation({
       category: 'note',
-      title: selectedNotes.length === 1 ? 'Mirrored note' : `Mirrored ${selectedNotes.length} notes`,
-      detail: `IDs ${formatGroupedIds(selectedNotes.map(note => note.id))} around xpos 8`,
+      title: selectedNotes.length === 1
+        ? text.operations.mirroredNote
+        : formatTranslation(text.operations.mirroredNotes, { count: selectedNotes.length }),
+      detail: formatTranslation(text.operations.mirroredAroundXpos, { ids: formatGroupedIds(selectedNotes.map(note => note.id)) }),
     });
 
     setNotes(prev => prev.map(note => {
@@ -1692,8 +1723,10 @@ export default function Editor({
 
     recordOperation({
       category: 'note',
-      title: selectedNotes.length === 1 ? 'Centered note' : `Centered ${selectedNotes.length} notes`,
-      detail: `IDs ${formatGroupedIds(selectedNotes.map(note => note.id))} at xpos 8`,
+      title: selectedNotes.length === 1
+        ? text.operations.centeredNote
+        : formatTranslation(text.operations.centeredNotes, { count: selectedNotes.length }),
+      detail: formatTranslation(text.operations.centeredAtXpos, { ids: formatGroupedIds(selectedNotes.map(note => note.id)) }),
     });
 
     setNotes(prev => prev.map(note => (
@@ -2166,8 +2199,14 @@ export default function Editor({
     if (dragStartNote && dragEndNote && (dragStartNote.time !== dragEndNote.time || dragStartNote.lane !== dragEndNote.lane)) {
       recordOperation({
         category: 'note',
-        title: 'Moved note',
-        detail: `#${dragStartNote.id} from ${formatTime(dragStartNote.time, timedBpmChanges)}, xpos ${formatNoteLane(dragStartNote.lane)} to ${formatTime(dragEndNote.time, timedBpmChanges)}, xpos ${formatNoteLane(dragEndNote.lane)}`,
+        title: text.operations.movedNote,
+        detail: formatTranslation(text.operations.movedNoteDetail, {
+          noteId: dragStartNote.id,
+          fromTime: formatTime(dragStartNote.time, timedBpmChanges),
+          fromX: formatNoteLane(dragStartNote.lane),
+          toTime: formatTime(dragEndNote.time, timedBpmChanges),
+          toX: formatNoteLane(dragEndNote.lane),
+        }),
       });
     }
 
@@ -2237,7 +2276,7 @@ export default function Editor({
     setMetadataTouchedFields(getRequiredMetadataTouchedFields());
 
     if (hasInvalidMetadataFields(invalidMetadataFields)) {
-      alert('Please enter a valid Song ID, Song BPM, Difficulty, and Audio File.');
+      alert(text.editor.invalidMetadataAlert);
       return;
     }
 
@@ -2247,14 +2286,14 @@ export default function Editor({
     let audioUrl = projectData?.audioUrl || '';
 
     if (nextSongFile && nextSongFile !== projectData?.songFile) {
-      wasAudioConvertedToOgg = !isOggAudioFile(nextSongFile);
+      wasAudioConvertedToOgg = isAudioConversionEnabled && !isOggAudioFile(nextSongFile);
       setIsProjectAudioConverting(true);
 
       try {
-        nextSongFile = await convertNonOggAudioFileForProject(nextSongFile);
+        nextSongFile = await convertNonOggAudioFileForProject(nextSongFile, isAudioConversionEnabled);
       } catch (error) {
-        console.warn('Failed to convert MP3 audio to OGG:', error);
-        alert('The selected MP3 audio could not be converted to OGG.');
+        console.warn(text.editor.audioConversionFailedLog, error);
+        alert(text.editor.audioConversionFailedAlert);
         setIsProjectAudioConverting(false);
         return;
       }
@@ -2302,8 +2341,8 @@ export default function Editor({
 
     recordOperation({
       category: 'metadata',
-      title: wasProjectCreated ? 'Created project metadata' : 'Updated chart metadata',
-      detail: `${sanitizedFormData.songName || 'Untitled Project'} | BPM ${formatHistoryNumber(nextBpm)} | Difficulty ${sanitizedFormData.difficulty || 'None'}`,
+      title: wasProjectCreated ? text.operations.createdProjectMetadata : text.operations.updatedChartMetadata,
+      detail: `${sanitizedFormData.songName || text.editor.untitledProject} | ${text.sidebar.bpm} ${formatHistoryNumber(nextBpm)} | ${text.modal.difficultyRequired.replace(' *', '')} ${sanitizedFormData.difficulty || text.common.none}`,
     });
   };
 
@@ -3242,11 +3281,16 @@ export default function Editor({
         recordOperation({
           category: 'note',
           title: pastedNotes.length === 1
-            ? shouldMirrorPaste ? 'Mirrored and pasted note' : 'Pasted note'
-            : shouldMirrorPaste ? `Mirrored and pasted ${pastedNotes.length} notes` : `Pasted ${pastedNotes.length} notes`,
+            ? shouldMirrorPaste ? text.operations.mirroredAndPastedNote : text.operations.pastedNote
+            : shouldMirrorPaste
+              ? formatTranslation(text.operations.mirroredAndPastedNotes, { count: pastedNotes.length })
+              : formatTranslation(text.operations.pastedNotes, { count: pastedNotes.length }),
           detail: pastedNotes.length === 1
             ? getNoteHistoryDetail(pastedNotes[0])
-            : `IDs ${formatGroupedIds(pastedNotes.map(note => note.id))} at ${formatTime(pasteTarget.time, timedBpmChanges)}`,
+            : formatTranslation(text.operations.pastedNotesDetail, {
+              ids: formatGroupedIds(pastedNotes.map(note => note.id)),
+              time: formatTime(pasteTarget.time, timedBpmChanges),
+            }),
         });
         return;
       }
@@ -3936,15 +3980,46 @@ export default function Editor({
       };
     };
     const drawProjectedConnectorQuad = (
+      connectorType: number,
       fromNote: Note,
       fromY: number,
       toNote: Note,
       toY: number,
     ) => {
+      const drawVerticalOutlineFaces = (
+        fromEdges: { left: number; right: number },
+        fromEdgeY: number,
+        toEdges: { left: number; right: number },
+        toEdgeY: number,
+      ) => {
+        const outlineWidth = HOLD_CONNECTOR_VERTICAL_OUTLINE_WIDTH;
+        const outlineColor = getNativeHoldConnectorSpriteColors(connectorType).outline;
+
+        ctx.save();
+        ctx.globalAlpha *= HOLD_CONNECTOR_VERTICAL_OUTLINE_ALPHA;
+        ctx.fillStyle = outlineColor;
+        ctx.beginPath();
+        ctx.moveTo(fromEdges.left - outlineWidth, fromEdgeY);
+        ctx.lineTo(fromEdges.left, fromEdgeY);
+        ctx.lineTo(toEdges.left, toEdgeY);
+        ctx.lineTo(toEdges.left - outlineWidth, toEdgeY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(fromEdges.right, fromEdgeY);
+        ctx.lineTo(fromEdges.right + outlineWidth, fromEdgeY);
+        ctx.lineTo(toEdges.right + outlineWidth, toEdgeY);
+        ctx.lineTo(toEdges.right, toEdgeY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      };
+
       if (!isPreview3DMode) {
         const fromEdges = getProjectedEditorStyleConnectorEdges(fromNote, fromY);
         const toEdges = getProjectedEditorStyleConnectorEdges(toNote, toY);
 
+        drawVerticalOutlineFaces(fromEdges, fromY, toEdges, toY);
         ctx.beginPath();
         ctx.moveTo(fromEdges.left, fromY);
         ctx.lineTo(fromEdges.right, fromY);
@@ -3970,6 +4045,7 @@ export default function Editor({
         const fromEdges = getProjectedEditorStyleConnectorEdges(segmentFromNote, segmentFromY);
         const toEdges = getProjectedEditorStyleConnectorEdges(segmentToNote, segmentToY);
 
+        drawVerticalOutlineFaces(fromEdges, segmentFromY, toEdges, segmentToY);
         ctx.beginPath();
         ctx.moveTo(fromEdges.left, segmentFromY);
         ctx.lineTo(fromEdges.right, segmentFromY);
@@ -5028,14 +5104,11 @@ export default function Editor({
           )
         : false;
       if (!didDrawPreviewHoldTexture) {
-        ctx.fillStyle = isPreviewPlaybackCanvas && PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(note.type)
-          ? NOTE_TYPES[note.type].color
-          : getConnectorFill(note.type);
+        ctx.fillStyle = getNativeHoldConnectorSpriteColors(note.type).body;
         const previousAlpha = ctx.globalAlpha;
-        if (!isPreviewPlaybackCanvas) {
-          ctx.globalAlpha *= EDITOR_HOLD_CONNECTOR_ALPHA;
-        }
+        ctx.globalAlpha *= NATIVE_HOLD_CONNECTOR_ALPHA;
         drawProjectedConnectorQuad(
+          note.type,
           clippedConnector.fromNote,
           clippedConnector.fromY,
           clippedConnector.toNote,
@@ -6199,7 +6272,7 @@ export default function Editor({
       setHoverPreview(null);
 
       if (e.button !== 0) {
-        setCurveNotesMessage('Click a note to select its ID.');
+        setCurveNotesMessage(text.operations.clickNoteToSelectId);
         return;
       }
 
@@ -6210,10 +6283,13 @@ export default function Editor({
           setCurveEndIdInput(clickedNote.id.toString());
         }
 
-        setCurveNotesMessage(`${curveIdSelectTarget === 'start' ? 'Start' : 'End'} ID set to #${clickedNote.id}.`);
+        setCurveNotesMessage(formatTranslation(
+          curveIdSelectTarget === 'start' ? text.operations.startIdSet : text.operations.endIdSet,
+          { noteId: clickedNote.id },
+        ));
         setCurveIdSelectTarget(null);
       } else {
-        setCurveNotesMessage('Click a note to select its ID.');
+        setCurveNotesMessage(text.operations.clickNoteToSelectId);
       }
       return;
     }
@@ -6286,8 +6362,8 @@ export default function Editor({
 
         recordOperation({
           category: 'note',
-          title: 'Placed note',
-          detail: `${getNoteHistoryDetail(placedNote)}${parentId === null ? '' : `, parent #${parentId}`}`,
+          title: text.operations.placedNote,
+          detail: `${getNoteHistoryDetail(placedNote)}${parentId === null ? '' : formatTranslation(text.operations.parentDetail, { parentId })}`,
         });
 
         if (currentParentInput.trim() !== '') {
@@ -6324,10 +6400,12 @@ export default function Editor({
         if (deletedNotes.length > 0) {
           recordOperation({
             category: 'note',
-            title: deletedNotes.length === 1 ? 'Deleted note' : `Deleted ${deletedNotes.length} notes`,
+            title: deletedNotes.length === 1
+              ? text.operations.deletedNote
+              : formatTranslation(text.operations.deletedNotes, { count: deletedNotes.length }),
             detail: deletedNotes.length === 1
               ? getNoteHistoryDetail(deletedNotes[0])
-              : `IDs ${formatGroupedIds(deletedNotes.map(note => note.id))}`,
+              : formatTranslation(text.operations.idsDetail, { ids: formatGroupedIds(deletedNotes.map(note => note.id)) }),
           });
         }
         restoreCurrentParentAfterDeletingNotes(deletedNotes);
@@ -6562,7 +6640,7 @@ export default function Editor({
 
   const createZipBlobForSave = (zipBuffer: ArrayBuffer) => {
     if (zipBuffer.byteLength === 0) {
-      throw new Error('Export generated an empty ZIP file.');
+      throw new Error(text.editor.emptyZipError);
     }
 
     return new Blob([zipBuffer], { type: 'application/zip' });
@@ -6591,7 +6669,7 @@ export default function Editor({
       return await (window as any).showSaveFilePicker({
         suggestedName,
         types: [{
-          description: 'ZIP Archive',
+          description: text.editor.zipArchive,
           accept: { 'application/zip': ['.zip'] },
         }],
       });
@@ -6647,13 +6725,13 @@ export default function Editor({
             return;
           }
           lastErrorMessage = body?.ready === false
-            ? 'The receiver answered but was not ready before the timeout.'
-            : 'The receiver answered with an unexpected ready response.';
+            ? text.dr3FpPreview.receiverNotReadyBeforeTimeout
+            : text.dr3FpPreview.receiverUnexpectedReadyResponse;
         } else {
-          lastErrorMessage = `The receiver returned HTTP ${response.status}.`;
+          lastErrorMessage = formatTranslation(text.dr3FpPreview.receiverHttpStatus, { status: response.status });
         }
       } catch (err) {
-        lastErrorMessage = err instanceof Error ? err.message : 'The receiver request failed.';
+        lastErrorMessage = err instanceof Error ? err.message : text.dr3FpPreview.receiverRequestFailed;
         // DR3FanmadeViewer may still be starting.
       }
 
@@ -6663,8 +6741,8 @@ export default function Editor({
     throw new Dr3FpPreviewError(
       'receiver',
       lastResponseStatus === null
-        ? 'The editor could not reach the DR3FP local receiver at 127.0.0.1:27373.'
-        : 'The DR3FP local receiver responded, but it did not become ready for this preview session.',
+        ? text.dr3FpPreview.receiverUnreachable
+        : text.dr3FpPreview.receiverNotReady,
       lastErrorMessage || undefined,
     );
   };
@@ -6682,7 +6760,7 @@ export default function Editor({
     } catch (err) {
       throw new Dr3FpPreviewError(
         'upload',
-        'The editor lost contact with the DR3FP receiver while uploading the chart bundle.',
+        text.dr3FpPreview.uploadLostContact,
         err instanceof Error ? err.message : undefined,
       );
     }
@@ -6690,7 +6768,7 @@ export default function Editor({
     if (!response.ok) {
       throw new Dr3FpPreviewError(
         'upload',
-        `DR3FP rejected the preview upload with HTTP ${response.status}.`,
+        formatTranslation(text.dr3FpPreview.uploadRejected, { status: response.status }),
         response.statusText || undefined,
       );
     }
@@ -6699,8 +6777,8 @@ export default function Editor({
     if (body?.accepted !== true) {
       throw new Dr3FpPreviewError(
         'upload',
-        'DR3FP received the upload request but did not accept the preview bundle.',
-        body ? JSON.stringify(body) : 'The receiver did not return a readable acceptance response.',
+        text.dr3FpPreview.uploadNotAccepted,
+        body ? JSON.stringify(body) : text.dr3FpPreview.unreadableAcceptanceResponse,
       );
     }
   };
@@ -6714,7 +6792,7 @@ export default function Editor({
 
     setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.exporting);
     setDr3FpPreviewLogs([
-      createDr3FpPreviewLogEntry('Started DR3FP preview.'),
+      createDr3FpPreviewLogEntry(text.dr3FpPreview.started),
       createDr3FpPreviewLogEntry(DR3FP_PREVIEW_STATUS.exporting.message),
     ]);
     setIsDr3FpPreviewInfoOpen(true);
@@ -6740,13 +6818,13 @@ export default function Editor({
       } catch (err) {
         throw new Dr3FpPreviewError(
           'export',
-          'The preview ZIP could not be created from the current chart data.',
+          text.dr3FpPreview.previewZipFailed,
           err instanceof Error ? err.message : undefined,
         );
       }
       const zipBlob = createZipBlobForSave(zipBuffer);
       const sessionId = crypto.randomUUID();
-      addDr3FpPreviewLog('Preview bundle was built.', `${formatByteSize(zipBlob.size)} ready to send.`);
+      addDr3FpPreviewLog(text.dr3FpPreview.bundleBuilt, formatTranslation(text.dr3FpPreview.readyToSend, { size: formatByteSize(zipBlob.size) }));
 
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.launching);
       addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.launching.message);
@@ -6755,7 +6833,7 @@ export default function Editor({
       } catch (err) {
         throw new Dr3FpPreviewError(
           'launch',
-          'The browser blocked or could not hand off the preview link to DR3FP.',
+          text.dr3FpPreview.previewLinkBlocked,
           err instanceof Error ? err.message : undefined,
         );
       }
@@ -6763,23 +6841,23 @@ export default function Editor({
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.receiver);
       addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.receiver.message);
       await waitForDr3FpPreviewReceiver(sessionId);
-      addDr3FpPreviewLog('DR3FP receiver is ready.');
+      addDr3FpPreviewLog(text.dr3FpPreview.receiverReady);
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.uploading);
       addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.uploading.message);
       await uploadDr3FpPreviewBundle(sessionId, zipBlob);
       setDr3FpPreviewStatus(DR3FP_PREVIEW_STATUS.complete);
       addDr3FpPreviewLog(DR3FP_PREVIEW_STATUS.complete.message);
     } catch (err) {
-      console.error('DR3FP preview failed', err);
+      console.error(text.dr3FpPreview.failedLog, err);
       if (err instanceof Dr3FpPreviewError) {
         setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(err.kind, err.message, err.detail));
         addDr3FpPreviewLog(err.message, err.detail);
       } else {
         setDr3FpPreviewStatus(createDr3FpPreviewFailureStatus(
           'upload',
-          err instanceof Error ? err.message : 'Preview failed.',
+          err instanceof Error ? err.message : text.dr3FpPreview.previewFailed,
         ));
-        addDr3FpPreviewLog(err instanceof Error ? err.message : 'Preview failed.');
+        addDr3FpPreviewLog(err instanceof Error ? err.message : text.dr3FpPreview.previewFailed);
       }
     }
   };
@@ -6861,10 +6939,10 @@ export default function Editor({
 
     recordOperation({
       category: 'note',
-      title: 'Organized chart for export',
+      title: text.operations.organizedChartForExport,
       detail: changedCount === 0
-        ? `${sourceNotes.length} notes were already in time/xpos order`
-        : `Reassigned ${sourceNotes.length} note IDs by timepos, xpos, then original ID`,
+        ? formatTranslation(text.operations.notesAlreadyOrdered, { count: sourceNotes.length })
+        : formatTranslation(text.operations.reassignedNoteIds, { count: sourceNotes.length }),
     });
 
     return organized;
@@ -6950,22 +7028,22 @@ export default function Editor({
     const curveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(curveEasingFamily, curveEasingType));
 
     if (!Number.isInteger(startId) || !Number.isInteger(endId)) {
-      setCurveNotesMessage('Start ID and End ID must be whole-number note IDs.');
+      setCurveNotesMessage(text.operations.noteIdValidation);
       return;
     }
 
     if (!Number.isInteger(curveDensity) || curveDensity <= 0) {
-      setCurveNotesMessage('Density denominator must be a positive whole number.');
+      setCurveNotesMessage(text.operations.densityValidation);
       return;
     }
 
     if (!curveEasingOption) {
-      setCurveNotesMessage('Select a valid easing type.');
+      setCurveNotesMessage(text.operations.easingValidation);
       return;
     }
 
     if (startId === endId) {
-      setCurveNotesMessage('Start ID and End ID must be different notes.');
+      setCurveNotesMessage(text.operations.differentNoteIdsValidation);
       return;
     }
 
@@ -6980,7 +7058,7 @@ export default function Editor({
     const endNote = sourceNotesById.get(endId);
 
     if (!startNote || !endNote) {
-      setCurveNotesMessage('Both Start ID and End ID must match existing notes.');
+      setCurveNotesMessage(text.operations.existingNotesValidation);
       return;
     }
 
@@ -6989,7 +7067,7 @@ export default function Editor({
     const snapBeats = getCurveSnapBeatsBetween(startBeat, endBeat, curveDensity, timedBpmChanges);
 
     if (snapBeats.length === 0) {
-      setCurveNotesMessage(`No 1/${curveDensity} snap positions exist between those notes.`);
+      setCurveNotesMessage(formatTranslation(text.operations.noSnapPositionsBetweenNotes, { density: curveDensity }));
       return;
     }
 
@@ -7045,13 +7123,18 @@ export default function Editor({
     dragStartNoteRef.current = null;
     renderPausedTimelineAtFullFps();
     setCurveNotesMessage(
-      `Generated ${generatedNotes.length} ${NOTE_TYPES[curveNoteType]?.name || `type ${curveNoteType}`} notes from #${startNote.id} to #${endNote.id}.`,
+      formatTranslation(text.operations.generatedCurveNotesMessage, {
+        count: generatedNotes.length,
+        noteName: NOTE_TYPES[curveNoteType]?.name || formatTranslation(text.noteTypes.type, { type: curveNoteType }),
+        startId: startNote.id,
+        endId: endNote.id,
+      }),
     );
 
     recordOperation({
       category: 'note',
-      title: 'Generated curve notes',
-      detail: `${generatedNotes.length} notes, ${NOTE_TYPES[curveNoteType]?.name || `type ${curveNoteType}`}, 1/${curveDensity}, ${curveEasingOption.label}, IDs ${formatGroupedIds(generatedNoteIds)}${shouldAttachEndNote ? `, end parent #${endParentId}` : ''}`,
+      title: text.operations.generatedCurveNotes,
+      detail: `${generatedNotes.length} ${text.sidebar.notes.toLowerCase()}, ${NOTE_TYPES[curveNoteType]?.name || formatTranslation(text.noteTypes.type, { type: curveNoteType })}, 1/${curveDensity}, ${curveEasingOption.label}, ${formatTranslation(text.operations.idsDetail, { ids: formatGroupedIds(generatedNoteIds) })}${shouldAttachEndNote ? `, end parent #${endParentId}` : ''}`,
     });
   };
 
@@ -7186,12 +7269,12 @@ export default function Editor({
     }
 
     const fieldLabels: Partial<Record<keyof Note, string>> = {
-      time: 'time',
-      lane: 'xpos',
-      type: 'type',
-      width: 'width',
-      parentId: 'parent ID',
-      speed: 'speed',
+      time: text.sidebar.timepos.toLowerCase(),
+      lane: text.sidebar.xPosition,
+      type: text.sidebar.type.toLowerCase(),
+      width: text.sidebar.width.toLowerCase(),
+      parentId: text.sidebar.parentId,
+      speed: text.sidebar.speed.toLowerCase(),
       appearMode: 'AppearMode',
     };
     const fieldDetails = changedFields.map(([key, value]) => {
@@ -7216,7 +7299,7 @@ export default function Editor({
 
     recordOperation({
       category: 'note',
-      title: 'Modified note',
+      title: text.operations.modifiedNote,
       detail: `#${selectedSingleNote.id} ${fieldDetails}`,
     });
 
@@ -7241,7 +7324,7 @@ export default function Editor({
 
     recordOperation({
       category: 'timing',
-      title: 'Modified BPM change',
+      title: text.operations.modifiedBpmChange,
       detail: `${formatTimingPosition(getBpmChangeTimepos(previousChange))} | ${changedFields.map(([key, value]) => `${key}: ${previousChange[key as keyof BpmChange]} -> ${value}`).join('; ')}`,
     });
   };
@@ -7253,7 +7336,7 @@ export default function Editor({
     setBpmChanges(prev => prev.filter((_, changeIndex) => changeIndex !== index));
     recordOperation({
       category: 'timing',
-      title: 'Deleted BPM change',
+      title: text.operations.deletedBpmChange,
       detail: `${formatTimingPosition(getBpmChangeTimepos(deletedChange))} | BPM ${formatHistoryNumber(deletedChange.bpm)} | ${deletedChange.timeSignature}`,
     });
   };
@@ -7272,7 +7355,7 @@ export default function Editor({
     renderPausedTimelineAtFullFps();
     recordOperation({
       category: 'timing',
-      title: 'Added BPM change',
+      title: text.operations.addedBpmChange,
       detail: `${formatTimingPosition(newChange.timepos)} | BPM ${formatHistoryNumber(newChange.bpm)} | ${newChange.timeSignature}`,
     });
   };
@@ -7294,7 +7377,7 @@ export default function Editor({
 
     recordOperation({
       category: 'speed',
-      title: 'Modified speed change',
+      title: text.operations.modifiedSpeedChange,
       detail: `${formatTimingPosition(previousChange.timepos)} | ${changedFields.map(([key, value]) => `${key}: ${previousChange[key as keyof SpeedChange]} -> ${value}`).join('; ')}`,
     });
   };
@@ -7306,7 +7389,7 @@ export default function Editor({
     setSpeedChanges(prev => prev.filter((_, changeIndex) => changeIndex !== index));
     recordOperation({
       category: 'speed',
-      title: 'Deleted speed change',
+      title: text.operations.deletedSpeedChange,
       detail: `${formatTimingPosition(deletedChange.timepos)} | ${formatHistoryNumber(deletedChange.speedChange)}x`,
     });
   };
@@ -7321,7 +7404,7 @@ export default function Editor({
     renderPausedTimelineAtFullFps();
     recordOperation({
       category: 'speed',
-      title: 'Added speed change',
+      title: text.operations.addedSpeedChange,
       detail: `${formatTimingPosition(newChange.timepos)} | ${formatHistoryNumber(newChange.speedChange)}x`,
     });
   };
@@ -7333,27 +7416,27 @@ export default function Editor({
     const curveEasingOption = CURVE_EASINGS_BY_ID.get(getCurveEasingId(speedCurveEasingFamily, speedCurveEasingType));
 
     if (!Number.isInteger(startId) || !Number.isInteger(endId)) {
-      setSpeedCurveMessage('Start ID and End ID must be whole-number speed change IDs.');
+      setSpeedCurveMessage(text.operations.speedChangeIdValidation);
       return;
     }
 
     if (startId === endId) {
-      setSpeedCurveMessage('Start ID and End ID must be different speed changes.');
+      setSpeedCurveMessage(text.operations.differentSpeedChangeIdsValidation);
       return;
     }
 
     if (startId < 1 || startId > speedChanges.length || endId < 1 || endId > speedChanges.length) {
-      setSpeedCurveMessage('Both IDs must match existing speed change rows.');
+      setSpeedCurveMessage(text.operations.existingSpeedChangesValidation);
       return;
     }
 
     if (!Number.isInteger(curveDensity) || curveDensity <= 0) {
-      setSpeedCurveMessage('Density denominator must be a positive whole number.');
+      setSpeedCurveMessage(text.operations.densityValidation);
       return;
     }
 
     if (!curveEasingOption) {
-      setSpeedCurveMessage('Select a valid easing type.');
+      setSpeedCurveMessage(text.operations.easingValidation);
       return;
     }
 
@@ -7364,7 +7447,7 @@ export default function Editor({
     const snapBeats = getCurveSnapBeatsBetween(startBeat, endBeat, curveDensity, timedBpmChanges);
 
     if (snapBeats.length === 0) {
-      setSpeedCurveMessage(`No 1/${curveDensity} snap positions exist between those speed changes.`);
+      setSpeedCurveMessage(formatTranslation(text.operations.noSnapPositionsBetweenSpeedChanges, { density: curveDensity }));
       return;
     }
 
@@ -7381,12 +7464,16 @@ export default function Editor({
     setSpeedChanges([...speedChanges, ...generatedChanges]);
     renderPausedTimelineAtFullFps();
     setSpeedCurveMessage(
-      `Generated ${generatedChanges.length} speed changes from #${startId} to #${endId}.`,
+      formatTranslation(text.operations.generatedSpeedCurveChangesMessage, {
+        count: generatedChanges.length,
+        startId,
+        endId,
+      }),
     );
 
     recordOperation({
       category: 'speed',
-      title: 'Generated curved speed changes',
+      title: text.operations.generatedCurvedSpeedChanges,
       detail: `${generatedChanges.length} changes, 1/${curveDensity}, ${curveEasingOption.label}, IDs #${startId} -> #${endId}`,
     });
   };
@@ -7398,7 +7485,7 @@ export default function Editor({
     if (previousOffset !== value) {
       recordOperation({
         category: 'timing',
-        title: 'Modified offset',
+        title: text.operations.modifiedOffset,
         detail: `${formatMaybeValue(previousOffset)} ms -> ${formatMaybeValue(value)} ms`,
       });
     }
@@ -7472,8 +7559,8 @@ export default function Editor({
 
       recordOperation({
         category: 'note',
-        title: 'Edited chart file',
-        detail: `Imported ${parsedLevel.notes.length} notes from chart text`,
+        title: text.operations.editedChartFile,
+        detail: formatTranslation(text.operations.importedNotesFromChartText, { count: parsedLevel.notes.length }),
       });
       setNotes(parsedLevel.notes);
       setBpmChanges(nextBpmChanges);
@@ -7486,7 +7573,7 @@ export default function Editor({
       return {
         ok: false,
         lineNumber: parsedError.lineNumber || 1,
-        message: parsedError.message || 'Invalid chart file.',
+        message: parsedError.message || text.operations.invalidChartFile,
       };
     }
   }, [projectData?.bpm, recordOperation]);
@@ -7794,6 +7881,7 @@ export default function Editor({
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
+        isAudioConversionEnabled={isAudioConversionEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -7821,6 +7909,7 @@ export default function Editor({
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
+        setIsAudioConversionEnabled={setIsAudioConversionEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
@@ -7901,6 +7990,8 @@ export default function Editor({
         file={previewedProjectFile}
         textContent={previewedProjectFileText}
         mediaUrl={previewedProjectFileUrl}
+        isBackdropBlurDisabled={isBackdropBlurDisabled}
+        isAnimationDisabled={isAnimationDisabled}
         onSaveChartText={savePreviewedChartText}
         onClose={() => setPreviewedProjectFile(null)}
       />

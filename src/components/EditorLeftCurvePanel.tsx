@@ -15,7 +15,7 @@ import {
 } from '../editor/editorHistory';
 import { formatTime, getBpmChangeTimepos } from '../utils/editorUtils';
 import { stripInputWhitespace } from '../utils/inputSanitization';
-import { translations } from '../lang';
+import { formatTranslation, translations } from '../lang';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 export default function EditorLeftCurvePanel(props: any) {
   const {
@@ -125,7 +125,7 @@ export default function EditorLeftCurvePanel(props: any) {
                       onClick={() => {
                         const nextTarget = curveIdSelectTarget === 'start' ? null : 'start';
                         setCurveIdSelectTarget(nextTarget);
-                        setCurveNotesMessage(nextTarget ? 'Click a note to set Start ID.' : '');
+                        setCurveNotesMessage(nextTarget ? text.sidebar.clickNoteToSetStartId : '');
                       }}
                       className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
                         curveIdSelectTarget === 'start'
@@ -138,10 +138,13 @@ export default function EditorLeftCurvePanel(props: any) {
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">
                     {curveStartNote
-                      ? `${NOTE_TYPES[curveStartNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveStartNote.time, timedBpmChanges)}`
+                        ? formatTranslation(text.sidebar.noteAtTime, {
+                          noteName: NOTE_TYPES[curveStartNote.type]?.name || UNKNOWN_NOTE_TYPE.name,
+                          time: formatTime(curveStartNote.time, timedBpmChanges),
+                        })
                       : curveStartIdInput.trim() === ''
-                        ? 'Enter an existing note ID.'
-                        : 'No note exists with that ID.'}
+                        ? text.sidebar.enterExistingNoteId
+                        : text.sidebar.noNoteExistsWithThatId}
                   </div>
                 </label>
 
@@ -166,7 +169,7 @@ export default function EditorLeftCurvePanel(props: any) {
                       onClick={() => {
                         const nextTarget = curveIdSelectTarget === 'end' ? null : 'end';
                         setCurveIdSelectTarget(nextTarget);
-                        setCurveNotesMessage(nextTarget ? 'Click a note to set End ID.' : '');
+                        setCurveNotesMessage(nextTarget ? text.sidebar.clickNoteToSetEndId : '');
                       }}
                       className={`shrink-0 rounded border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-900 disabled:text-neutral-600 ${
                         curveIdSelectTarget === 'end'
@@ -179,10 +182,13 @@ export default function EditorLeftCurvePanel(props: any) {
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">
                     {curveEndNote
-                      ? `${NOTE_TYPES[curveEndNote.type]?.name || UNKNOWN_NOTE_TYPE.name} at ${formatTime(curveEndNote.time, timedBpmChanges)}`
+                        ? formatTranslation(text.sidebar.noteAtTime, {
+                          noteName: NOTE_TYPES[curveEndNote.type]?.name || UNKNOWN_NOTE_TYPE.name,
+                          time: formatTime(curveEndNote.time, timedBpmChanges),
+                        })
                       : curveEndIdInput.trim() === ''
-                        ? 'Enter an existing note ID.'
-                        : 'No note exists with that ID.'}
+                        ? text.sidebar.enterExistingNoteId
+                        : text.sidebar.noNoteExistsWithThatId}
                   </div>
                 </label>
 
@@ -223,10 +229,10 @@ export default function EditorLeftCurvePanel(props: any) {
                   </div>
                   <div className="mt-1 text-xs text-neutral-500">
                     {curveDensityInput.trim() === ''
-                      ? 'Enter a denominator.'
+                      ? text.sidebar.enterDenominator
                       : hasValidCurveDensity
-                        ? `Snap density 1/${parsedCurveDensity}.`
-                        : 'Density denominator must be a positive whole number.'}
+                        ? formatTranslation(text.sidebar.snapDensity, { density: parsedCurveDensity })
+                        : text.sidebar.densityPositiveWholeNumber}
                   </div>
                 </label>
 
@@ -279,12 +285,12 @@ export default function EditorLeftCurvePanel(props: any) {
                 </button>
 
                 <p className="text-xs leading-5 text-neutral-500">
-                  Generates intermediate notes on the selected snap grid, interpolating xpos and width with the selected easing.
+                  {text.sidebar.curveNotesDescription}
                 </p>
 
                 {canTypeHaveParent(curveNoteType) && (
                   <p className="text-xs leading-5 text-neutral-500">
-                    Generated connector notes will parent to the previous point in the curve.
+                    {text.sidebar.curveNotesParentDescription}
                   </p>
                 )}
 

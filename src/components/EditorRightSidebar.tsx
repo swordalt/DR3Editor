@@ -3,7 +3,7 @@ import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
 import { formatHistoryNumber, formatNoteLane } from '../editor/editorHistory';
-import { translations } from '../lang';
+import { formatTranslation, translations } from '../lang';
 import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { Note } from '../types/editorTypes';
 
@@ -135,7 +135,7 @@ export default function EditorRightSidebar(props: any) {
                   </label>
 
                   <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">Timepos (measure/decimal)</span>
+                    <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.timeposMeasureDecimal}</span>
                     <CommitInput
                       type="number"
                       step="0.001"
@@ -147,7 +147,7 @@ export default function EditorRightSidebar(props: any) {
                   </label>
 
                   <label className="block">
-                    <span className="mb-1 block text-xs text-neutral-400">XPos</span>
+                    <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.xPosition}</span>
                     <CommitInput
                       type="number"
                       step="0.01"
@@ -298,7 +298,7 @@ export default function EditorRightSidebar(props: any) {
                       </div>
                     </div>
                     <div className="flex-1 flex items-center justify-center text-sm text-neutral-600 border border-dashed border-neutral-800 rounded-lg p-4 text-center">
-                      {`${selectedNoteIds.length} notes selected`}
+                      {formatTranslation(text.sidebar.notesSelected, { count: selectedNoteIds.length })}
                     </div>
                   </div>
                 ) : (
@@ -359,8 +359,8 @@ export default function EditorRightSidebar(props: any) {
                     {currentParentNote
                       ? `ID ${currentParentNote.id} | XPos ${formatNoteLane(currentParentNote.lane)} | Type ${NOTE_TYPES[currentParentNote.type]?.name || currentParentNote.type}`
                       : currentParentInput.trim() === ''
-                        ? 'Auto-select current ID when placing.'
-                        : 'No note exists with that ID.'}
+                        ? text.sidebar.autoSelectCurrentIdWhenPlacing
+                        : text.sidebar.noNoteExistsWithThatId}
                   </div>
                   <div className="mt-2 flex gap-2">
                     <button
@@ -382,7 +382,7 @@ export default function EditorRightSidebar(props: any) {
                     </button>
                   </div>
                   <div className="mt-2 text-xs text-neutral-500">
-                    Current ID: {currentId}
+                    {text.sidebar.currentId}: {currentId}
                   </div>
                 </div>
 
@@ -394,8 +394,8 @@ export default function EditorRightSidebar(props: any) {
                       style={{ backgroundColor: NOTE_TYPES[selectedNoteType]?.color || '#3b82f6' }}
                     />
                     <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm font-medium text-neutral-300">{NOTE_TYPES[selectedNoteType]?.name || 'Unknown'} ({selectedNoteType})</span>
-                      <span className="text-xs text-neutral-400">Width: {noteWidth} / 16</span>
+                      <span className="truncate text-sm font-medium text-neutral-300">{NOTE_TYPES[selectedNoteType]?.name || text.sidebar.unknown} ({selectedNoteType})</span>
+                      <span className="text-xs text-neutral-400">{formatTranslation(text.sidebar.widthValue, { width: noteWidth })}</span>
                     </div>
                   </div>
                 </div>

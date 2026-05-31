@@ -3,6 +3,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import type { EditorFormData } from '../types/editorTypes';
 import { translations } from '../lang';
 import {
+  dialogFooterClassName,
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+} from './editorDesign';
+import {
   getInvalidMetadataFields,
   hasInvalidMetadataFields,
   type MetadataField,
@@ -40,6 +48,8 @@ export default function EditorModal({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const illustrationInputRef = React.useRef<HTMLInputElement>(null);
   const text = translations;
+  const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
+  const dialogMotionProps = getDialogMotionProps(isAnimationDisabled);
   const isConfirmDisabled = isConfirming || hasInvalidMetadataFields(getInvalidMetadataFields(formData));
   const getInputClassName = (field: MetadataField) => (
     `w-full p-3 bg-neutral-800 rounded-lg border outline-none transition-colors ${invalidMetadataFields[field] ? 'border-red-500 focus:border-red-400' : 'border-neutral-700 focus:border-indigo-500'}`
@@ -73,20 +83,24 @@ export default function EditorModal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-sm'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}>
+        <motion.div
+          className={getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled)}
+          {...overlayMotionProps}
+          onMouseDown={onClose}
+        >
           <motion.div
-            initial={isAnimationDisabled ? false : { opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={isAnimationDisabled ? undefined : { opacity: 0, scale: 0.9 }}
-            transition={{ duration: isAnimationDisabled ? 0 : 0.2 }}
-            className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl"
+            {...dialogMotionProps}
+            role="dialog"
+            aria-modal="true"
+            className={`w-full max-w-lg ${dialogSurfaceClassName}`}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-6">
+            <div className={dialogHeaderClassName}>
               <h2 className="text-xl font-bold text-white">
                 {text.modal.newProjectDetails}
               </h2>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-4 px-6 py-6">
               <input
                 type="text"
                 placeholder={text.modal.songIdRequired}
@@ -156,7 +170,7 @@ export default function EditorModal({
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className={`${dialogFooterClassName} -mx-6 -mb-6 mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2`}>
                 <button onClick={onClose} className="w-full p-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg font-semibold transition-colors">
                   {text.modal.returnToLanding}
                 </button>
@@ -165,12 +179,12 @@ export default function EditorModal({
                   disabled={isConfirmDisabled}
                   className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                 >
-                  {isConfirming ? 'Converting...' : text.common.confirm}
+                  {isConfirming ? text.modal.converting : text.common.confirm}
                 </button>
               </div>
             </div>
           </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

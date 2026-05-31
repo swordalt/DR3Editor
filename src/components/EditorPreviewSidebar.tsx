@@ -7,7 +7,6 @@ interface PreviewSettingToggleProps {
   isEnabled: boolean;
   ariaLabel: string;
   onToggle: () => void;
-  isDisabled?: boolean;
 }
 
 function PreviewSettingToggle({
@@ -15,10 +14,9 @@ function PreviewSettingToggle({
   isEnabled,
   ariaLabel,
   onToggle,
-  isDisabled = false,
 }: PreviewSettingToggleProps) {
   return (
-    <div className={`rounded-md border border-white/10 bg-neutral-950/60 px-3 py-2.5 ${isDisabled ? 'opacity-50' : ''}`}>
+    <div className="rounded-md border border-white/10 bg-neutral-950/60 px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
         <p className="min-w-0 text-sm font-medium leading-5 text-white">{label}</p>
         <button
@@ -26,13 +24,12 @@ function PreviewSettingToggle({
           role="switch"
           aria-checked={isEnabled}
           aria-label={ariaLabel}
-          disabled={isDisabled}
           onClick={onToggle}
           className={`relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border transition-colors ${
             isEnabled
               ? 'border-emerald-300/40 bg-emerald-500/90'
               : 'border-white/10 bg-neutral-800'
-          } disabled:cursor-not-allowed`}
+          }`}
         >
           <span className="sr-only">{label}</span>
           <span
@@ -66,14 +63,12 @@ export default function EditorPreviewSidebar({
   isLeftPanelContentVisible,
   toggleLeftPanelCompact,
   isPreviewSpritesEnabled,
-  isPreviewHoldSpritesEnabled,
   isPreviewChartSpeedChangesEnabled,
   isPreviewCameraTiltEnabled,
   isPreviewCameraMovementEnabled,
   isPreviewNoteSpeedChangesEnabled,
   isPreviewNoteAppearModeEnabled,
   setIsPreviewSpritesEnabled,
-  setIsPreviewHoldSpritesEnabled,
   setIsPreviewChartSpeedChangesEnabled,
   setIsPreviewCameraTiltEnabled,
   setIsPreviewCameraMovementEnabled,
@@ -84,14 +79,12 @@ export default function EditorPreviewSidebar({
   isLeftPanelContentVisible: boolean;
   toggleLeftPanelCompact: () => void;
   isPreviewSpritesEnabled: boolean;
-  isPreviewHoldSpritesEnabled: boolean;
   isPreviewChartSpeedChangesEnabled: boolean;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
   setIsPreviewSpritesEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsPreviewHoldSpritesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewChartSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
@@ -120,13 +113,6 @@ export default function EditorPreviewSidebar({
             isEnabled={isPreviewSpritesEnabled}
             ariaLabel={text.sidebar.togglePreviewSprites}
             onToggle={() => setIsPreviewSpritesEnabled((current) => !current)}
-          />
-          <PreviewSettingToggle
-            label={text.sidebar.previewHoldSprites}
-            isEnabled={isPreviewHoldSpritesEnabled}
-            ariaLabel={text.sidebar.togglePreviewHoldSprites}
-            isDisabled={!isPreviewSpritesEnabled}
-            onToggle={() => setIsPreviewHoldSpritesEnabled((current) => !current)}
           />
         </PreviewSettingSection>
         <PreviewSettingSection title={text.sidebar.previewCamera}>

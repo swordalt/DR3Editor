@@ -3,7 +3,7 @@ import {
   CURVE_EASING_FAMILY_OPTIONS,
   CURVE_EASING_TYPE_OPTIONS,
 } from '../editor/editorViewConstants';
-import { translations } from '../lang';
+import { formatTranslation, translations } from '../lang';
 import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { CurveEasingFamily, CurveEasingType } from '../editor/editorLocalTypes';
 
@@ -81,7 +81,7 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
             <div className="text-xs leading-5 text-neutral-500">
               {speedCurveStartChange && speedCurveEndChange
                 ? `${speedCurveStartChange.speedChange}x at ${speedCurveStartChange.timepos} -> ${speedCurveEndChange.speedChange}x at ${speedCurveEndChange.timepos}`
-                : 'Use the row IDs from the speed change list.'}
+                : text.sidebar.useSpeedChangeRowIds}
             </div>
 
             <label className="block">
@@ -103,10 +103,10 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
               </div>
               <div className="mt-1 text-xs text-neutral-500">
                 {speedCurveDensityInput.trim() === ''
-                  ? 'Enter a denominator.'
+                  ? text.sidebar.enterDenominator
                   : hasValidSpeedCurveDensity
-                    ? `Snap density 1/${parsedSpeedCurveDensity}.`
-                    : 'Density denominator must be a positive whole number.'}
+                    ? formatTranslation(text.sidebar.snapDensity, { density: parsedSpeedCurveDensity })
+                    : text.sidebar.densityPositiveWholeNumber}
               </div>
             </label>
 
@@ -159,7 +159,7 @@ export default function EditorLeftCurveSpeedPanel(props: any) {
             </button>
 
             <p className="text-xs leading-5 text-neutral-500">
-              Adds intermediate speed changes on the selected snap grid, interpolating speed with the selected easing.
+              {text.sidebar.speedCurveDescription}
             </p>
 
             {speedCurveMessage && (

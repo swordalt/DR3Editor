@@ -1,5 +1,6 @@
 import { NOTE_TYPES, canTypeHaveParent } from '../constants/editorConstants';
 import type { Note } from '../types/editorTypes';
+import { formatTranslation, translations } from '../lang';
 import { formatHistoryNumber, formatNoteLane, formatTimingPosition } from './editorHistory';
 import { PINK_HOLD_CENTER_TYPE, PINK_HOLD_END_TYPE, SNAP_EPSILON } from './editorViewConstants';
 import { buildPreviewCameraMovementIntervals, getPreviewCameraXPositionOffset } from './previewPlayback';
@@ -36,6 +37,9 @@ const doesNoteCoverXPosition = (coveringNote: Note, coveredNote: Note) => (
 );
 
 const formatNotePosition = (note: Note) => `x${formatNoteLane(note.lane)} w${formatHistoryNumber(note.width)}`;
+const formatIssueTimepos = (timepos: number | null) => (
+  timepos === null ? translations.chartIssues.unknownTimepos : formatTimingPosition(timepos)
+);
 
 const isPinkCameraNote = (note: Note) => (
   note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE
@@ -169,8 +173,13 @@ export const findChartIssues = (
       id: nextIssueId++,
       severity: 'warning',
       category: 'note',
-      title: 'Unknown Note Type',
-      detail: `Note #${note.id} has unknown type ${note.type} at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (${formatNotePosition(note)})`,
+      title: translations.chartIssues.unknownNoteTypeTitle,
+      detail: formatTranslation(translations.chartIssues.unknownNoteTypeDetail, {
+        noteId: note.id,
+        noteType: note.type,
+        timepos: formatIssueTimepos(timepos),
+        position: formatNotePosition(note),
+      }),
       noteIds: [note.id],
       timepos,
     });
@@ -186,8 +195,11 @@ export const findChartIssues = (
       id: nextIssueId++,
       severity: 'warning',
       category: 'hold',
-      title: 'Missing Hold Parent',
-      detail: `Note #${note.id} -> missing parent #${note.parentId}`,
+      title: translations.chartIssues.missingHoldParentTitle,
+      detail: formatTranslation(translations.chartIssues.missingHoldParentDetail, {
+        noteId: note.id,
+        parentId: note.parentId ?? '',
+      }),
       noteIds: [note.id],
       timepos,
     });
@@ -212,8 +224,11 @@ export const findChartIssues = (
       id: nextIssueId++,
       severity: 'warning',
       category: 'hold',
-      title: 'Hold Child Before Parent',
-      detail: `Note #${note.id} is before parent #${parentNote.id}`,
+      title: translations.chartIssues.holdChildBeforeParentTitle,
+      detail: formatTranslation(translations.chartIssues.holdChildBeforeParentDetail, {
+        noteId: note.id,
+        parentId: parentNote.id,
+      }),
       noteIds: [parentNote.id, note.id],
       timepos,
     });
@@ -249,8 +264,15 @@ export const findChartIssues = (
         id: nextIssueId++,
         severity: 'warning',
         category: 'camera',
-        title: 'Note Outside Camera Range',
-        detail: `Note #${note.id} ${formatNotePosition(note)} is outside camera range x${formatNoteLane(minVisibleXPosition)} to x${formatNoteLane(maxVisibleXPosition)} throughout the +/-100ms GOOD hit window at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)} (camera x${formatNoteLane(cameraXPosition)} at note time)`,
+        title: translations.chartIssues.noteOutsideCameraRangeTitle,
+        detail: formatTranslation(translations.chartIssues.noteOutsideCameraRangeDetail, {
+          noteId: note.id,
+          position: formatNotePosition(note),
+          minX: formatNoteLane(minVisibleXPosition),
+          maxX: formatNoteLane(maxVisibleXPosition),
+          timepos: formatIssueTimepos(timepos),
+          cameraX: formatNoteLane(cameraXPosition),
+        }),
         noteIds: [note.id],
         timepos,
       });
@@ -279,8 +301,14 @@ export const findChartIssues = (
           id: nextIssueId++,
           severity: 'warning',
           category: 'overlap',
-          title: 'Damage Note Covers Note',
-          detail: `Damage #${damageNote.id} ${formatNotePosition(damageNote)} covers #${nonDamageNote.id} ${formatNotePosition(nonDamageNote)} at ${timepos === null ? 'unknown timepos' : formatTimingPosition(timepos)}`,
+          title: translations.chartIssues.damageNoteCoversNoteTitle,
+          detail: formatTranslation(translations.chartIssues.damageNoteCoversNoteDetail, {
+            damageNoteId: damageNote.id,
+            damagePosition: formatNotePosition(damageNote),
+            noteId: nonDamageNote.id,
+            notePosition: formatNotePosition(nonDamageNote),
+            timepos: formatIssueTimepos(timepos),
+          }),
           noteIds: [damageNote.id, nonDamageNote.id],
           timepos,
         });

@@ -1,5 +1,6 @@
 import type { BpmChange, Note, ProjectData, SpeedChange } from '../types/editorTypes';
 import { HOLD_START_TYPES } from '../constants/editorConstants';
+import { formatTranslation, translations } from '../lang';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat } from './editorUtils';
 
 export interface ParsedLevelData {
@@ -102,38 +103,41 @@ export function validateLevelText(text: string): LevelTextValidationError | null
       const reconstructedLine = columns.map(column => `<${column}>`).join('');
 
       if (reconstructedLine !== normalizedLine || (columns.length !== 7 && columns.length !== 8)) {
-        return { lineNumber, message: 'Note lines must contain 7 fields, plus optional appear mode.' };
+        return { lineNumber, message: translations.parseErrors.noteLineFieldCount };
       }
 
       const [id, type, beatPos, lane, width, speed, parentId, appearMode] = columns;
       const numericValues = [
-        { label: 'note ID', value: id, integer: true },
-        { label: 'note type', value: type, integer: true },
-        { label: 'time position', value: beatPos, integer: false },
-        { label: 'x position', value: lane, integer: false },
-        { label: 'width', value: width, integer: false },
-        { label: 'parent ID', value: parentId, integer: true },
+        { label: translations.parseErrors.noteId, value: id, integer: true },
+        { label: translations.parseErrors.noteType, value: type, integer: true },
+        { label: translations.parseErrors.timePosition, value: beatPos, integer: false },
+        { label: translations.parseErrors.xPosition, value: lane, integer: false },
+        { label: translations.sidebar.width.toLowerCase(), value: width, integer: false },
+        { label: translations.parseErrors.parentId, value: parentId, integer: true },
       ];
 
       for (const numericValue of numericValues) {
         const parsedValue = Number(numericValue.value);
         if (!Number.isFinite(parsedValue) || (numericValue.integer && !Number.isInteger(parsedValue))) {
-          return { lineNumber, message: `Invalid ${numericValue.label}.` };
+          return {
+            lineNumber,
+            message: formatTranslation(translations.parseErrors.invalidField, { field: numericValue.label }),
+          };
         }
       }
 
       if (speed.replace(/\s+/g, '') === '') {
-        return { lineNumber, message: 'Note speed cannot be empty.' };
+        return { lineNumber, message: translations.parseErrors.noteSpeedEmpty };
       }
 
       if (appearMode && !APPEAR_MODES.has(appearMode.trim().toUpperCase())) {
-        return { lineNumber, message: 'Appear mode must be L, R, H, P, or N.' };
+        return { lineNumber, message: translations.parseErrors.invalidAppearMode };
       }
 
       continue;
     }
 
-    return { lineNumber, message: 'Unrecognized chart line.' };
+    return { lineNumber, message: translations.parseErrors.unrecognizedChartLine };
   }
 
   return null;

@@ -1,6 +1,15 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
 import { CheckCircle2, FileText, Image, Music, Upload } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import LandingPage from './components/LandingPage';
+import {
+  dialogFooterClassName,
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+} from './components/editorDesign';
 import { loadEditorSettings } from './editor/editorSettings';
 import { translations } from './lang';
 import type { BpmChange, ImportLoadStatus, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
@@ -164,9 +173,10 @@ const waitForPaint = () => new Promise<void>((resolve) => {
 
 const convertNonOggAudioFileForProject = async (
   file: File,
+  shouldConvertAudio: boolean,
   onBeforeConvert?: () => Promise<void>,
 ) => {
-  if (isOggAudioFile(file)) {
+  if (!shouldConvertAudio || isOggAudioFile(file)) {
     return file;
   }
 
@@ -174,17 +184,28 @@ const convertNonOggAudioFileForProject = async (
   return convertAudioFileToOgg(file);
 };
 
-function ImportLoadingOverlay({ status }: { status: ImportLoadStatus }) {
+function ImportLoadingOverlay({
+  status,
+  isBackdropBlurDisabled,
+  isAnimationDisabled,
+}: {
+  status: ImportLoadStatus;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
+}) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
-      <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+    <motion.div
+      className={`${getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled, 'z-[60]')} text-neutral-100`}
+      {...getOverlayMotionProps(isAnimationDisabled)}
+    >
+      <motion.div className={`w-full max-w-sm p-5 ${dialogSurfaceClassName}`} {...getDialogMotionProps(isAnimationDisabled)}>
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-neutral-800">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-indigo-500" />
         </div>
         <div className="text-sm font-semibold text-white">{status.title}</div>
         <div className="mt-1 text-sm text-neutral-400">{status.message}</div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -311,6 +332,7 @@ export default function App() {
   const editorSettings = loadEditorSettings();
   const isBackdropBlurDisabled = editorSettings.isBackdropBlurDisabled;
   const isAnimationDisabled = editorSettings.isAnimationDisabled;
+  const isAudioConversionEnabled = editorSettings.isAudioConversionEnabled;
   const [view, setView] = useState<ViewState>({ page: 'landing' });
   const [notes, setNotes] = useState<Note[]>([]);
   const [bpmChanges, setBpmChanges] = useState<BpmChange[]>(DEFAULT_BPM_CHANGES);
@@ -433,8 +455,8 @@ export default function App() {
         audioFileEntry!.name,
         { type: getMimeType(audioFileEntry!.extension) },
       );
-      const wasAudioConvertedToOgg = !isOggAudioFile(sourceAudioFile);
-      const audioFile = await convertNonOggAudioFileForProject(sourceAudioFile, async () => {
+      const wasAudioConvertedToOgg = isAudioConversionEnabled && !isOggAudioFile(sourceAudioFile);
+      const audioFile = await convertNonOggAudioFileForProject(sourceAudioFile, isAudioConversionEnabled, async () => {
         await updateImportLoadStatus(text.importStatus.convertingAudio);
       });
       const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob
@@ -691,7 +713,13 @@ export default function App() {
 
   return (
     <>
-      {importLoadStatus && <ImportLoadingOverlay status={importLoadStatus} />}
+      {importLoadStatus && (
+        <ImportLoadingOverlay
+          status={importLoadStatus}
+          isBackdropBlurDisabled={isBackdropBlurDisabled}
+          isAnimationDisabled={isAnimationDisabled}
+        />
+      )}
       {view.page === 'landing' ? (
         <LandingPage
           fileInputRef={fileInputRef}
@@ -732,15 +760,22 @@ export default function App() {
           />
         </Suspense>
       )}
+      <AnimatePresence>
       {zipImportDialog && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 font-sans text-neutral-50 ${isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/60 backdrop-blur-md'} ${isAnimationDisabled ? 'app-animations-disabled' : ''}`}>
-          <div
+        <motion.div
+          className={`${getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled)} font-sans text-neutral-50`}
+          {...getOverlayMotionProps(isAnimationDisabled)}
+          onMouseDown={() => setZipImportDialog(null)}
+        >
+          <motion.div
             role="dialog"
             aria-modal="true"
             aria-labelledby="zip-import-title"
-            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/50"
+            className={`max-h-[90vh] w-full max-w-2xl ${dialogSurfaceClassName}`}
+            {...getDialogMotionProps(isAnimationDisabled)}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-neutral-800 px-6 py-5">
+            <div className={dialogHeaderClassName}>
               <h2 id="zip-import-title" className="text-xl font-bold text-white">
                 {text.importDialog.title}
               </h2>
@@ -819,7 +854,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="flex shrink-0 justify-end gap-3 border-t border-neutral-800 bg-neutral-900 px-6 py-4">
+            <div className={`${dialogFooterClassName} flex shrink-0 justify-end gap-3 px-6`}>
               <button
                 type="button"
                 onClick={() => setZipImportDialog(null)}
@@ -836,9 +871,10 @@ export default function App() {
                 {text.importDialog.confirm}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </>
   );
 }

@@ -1,12 +1,23 @@
 import { useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Download, Grid2x2, Grid2x2X, HelpCircle, LoaderCircle, MoveHorizontal, Pause, Play, Settings, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
 import { formatPlaybackSpeed } from '../editor/editorHistory';
 import { translations } from '../lang';
 import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { ProjectData } from '../types/editorTypes';
 import type { ExportFormat } from '../types/exportTypes';
+import {
+  dialogFooterClassName,
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+  menuItemClassName,
+  menuSurfaceClassName,
+} from './editorDesign';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
 type UserExportFormat = Extract<ExportFormat, 'raw' | 'dr3-viewer' | 'dr3-fp'>;
@@ -27,6 +38,8 @@ interface EditorTopBarProps {
   isSettingsOpen: boolean;
   isPreviewMode: boolean;
   isDr3FpPreviewEnabled: boolean;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
   isExportMenuOpen: boolean;
   isPreviewMenuOpen: boolean;
   isExportDisabled: boolean;
@@ -72,6 +85,8 @@ export default function EditorTopBar({
   isSettingsOpen,
   isPreviewMode,
   isDr3FpPreviewEnabled,
+  isBackdropBlurDisabled,
+  isAnimationDisabled,
   isExportMenuOpen,
   isPreviewMenuOpen,
   isExportDisabled,
@@ -109,7 +124,7 @@ export default function EditorTopBar({
   const [customPlaybackSpeedInput, setCustomPlaybackSpeedInput] = useState(() => `${playbackSpeed}`);
   const [selectedExportFormat, setSelectedExportFormat] = useState<UserExportFormat>('raw');
   const [exportDialogStatus, setExportDialogStatus] = useState<ExportDialogStatus>('idle');
-  const [exportDialogStatusMessage, setExportDialogStatusMessage] = useState('Choose a format, then export.');
+  const [exportDialogStatusMessage, setExportDialogStatusMessage] = useState(text.editor.chooseExportFormat);
   const sanitizedCustomPlaybackSpeedInput = stripInputWhitespace(customPlaybackSpeedInput);
   const parsedCustomPlaybackSpeed = Number(sanitizedCustomPlaybackSpeedInput);
   const isCustomPlaybackSpeedValid = Number.isFinite(parsedCustomPlaybackSpeed) && parsedCustomPlaybackSpeed > 0;
@@ -120,6 +135,8 @@ export default function EditorTopBar({
     ? text.editor.disableXPositionGrid
     : text.editor.enableXPositionGrid;
   const playbackLabel = isPlaying ? text.editor.pause : text.editor.play;
+  const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
+  const dialogMotionProps = getDialogMotionProps(isAnimationDisabled);
   const exportOptions: Array<{
     format: UserExportFormat;
     label: string;
@@ -128,17 +145,17 @@ export default function EditorTopBar({
     {
       format: 'raw',
       label: text.editor.rawFormat,
-      description: 'Chart, audio, and illustration files with their original names.',
+      description: text.editor.rawFormatDescription,
     },
     {
       format: 'dr3-viewer',
       label: text.editor.dr3ViewerFormat,
-      description: 'ZIP structure for DanceRail3Viewer.',
+      description: text.editor.dr3ViewerFormatDescription,
     },
     {
       format: 'dr3-fp',
       label: text.editor.dr3FpFormat,
-      description: 'ZIP structure for DR3FV.',
+      description: text.editor.dr3FpFormatDescription,
     },
   ];
   const isExportRunning = exportDialogStatus === 'exporting';
@@ -150,7 +167,7 @@ export default function EditorTopBar({
     if (isSelectedExportFormatDisabled || isExportRunning) return;
 
     setExportDialogStatus('exporting');
-    setExportDialogStatusMessage('Preparing export...');
+    setExportDialogStatusMessage(text.editor.preparingExport);
 
     const exportByFormat: Record<UserExportFormat, () => Promise<ExportRunResult>> = {
       raw: exportRaw,
@@ -162,10 +179,10 @@ export default function EditorTopBar({
     setExportDialogStatus(result);
     setExportDialogStatusMessage(
       result === 'complete'
-        ? 'Export complete.'
+        ? text.editor.exportComplete
         : result === 'cancelled'
-          ? 'Export cancelled.'
-          : 'Export failed. Check the console for details.',
+          ? text.editor.exportCancelled
+          : text.editor.exportFailed,
     );
   };
   const applyCustomPlaybackSpeed = (event: FormEvent<HTMLFormElement>) => {
@@ -259,16 +276,16 @@ export default function EditorTopBar({
                 aria-haspopup="menu"
                 aria-expanded={isPlaybackSpeedMenuOpen}
               >
-                Speed <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{formatPlaybackSpeed(playbackSpeed)}</span>
+                {text.sidebar.speed} <span className="ml-1 font-mono text-xs normal-case tracking-normal text-neutral-300">{formatPlaybackSpeed(playbackSpeed)}</span>
               </button>
               {isPlaybackSpeedMenuOpen && (
                 <div
-                  className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  className={`absolute left-0 top-full z-50 mt-2 w-40 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   <form onSubmit={applyCustomPlaybackSpeed} className="mb-1 border-b border-neutral-800 p-1 pb-2">
                     <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                      Custom
+                      {text.editor.customPlaybackSpeed}
                     </label>
                     <div className="flex items-center gap-1">
                       <input
@@ -286,7 +303,7 @@ export default function EditorTopBar({
                         disabled={!isCustomPlaybackSpeedValid}
                         className="rounded bg-indigo-500 px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                       >
-                        Set
+                        {text.common.set}
                       </button>
                     </div>
                   </form>
@@ -295,7 +312,7 @@ export default function EditorTopBar({
                       key={speed}
                       type="button"
                       onClick={() => changePlaybackSpeed(speed)}
-                      className={`w-full rounded px-3 py-2 text-right font-mono text-sm transition-colors ${
+                      className={`w-full rounded-lg px-3 py-2 text-right font-mono text-sm transition-colors ${
                         playbackSpeed === speed
                           ? 'bg-indigo-500/20 text-indigo-200'
                           : 'text-neutral-200 hover:bg-neutral-800'
@@ -428,9 +445,9 @@ export default function EditorTopBar({
               aria-expanded={isPreviewMenuOpen}
               aria-pressed={isPreviewMode}
             >
-              <span className="invisible">Preview Mode</span>
+              <span className="invisible">{text.editor.previewMode}</span>
               <span className="absolute inset-0 flex items-center justify-center">
-                {isPreviewMode ? 'Preview Mode' : 'Editor Mode'}
+                {isPreviewMode ? text.editor.previewMode : text.editor.editorMode}
               </span>
             </button>
             {isPreviewMenuOpen && isDr3FpPreviewEnabled && (
@@ -438,7 +455,7 @@ export default function EditorTopBar({
                 className="absolute right-0 top-full z-50 w-36 pt-2"
                 role="menu"
               >
-                <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40">
+                <div className={menuSurfaceClassName}>
                   <button
                     type="button"
                     disabled={isFormattedExportDisabled}
@@ -447,7 +464,7 @@ export default function EditorTopBar({
                       setIsPreviewMenuOpen(false);
                       void previewDr3Fp();
                     }}
-                    className="w-full rounded px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+                    className={menuItemClassName}
                     role="menuitem"
                     title={isFormattedExportDisabled ? text.editor.previewDisabled : text.editor.previewDr3Fp}
                   >
@@ -465,7 +482,7 @@ export default function EditorTopBar({
               setIsPlaybackSpeedMenuOpen(false);
               setIsPreviewMenuOpen(false);
               setExportDialogStatus('idle');
-              setExportDialogStatusMessage('Choose a format, then export.');
+              setExportDialogStatusMessage(text.editor.chooseExportFormat);
               setIsExportMenuOpen(true);
             }}
             className="flex h-12 items-center gap-2 rounded-lg bg-indigo-500 px-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
@@ -476,21 +493,32 @@ export default function EditorTopBar({
             <Download className="w-4 h-4" />
             {text.editor.export}
           </button>
+          <AnimatePresence>
           {isExportMenuOpen && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+            <motion.div
+              className={getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled)}
               role="dialog"
               aria-modal="true"
               aria-labelledby="export-dialog-title"
+              {...overlayMotionProps}
+              onMouseDown={() => {
+                if (!isExportRunning) {
+                  setIsExportMenuOpen(false);
+                }
+              }}
             >
-              <div className="w-full max-w-md rounded-lg border border-neutral-700 bg-neutral-950 p-5 shadow-2xl shadow-black/50">
-                <div className="mb-4 flex items-start justify-between gap-4">
+              <motion.div
+                className={`w-full max-w-md ${dialogSurfaceClassName}`}
+                {...dialogMotionProps}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className={`${dialogHeaderClassName} flex items-start justify-between gap-4`}>
                   <div>
                     <h2 id="export-dialog-title" className="text-lg font-semibold text-neutral-50">
                       {text.editor.exportLevel}
                     </h2>
                     <p className="mt-1 text-sm text-neutral-400">
-                      Select the package format for this chart.
+                      {text.editor.selectPackageFormat}
                     </p>
                   </div>
                   <button
@@ -498,19 +526,19 @@ export default function EditorTopBar({
                     disabled={isExportRunning}
                     onClick={() => setIsExportMenuOpen(false)}
                     className="rounded-lg border border-transparent p-2 text-neutral-400 transition-colors hover:border-neutral-700 hover:bg-neutral-900 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-700"
-                    aria-label="Close export dialog"
+                    aria-label={text.editor.closeExportDialog}
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
                 {hasExportIncompatibleTimeSignature && (
-                  <p className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                  <p className="mx-5 mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
                     {text.editor.exportIncompatibleTimeSignature}
                   </p>
                 )}
 
-                <div className="space-y-2">
+                <div className={`space-y-2 px-5 ${hasExportIncompatibleTimeSignature ? 'pb-5 pt-3' : 'py-5'}`}>
                   {exportOptions.map(option => (
                     <button
                       key={option.format}
@@ -519,7 +547,7 @@ export default function EditorTopBar({
                       onClick={() => {
                         setSelectedExportFormat(option.format);
                         setExportDialogStatus('idle');
-                        setExportDialogStatusMessage('Choose a format, then export.');
+                        setExportDialogStatusMessage(text.editor.chooseExportFormat);
                       }}
                       className={`w-full rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed ${
                         selectedExportFormat === option.format
@@ -534,7 +562,7 @@ export default function EditorTopBar({
                   ))}
                 </div>
 
-                <div className="mt-5">
+                <div className={`${dialogFooterClassName} px-5`}>
                   <button
                     type="button"
                     disabled={isSelectedExportFormatDisabled || isExportRunning}
@@ -566,9 +594,10 @@ export default function EditorTopBar({
                     {exportDialogStatusMessage}
                   </div>
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
         </div>
       </div>

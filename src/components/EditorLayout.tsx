@@ -7,6 +7,15 @@ import EditorLeftSidebar from './EditorLeftSidebar';
 import EditorPreviewSidebar from './EditorPreviewSidebar';
 import EditorCanvasStage from './EditorCanvasStage';
 import EditorRightSidebar from './EditorRightSidebar';
+import { translations } from '../lang';
+import {
+  dialogFooterClassName,
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+} from './editorDesign';
 
 export default function EditorLayout(props: any) {
   const {
@@ -41,6 +50,7 @@ export default function EditorLayout(props: any) {
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
     isDr3FpPreviewEnabled,
+    isAudioConversionEnabled,
     isPreviewPrecomputeEnabled,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
@@ -68,6 +78,7 @@ export default function EditorLayout(props: any) {
     setIsEditorJudgementGlowEnabled,
     setIsVSyncEnabled,
     setIsDr3FpPreviewEnabled,
+    setIsAudioConversionEnabled,
     setIsPreviewPrecomputeEnabled,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
@@ -129,6 +140,9 @@ export default function EditorLayout(props: any) {
     canvasStageProps,
     rightSidebarProps,
   } = props;
+  const text = translations;
+  const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
+  const dialogMotionProps = getDialogMotionProps(isAnimationDisabled);
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -169,35 +183,46 @@ export default function EditorLayout(props: any) {
       />
 
       {isProjectAudioConverting && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
-          <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+        <motion.div
+          className={`${getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled, 'z-[60]')} text-neutral-100`}
+          {...overlayMotionProps}
+        >
+          <motion.div className={`w-full max-w-sm p-5 ${dialogSurfaceClassName}`} {...dialogMotionProps}>
             <div className="mb-3 h-1 overflow-hidden rounded-full bg-neutral-800">
               <div className="h-full w-1/2 animate-pulse rounded-full bg-indigo-500" />
             </div>
-            <div className="text-sm font-semibold text-white">Converting audio</div>
+            <div className="text-sm font-semibold text-white">{text.editorLayout.convertingAudio}</div>
             <div className="mt-1 text-sm text-neutral-400">
-              This audio will be converted to OGG format before editing.
+              {text.editorLayout.convertingAudioMessage}
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       {isAudioOffsetNoticeOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/90 px-4 text-neutral-100">
-          <div
+        <motion.div
+          className={`${getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled, 'z-[60]')} text-neutral-100`}
+          {...overlayMotionProps}
+          onMouseDown={() => setIsAudioOffsetNoticeOpen(false)}
+        >
+          <motion.div
             role="dialog"
             aria-modal="true"
             aria-labelledby="audio-offset-notice-title"
-            className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-2xl"
+            className={`w-full max-w-md ${dialogSurfaceClassName}`}
+            {...dialogMotionProps}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="text-sm font-semibold uppercase tracking-wider text-amber-300">Audio converted</div>
-            <h2 id="audio-offset-notice-title" className="mt-2 text-xl font-semibold text-white">
-              Review the chart offset
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-neutral-300">
-              The audio was converted to OGG before editing. Conversion between formats can shift timing slightly, so check and adjust the offset before charting.
+            <div className={dialogHeaderClassName}>
+              <div className="text-sm font-semibold uppercase tracking-wider text-amber-300">{text.editorLayout.audioConverted}</div>
+              <h2 id="audio-offset-notice-title" className="mt-2 text-xl font-semibold text-white">
+                {text.editorLayout.reviewChartOffset}
+              </h2>
+            </div>
+            <p className="px-6 py-6 text-sm leading-6 text-neutral-300">
+              {text.editorLayout.reviewChartOffsetDescription}
             </p>
-            <div className="mt-5 flex gap-3">
+            <div className={`${dialogFooterClassName} flex gap-3`}>
               <button
                 type="button"
                 onClick={() => {
@@ -206,18 +231,18 @@ export default function EditorLayout(props: any) {
                 }}
                 className="flex-1 rounded-lg bg-indigo-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
               >
-                Open offset
+                {text.editorLayout.openOffset}
               </button>
               <button
                 type="button"
                 onClick={() => setIsAudioOffsetNoticeOpen(false)}
                 className="flex-1 rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:bg-neutral-700"
               >
-                Dismiss
+                {text.editorLayout.dismiss}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       <EditorOverlays
@@ -235,7 +260,9 @@ export default function EditorLayout(props: any) {
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
+        isAudioConversionEnabled={isAudioConversionEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
+        isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
         selectionType={selectionType}
@@ -255,7 +282,9 @@ export default function EditorLayout(props: any) {
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
+        setIsAudioConversionEnabled={setIsAudioConversionEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
+        setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
         setSelectionType={setSelectionType}
@@ -278,6 +307,8 @@ export default function EditorLayout(props: any) {
         isSettingsOpen={isSettingsOpen}
         isPreviewMode={isPreviewMode}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
+        isBackdropBlurDisabled={isBackdropBlurDisabled}
+        isAnimationDisabled={isAnimationDisabled}
         isExportMenuOpen={isExportMenuOpen}
         isPreviewMenuOpen={isPreviewMenuOpen}
         isExportDisabled={isExportDisabled}
@@ -335,14 +366,12 @@ export default function EditorLayout(props: any) {
             isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
             toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
             isPreviewSpritesEnabled={isPreviewSpritesEnabled}
-            isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
             isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
             isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
             isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
             isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
             isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
             setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
-            setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
             setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
             setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
             setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}

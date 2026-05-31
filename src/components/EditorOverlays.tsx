@@ -17,6 +17,15 @@ import {
 } from '../editor/editorSettings';
 import { SELECTION_TYPE_LABELS } from '../editor/editorViewConstants';
 import { translations } from '../lang';
+import {
+  dialogFooterClassName,
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+  menuSurfaceClassName,
+} from './editorDesign';
 
 interface EditorOverlaysProps {
   isExitWarningOpen: boolean;
@@ -33,7 +42,9 @@ interface EditorOverlaysProps {
   isEditorJudgementGlowEnabled: boolean;
   isVSyncEnabled: boolean;
   isDr3FpPreviewEnabled: boolean;
+  isAudioConversionEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
+  isPreviewHoldSpritesEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
   selectionType: SelectionType;
@@ -53,7 +64,9 @@ interface EditorOverlaysProps {
   setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
   setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
   setIsDr3FpPreviewEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsAudioConversionEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewHoldSpritesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
   setSelectionType: Dispatch<SetStateAction<SelectionType>>;
@@ -76,7 +89,7 @@ const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[]
 
 const DR3FP_PREVIEW_FAILURE_GUIDANCE = translations.status.dr3FpFailureGuidance;
 
-type SettingsSectionId = 'editor' | 'appearance' | 'audio';
+type SettingsSectionId = 'safety' | 'editing' | 'preview' | 'performance' | 'appearance' | 'audio' | 'experimental';
 type HotkeyRow =
   | { kind: 'group'; groupTitle: string }
   | { kind: 'binding'; groupTitle: string; keys: readonly string[]; description: string };
@@ -271,7 +284,9 @@ export default function EditorOverlays({
   isEditorJudgementGlowEnabled,
   isVSyncEnabled,
   isDr3FpPreviewEnabled,
+  isAudioConversionEnabled,
   isPreviewPrecomputeEnabled,
+  isPreviewHoldSpritesEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
   selectionType,
@@ -291,7 +306,9 @@ export default function EditorOverlays({
   setIsEditorJudgementGlowEnabled,
   setIsVSyncEnabled,
   setIsDr3FpPreviewEnabled,
+  setIsAudioConversionEnabled,
   setIsPreviewPrecomputeEnabled,
+  setIsPreviewHoldSpritesEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
   setSelectionType,
@@ -309,36 +326,18 @@ export default function EditorOverlays({
     setIsSelectionTypeMenuOpen(false);
   };
 
-  const settingsSections = useMemo<SettingsSectionId[]>(() => ['editor', 'appearance', 'audio'], []);
-  const overlayClassName = `fixed inset-0 flex items-center justify-center p-4 ${
-    isBackdropBlurDisabled ? 'bg-black/75' : 'bg-black/55 backdrop-blur-md'
-  } ${isAnimationDisabled ? 'app-animations-disabled' : ''}`;
-  const overlayMotionProps = isAnimationDisabled
-    ? {
-      initial: false as const,
-      animate: { opacity: 1 },
-      exit: undefined,
-      transition: { duration: 0 },
-    }
-    : {
-      initial: { opacity: 0 },
-      animate: { opacity: 1 },
-      exit: { opacity: 0 },
-      transition: { duration: 0.2 },
-    };
-  const dialogMotionProps = isAnimationDisabled
-    ? {
-      initial: false as const,
-      animate: { opacity: 1, y: 0, scale: 1 },
-      exit: undefined,
-      transition: { duration: 0 },
-    }
-    : {
-      initial: { opacity: 0, y: 28, scale: 0.96 },
-      animate: { opacity: 1, y: 0, scale: 1 },
-      exit: { opacity: 0, y: 20, scale: 0.96 },
-      transition: { type: 'spring' as const, stiffness: 320, damping: 30 },
-    };
+  const settingsSections = useMemo<SettingsSectionId[]>(() => [
+    'safety',
+    'editing',
+    'preview',
+    'performance',
+    'appearance',
+    'audio',
+    'experimental',
+  ], []);
+  const overlayClassName = getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled, '');
+  const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
+  const dialogMotionProps = getDialogMotionProps(isAnimationDisabled);
   const hotkeyRows = useMemo<HotkeyRow[]>(() => (
     EDITOR_KEYBIND_GROUPS.flatMap(group => [
       { kind: 'group' as const, groupTitle: group.title },
@@ -378,13 +377,13 @@ export default function EditorOverlays({
   };
 
   const renderSettingsSection = (section: SettingsSectionId) => {
-    if (section === 'editor') {
+    if (section === 'safety') {
       return (
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white">{text.overlays.editor}</h3>
-              <p className="mt-1 text-xs text-neutral-500">{text.overlays.settingsDescription}</p>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.safety}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.safetyDescription}</p>
             </div>
           </div>
 
@@ -395,16 +394,27 @@ export default function EditorOverlays({
             ariaLabel={text.overlays.toggleBackToLandingWarning}
             onToggle={() => setIsExitWarningEnabled((current) => !current)}
           />
+        </section>
+      );
+    }
 
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.invertScrollDirection}
-              description={text.overlays.invertScrollDirectionDescription}
-              isEnabled={isScrollDirectionInverted}
-              ariaLabel={text.overlays.toggleInvertScrollDirection}
-              onToggle={() => setIsScrollDirectionInverted((current) => !current)}
-            />
+    if (section === 'editing') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.editing}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.editingDescription}</p>
+            </div>
           </div>
+
+          <SettingsToggle
+            label={text.overlays.invertScrollDirection}
+            description={text.overlays.invertScrollDirectionDescription}
+            isEnabled={isScrollDirectionInverted}
+            ariaLabel={text.overlays.toggleInvertScrollDirection}
+            onToggle={() => setIsScrollDirectionInverted((current) => !current)}
+          />
 
           <div className="mt-4">
             <SettingsToggle
@@ -413,46 +423,6 @@ export default function EditorOverlays({
               isEnabled={areTimingChangeIndicatorsAdjusted}
               ariaLabel={text.overlays.toggleAdjustTimingChangeIndicators}
               onToggle={() => setAreTimingChangeIndicatorsAdjusted((current) => !current)}
-            />
-          </div>
-
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.editorJudgementGlow}
-              description={text.overlays.editorJudgementGlowDescription}
-              isEnabled={isEditorJudgementGlowEnabled}
-              ariaLabel={text.overlays.toggleEditorJudgementGlow}
-              onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
-            />
-          </div>
-
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.vSync}
-              description={text.overlays.vSyncDescription}
-              isEnabled={isVSyncEnabled}
-              ariaLabel={text.overlays.toggleVSync}
-              onToggle={() => setIsVSyncEnabled((current) => !current)}
-            />
-          </div>
-
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.dr3FpPreview}
-              description={text.overlays.dr3FpPreviewDescription}
-              isEnabled={isDr3FpPreviewEnabled}
-              ariaLabel={text.overlays.toggleDr3FpPreview}
-              onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
-            />
-          </div>
-
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.previewPrecompute}
-              description={text.overlays.previewPrecomputeDescription}
-              isEnabled={isPreviewPrecomputeEnabled}
-              ariaLabel={text.overlays.togglePreviewPrecompute}
-              onToggle={() => setIsPreviewPrecomputeEnabled((current) => !current)}
             />
           </div>
 
@@ -479,7 +449,7 @@ export default function EditorOverlays({
               </button>
               {isSelectionTypeMenuOpen && (
                 <div
-                  className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {SELECTION_TYPE_OPTIONS.map((nextSelectionType) => (
@@ -503,6 +473,37 @@ export default function EditorOverlays({
                 </div>
               )}
             </div>
+          </div>
+        </section>
+      );
+    }
+
+    if (section === 'preview') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.preview}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.previewDescription}</p>
+            </div>
+          </div>
+
+          <SettingsToggle
+            label={text.overlays.editorJudgementGlow}
+            description={text.overlays.editorJudgementGlowDescription}
+            isEnabled={isEditorJudgementGlowEnabled}
+            ariaLabel={text.overlays.toggleEditorJudgementGlow}
+            onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
+          />
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.dr3FpPreview}
+              description={text.overlays.dr3FpPreviewDescription}
+              isEnabled={isDr3FpPreviewEnabled}
+              ariaLabel={text.overlays.toggleDr3FpPreview}
+              onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
+            />
           </div>
 
           <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isStatisticsRefreshRateMenuOpen ? 'z-20' : 'z-0'}`}>
@@ -528,7 +529,7 @@ export default function EditorOverlays({
               </button>
               {isStatisticsRefreshRateMenuOpen && (
                 <div
-                  className="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-neutral-700 bg-neutral-950 p-1 shadow-2xl shadow-black/40"
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
@@ -588,65 +589,127 @@ export default function EditorOverlays({
       );
     }
 
+    if (section === 'audio') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.audio}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.audioDescription}</p>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            <label className="block">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-neutral-300">{text.overlays.musicVolume}</span>
+                <span className="font-mono text-xs text-neutral-500">{Math.round(musicVolume * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.01"
+                value={musicVolume}
+                onChange={(e) => setMusicVolume(Number(e.target.value))}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+              />
+            </label>
+
+            <label className="block">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-neutral-300">{text.overlays.tapsVolume}</span>
+                <span className="font-mono text-xs text-neutral-500">{Math.round(tapSoundVolume * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.01"
+                value={tapSoundVolume}
+                onChange={(e) => setTapSoundVolume(Number(e.target.value))}
+                aria-label={text.overlays.tapsVolume}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+              />
+            </label>
+
+            <label className="block">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-neutral-300">{text.overlays.flicksVolume}</span>
+                <span className="font-mono text-xs text-neutral-500">{Math.round(flickSoundVolume * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.01"
+                value={flickSoundVolume}
+                onChange={(e) => setFlickSoundVolume(Number(e.target.value))}
+                aria-label={text.overlays.flicksVolume}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
+              />
+            </label>
+          </div>
+        </section>
+      );
+    }
+
+    if (section === 'performance') {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">{text.overlays.performance}</h3>
+              <p className="mt-1 text-xs text-neutral-500">{text.overlays.performanceDescription}</p>
+            </div>
+          </div>
+
+          <SettingsToggle
+            label={text.overlays.vSync}
+            description={text.overlays.vSyncDescription}
+            isEnabled={isVSyncEnabled}
+            ariaLabel={text.overlays.toggleVSync}
+            onToggle={() => setIsVSyncEnabled((current) => !current)}
+          />
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.previewPrecompute}
+              description={text.overlays.previewPrecomputeDescription}
+              isEnabled={isPreviewPrecomputeEnabled}
+              ariaLabel={text.overlays.togglePreviewPrecompute}
+              onToggle={() => setIsPreviewPrecomputeEnabled((current) => !current)}
+            />
+          </div>
+        </section>
+      );
+    }
+
     return (
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">{text.overlays.audio}</h3>
-            <p className="mt-1 text-xs text-neutral-500">{text.overlays.audioDescription}</p>
+            <h3 className="text-sm font-semibold text-white">{text.overlays.experimental}</h3>
+            <p className="mt-1 text-xs text-neutral-500">{text.overlays.experimentalDescription}</p>
           </div>
         </div>
 
-        <div className="space-y-5">
-          <label className="block">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">{text.overlays.musicVolume}</span>
-              <span className="font-mono text-xs text-neutral-500">{Math.round(musicVolume * 100)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.01"
-              value={musicVolume}
-              onChange={(e) => setMusicVolume(Number(e.target.value))}
-              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-            />
-          </label>
+        <SettingsToggle
+          label={text.overlays.useHoldSprites}
+          description={text.overlays.useHoldSpritesDescription}
+          isEnabled={isPreviewHoldSpritesEnabled}
+          ariaLabel={text.overlays.toggleUseHoldSprites}
+          onToggle={() => setIsPreviewHoldSpritesEnabled((current) => !current)}
+        />
 
-          <label className="block">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">{text.overlays.tapsVolume}</span>
-              <span className="font-mono text-xs text-neutral-500">{Math.round(tapSoundVolume * 100)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.01"
-              value={tapSoundVolume}
-              onChange={(e) => setTapSoundVolume(Number(e.target.value))}
-              aria-label={text.overlays.tapsVolume}
-              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-            />
-          </label>
-
-          <label className="block">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-neutral-300">{text.overlays.flicksVolume}</span>
-              <span className="font-mono text-xs text-neutral-500">{Math.round(flickSoundVolume * 100)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.01"
-              value={flickSoundVolume}
-              onChange={(e) => setFlickSoundVolume(Number(e.target.value))}
-              aria-label={text.overlays.flicksVolume}
-              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-indigo-500"
-            />
-          </label>
+        <div className="mt-4">
+          <SettingsToggle
+            label={text.overlays.convertAudio}
+            description={text.overlays.convertAudioDescription}
+            isEnabled={isAudioConversionEnabled}
+            ariaLabel={text.overlays.toggleConvertAudio}
+            onToggle={() => setIsAudioConversionEnabled((current) => !current)}
+          />
         </div>
       </section>
     );
@@ -664,11 +727,11 @@ export default function EditorOverlays({
             role="dialog"
             aria-modal="true"
             aria-labelledby="exit-warning-title"
-            className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            className={`w-full max-w-md ${dialogSurfaceClassName}`}
             {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+            <div className={dialogHeaderClassName}>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-400/80">{text.overlays.warning}</p>
               <h2 id="exit-warning-title" className="mt-2 text-2xl font-semibold text-white">{text.overlays.leaveEditor}</h2>
             </div>
@@ -679,7 +742,7 @@ export default function EditorOverlays({
               </p>
             </div>
 
-            <div className="flex gap-3 border-t border-white/10 p-4">
+            <div className={`${dialogFooterClassName} flex gap-3`}>
               <button
                 onClick={() => {
                   setIsExitWarningOpen(false);
@@ -715,9 +778,9 @@ export default function EditorOverlays({
               role="dialog"
               aria-modal="true"
               aria-labelledby="dr3fp-preview-info-title"
-              className="flex min-h-[34rem] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+              className={`min-h-[34rem] w-full max-w-lg ${dialogSurfaceClassName}`}
             >
-              <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+              <div className={dialogHeaderClassName}>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300/80">{text.overlays.dr3FpPreview}</p>
                 <h2 id="dr3fp-preview-info-title" className="mt-2 text-2xl font-semibold text-white">
                   {dr3FpPreviewStatus.title}
@@ -824,7 +887,7 @@ export default function EditorOverlays({
                 )}
               </div>
 
-              <div className="border-t border-white/10 p-4">
+              <div className={dialogFooterClassName}>
                 <button
                   type="button"
                   onClick={() => setIsDr3FpPreviewInfoOpen(false)}
@@ -836,8 +899,8 @@ export default function EditorOverlays({
             </section>
 
             {isDr3FpPreviewLogOpen ? (
-              <aside className="flex min-h-[34rem] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50">
-                <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+              <aside className={`min-h-[34rem] w-full max-w-lg ${dialogSurfaceClassName}`}>
+                <div className={`${dialogHeaderClassName} flex items-center justify-between gap-3`}>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.dr3FpPreview}</p>
                     <h2 className="mt-2 text-2xl font-semibold text-white">{text.overlays.previewLog}</h2>
@@ -894,11 +957,11 @@ export default function EditorOverlays({
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-title"
-            className="flex max-h-[85vh] min-h-[22rem] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            className={`max-h-[85vh] min-h-[22rem] w-full max-w-2xl ${dialogSurfaceClassName}`}
             {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+            <div className={dialogHeaderClassName}>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.editor}</p>
               <h2 id="settings-title" className="mt-2 text-2xl font-semibold text-white">{text.editor.settings}</h2>
             </div>
@@ -908,14 +971,15 @@ export default function EditorOverlays({
               estimateSize={360}
               getKey={(section) => section}
               getItemClassName={(section) => (
-                section === 'editor' && (isSelectionTypeMenuOpen || isStatisticsRefreshRateMenuOpen)
+                (section === 'editing' && isSelectionTypeMenuOpen)
+                  || (section === 'preview' && isStatisticsRefreshRateMenuOpen)
                   ? 'z-20'
                   : 'z-0'
               )}
               renderItem={(section) => renderSettingsSection(section)}
               className="px-6 py-6"
             />
-            <div className="border-t border-white/10 p-4">
+            <div className={dialogFooterClassName}>
               <button
                 onClick={closeSettings}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"
@@ -937,11 +1001,11 @@ export default function EditorOverlays({
             role="dialog"
             aria-modal="true"
             aria-labelledby="hotkeys-title"
-            className="flex max-h-[85vh] min-h-[22rem] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-950/90 shadow-2xl shadow-black/50"
+            className={`max-h-[85vh] min-h-[22rem] w-full max-w-2xl ${dialogSurfaceClassName}`}
             {...dialogMotionProps}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-white/10 bg-gradient-to-br from-neutral-900 to-neutral-950 px-6 py-5">
+            <div className={dialogHeaderClassName}>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">{text.overlays.editor}</p>
               <h2 id="hotkeys-title" className="mt-2 text-2xl font-semibold text-white">{text.editor.hotkeys}</h2>
             </div>
@@ -953,7 +1017,7 @@ export default function EditorOverlays({
               renderItem={(row) => renderHotkeyRow(row)}
               className="px-6 py-6"
             />
-            <div className="border-t border-white/10 p-4">
+            <div className={dialogFooterClassName}>
               <button
                 onClick={() => setIsHelpOpen(false)}
                 className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-200"

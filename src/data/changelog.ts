@@ -1,3 +1,5 @@
+import { translations } from '../lang';
+
 export interface ChangelogEntry {
   version: string;
   date: string;
@@ -6,10 +8,10 @@ export interface ChangelogEntry {
 
 export const changelogEntries: readonly ChangelogEntry[] = [
   {
-    version: 'Pre-Release',
-    date: 'Placeholder',
+    version: translations.changelog.preRelease,
+    date: translations.changelog.placeholderDate,
     changes: [
-      'This will have actual information upon full release.',
+      translations.changelog.placeholderChange,
     ],
   },
 ];

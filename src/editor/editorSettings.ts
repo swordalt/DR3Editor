@@ -22,6 +22,7 @@ export interface EditorSettings {
   isEditorJudgementGlowEnabled: boolean;
   isVSyncEnabled: boolean;
   isDr3FpPreviewEnabled: boolean;
+  isAudioConversionEnabled: boolean;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
   musicVolume: number;
@@ -52,6 +53,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isEditorJudgementGlowEnabled: true,
   isVSyncEnabled: true,
   isDr3FpPreviewEnabled: false,
+  isAudioConversionEnabled: true,
   selectionType: 'window',
   statisticsRefreshRate: '30fps',
   musicVolume: 1,
@@ -63,7 +65,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isPreviewPrecomputeEnabled: true,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
   isPreviewSpritesEnabled: true,
-  isPreviewHoldSpritesEnabled: true,
+  isPreviewHoldSpritesEnabled: false,
   isPreviewChartSpeedChangesEnabled: true,
   isPreviewCameraTiltEnabled: true,
   isPreviewCameraMovementEnabled: true,
@@ -159,6 +161,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isDr3FpPreviewEnabled: typeof parsedSettings.isDr3FpPreviewEnabled === 'boolean'
         ? parsedSettings.isDr3FpPreviewEnabled
         : DEFAULT_EDITOR_SETTINGS.isDr3FpPreviewEnabled,
+      isAudioConversionEnabled: typeof parsedSettings.isAudioConversionEnabled === 'boolean'
+        ? parsedSettings.isAudioConversionEnabled
+        : DEFAULT_EDITOR_SETTINGS.isAudioConversionEnabled,
       selectionType: isValidSelectionType(parsedSettings.selectionType)
         ? parsedSettings.selectionType
         : DEFAULT_EDITOR_SETTINGS.selectionType,

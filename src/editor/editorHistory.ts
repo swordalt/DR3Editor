@@ -1,5 +1,6 @@
-import { NOTE_TYPES } from '../constants/editorConstants';
+import { NOTE_TYPES, formatUnknownNoteTypeName } from '../constants/editorConstants';
 import type { BpmChange, Note, ProjectData, SpeedChange } from '../types/editorTypes';
+import { translations } from '../lang';
 
 export type OperationCategory = 'note' | 'timing' | 'speed' | 'metadata';
 
@@ -64,14 +65,14 @@ export const formatHistoryNumber = (value: number) => (
 export const formatPlaybackSpeed = (speed: number) => `${formatHistoryNumber(speed)}x`;
 
 export const formatMaybeValue = (value: unknown) => (
-  value === undefined || value === null || value === '' ? 'None' : String(value)
+  value === undefined || value === null || value === '' ? translations.common.none : String(value)
 );
 
-export const formatNoteName = (note: Note) => NOTE_TYPES[note.type]?.name || `Type ${note.type}`;
+export const formatNoteName = (note: Note) => NOTE_TYPES[note.type]?.name || formatUnknownNoteTypeName(note.type);
 
 export const formatNoteLane = (lane: number) => formatHistoryNumber(lane);
 
-export const formatTimingPosition = (timepos: number) => `Timepos ${formatHistoryNumber(timepos)}`;
+export const formatTimingPosition = (timepos: number) => `${translations.sidebar.timepos} ${formatHistoryNumber(timepos)}`;
 
 export const operationCategoryStyles: Record<OperationCategory, string> = {
   note: 'border-sky-500/30 bg-sky-500/10 text-sky-200',

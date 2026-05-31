@@ -1,6 +1,7 @@
 import { FileText, Image, Info, Music } from 'lucide-react';
 import type { ComponentType } from 'react';
 import type { ProjectData } from '../types/editorTypes';
+import { translations } from '../lang';
 import { formatFileSize, getFileExtension } from './editorFileHelpers';
 
 export type ChartProjectFileId = 'chart' | 'info' | 'audio' | 'illustration';
@@ -31,7 +32,7 @@ export const buildChartProjectFiles = ({
   const files: ChartProjectFileEntry[] = [
     {
       id: 'chart',
-      label: 'Chart File',
+      label: translations.files.chartFile,
       name: chartFileName || `${songId}.${difficulty}.txt`,
       detail: details.chart || '',
       Icon: FileText,
@@ -41,7 +42,7 @@ export const buildChartProjectFiles = ({
   if (projectData) {
     files.push({
       id: 'info',
-      label: 'Info File',
+      label: translations.files.infoFile,
       name: 'info.txt',
       detail: '',
       Icon: Info,
@@ -51,7 +52,7 @@ export const buildChartProjectFiles = ({
   if (projectData?.songFile) {
     files.push({
       id: 'audio',
-      label: 'Audio',
+      label: translations.files.audio,
       name: projectData.songFile.name || `${songId}.${getFileExtension(projectData.songFile)}`,
       detail: formatFileSize(projectData.songFile),
       Icon: Music,
@@ -61,7 +62,7 @@ export const buildChartProjectFiles = ({
   if (projectData?.songIllustration) {
     files.push({
       id: 'illustration',
-      label: 'Illustration',
+      label: translations.files.illustration,
       name: projectData.songIllustration.name || `${songId}.${getFileExtension(projectData.songIllustration)}`,
       detail: formatFileSize(projectData.songIllustration),
       Icon: Image,

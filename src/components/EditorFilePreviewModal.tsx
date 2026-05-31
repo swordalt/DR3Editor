@@ -1,12 +1,23 @@
 import { Pause, Play, X } from 'lucide-react';
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { ChartProjectFileEntry } from '../editor/chartProjectFiles';
+import { formatTranslation, translations } from '../lang';
+import {
+  dialogHeaderClassName,
+  dialogSurfaceClassName,
+  getDialogMotionProps,
+  getOverlayClassName,
+  getOverlayMotionProps,
+} from './editorDesign';
 
 interface EditorFilePreviewModalProps {
   file: ChartProjectFileEntry | null;
   textContent: string;
   mediaUrl: string;
+  isBackdropBlurDisabled: boolean;
+  isAnimationDisabled: boolean;
   onSaveChartText: (text: string) => { ok: true } | { ok: false; lineNumber: number; message: string };
   onClose: () => void;
 }
@@ -15,10 +26,13 @@ export default function EditorFilePreviewModal({
   file,
   textContent,
   mediaUrl,
+  isBackdropBlurDisabled,
+  isAnimationDisabled,
   onSaveChartText,
   onClose,
 }: EditorFilePreviewModalProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const text = translations;
   const chartTextAreaRef = useRef<HTMLTextAreaElement>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
@@ -106,18 +120,22 @@ export default function EditorFilePreviewModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-950/80 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="file-preview-title"
-      onMouseDown={onClose}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950 shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-800 px-4 py-3">
+    <AnimatePresence>
+      {file && (
+        <motion.div
+          className={getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled, 'z-[70]')}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="file-preview-title"
+          {...getOverlayMotionProps(isAnimationDisabled)}
+          onMouseDown={onClose}
+        >
+          <motion.div
+            className={`max-h-[85vh] w-full max-w-3xl ${dialogSurfaceClassName}`}
+            {...getDialogMotionProps(isAnimationDisabled)}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+        <div className={`${dialogHeaderClassName} flex shrink-0 items-start justify-between gap-4`}>
           <div className="min-w-0">
             <h2 id="file-preview-title" className="truncate text-sm font-semibold text-white">
               {file.label}
@@ -130,7 +148,7 @@ export default function EditorFilePreviewModal({
             type="button"
             onClick={onClose}
             className="shrink-0 rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
-            aria-label="Close file preview"
+            aria-label={text.filePreview.closeFilePreview}
           >
             <X className="h-4 w-4" />
           </button>
@@ -158,26 +176,29 @@ export default function EditorFilePreviewModal({
               </div>
               {chartTextError && (
                 <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                  Line {chartTextError.lineNumber}: {chartTextError.message}
+                  {formatTranslation(text.filePreview.lineError, {
+                    lineNumber: chartTextError.lineNumber,
+                    message: chartTextError.message,
+                  })}
                 </div>
               )}
               {hasChartTextChanges && (
                 <div className="sticky bottom-0 mt-3 flex items-center justify-between gap-3 rounded-lg border border-neutral-700 bg-neutral-950/95 p-3 shadow-xl">
-                  <span className="min-w-0 text-xs text-neutral-400">Unsaved chart edits</span>
+                  <span className="min-w-0 text-xs text-neutral-400">{text.filePreview.unsavedChartEdits}</span>
                   <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
                       onClick={handleDiscardChartChanges}
                       className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
                     >
-                      Discard
+                      {text.common.discard}
                     </button>
                     <button
                       type="button"
                       onClick={handleSaveChartChanges}
                       className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-500"
                     >
-                      Save
+                      {text.common.save}
                     </button>
                   </div>
                 </div>
@@ -217,7 +238,7 @@ export default function EditorFilePreviewModal({
                       ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/20'
                       : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:border-emerald-500/50 hover:text-emerald-300'
                   }`}
-                  aria-label={isAudioPlaying ? 'Pause audio preview' : 'Play audio preview'}
+                  aria-label={isAudioPlaying ? text.filePreview.pauseAudioPreview : text.filePreview.playAudioPreview}
                 >
                   {isAudioPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                 </button>
@@ -230,7 +251,7 @@ export default function EditorFilePreviewModal({
                     value={audioCurrentTime}
                     onChange={handleAudioSeek}
                     className="h-1.5 w-full cursor-pointer accent-emerald-400"
-                    aria-label="Audio preview position"
+                    aria-label={text.filePreview.audioPreviewPosition}
                   />
                   <div className="mt-2 flex justify-between font-mono text-[11px] text-neutral-500">
                     <span>{formatAudioTime(audioCurrentTime)}</span>
@@ -247,7 +268,9 @@ export default function EditorFilePreviewModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

@@ -103,10 +103,10 @@ export default function EditorLeftUtilityPanel(props: any) {
                     disabled={notes.length === 0 || isOrganizingNotes}
                     className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                   >
-                    {isOrganizingNotes ? 'Organizing...' : text.sidebar.organizeNotes}
+                    {isOrganizingNotes ? text.sidebar.organizing : text.sidebar.organizeNotes}
                   </button>
                   <p className="mt-2 text-xs leading-5 text-neutral-500">
-                    Reassigns note IDs from earliest to latest timepos, then left to right by xpos. Notes sharing the same timepos and xpos keep their original ID order, and parent links are remapped to stay grouped with their children.
+                    {text.sidebar.organizeNotesDescription}
                   </p>
                 </div>
               ) : activeLeftPanel === 'chartIssues' ? (
