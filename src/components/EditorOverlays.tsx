@@ -89,7 +89,7 @@ const DR3FP_PREVIEW_STAGE_ORDER: Exclude<Dr3FpPreviewStage, 'idle' | 'failed'>[]
 
 const DR3FP_PREVIEW_FAILURE_GUIDANCE = translations.status.dr3FpFailureGuidance;
 
-type SettingsSectionId = 'safety' | 'editing' | 'preview' | 'performance' | 'appearance' | 'audio' | 'experimental';
+type SettingsSectionId = 'safety' | 'editing' | 'performance' | 'appearance' | 'audio' | 'experimental';
 type HotkeyRow =
   | { kind: 'group'; groupTitle: string }
   | { kind: 'binding'; groupTitle: string; keys: readonly string[]; description: string };
@@ -329,7 +329,6 @@ export default function EditorOverlays({
   const settingsSections = useMemo<SettingsSectionId[]>(() => [
     'safety',
     'editing',
-    'preview',
     'performance',
     'appearance',
     'audio',
@@ -426,6 +425,16 @@ export default function EditorOverlays({
             />
           </div>
 
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.editorJudgementGlow}
+              description={text.overlays.editorJudgementGlowDescription}
+              isEnabled={isEditorJudgementGlowEnabled}
+              ariaLabel={text.overlays.toggleEditorJudgementGlow}
+              onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
+            />
+          </div>
+
           <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isSelectionTypeMenuOpen ? 'z-20' : 'z-0'}`}>
             <div className="mb-3">
               <p className="text-sm font-medium text-white">{text.overlays.selectionType}</p>
@@ -468,86 +477,6 @@ export default function EditorOverlays({
                       role="menuitem"
                     >
                       {SELECTION_TYPE_LABELS[nextSelectionType]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    if (section === 'preview') {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-white">{text.overlays.preview}</h3>
-              <p className="mt-1 text-xs text-neutral-500">{text.overlays.previewDescription}</p>
-            </div>
-          </div>
-
-          <SettingsToggle
-            label={text.overlays.editorJudgementGlow}
-            description={text.overlays.editorJudgementGlowDescription}
-            isEnabled={isEditorJudgementGlowEnabled}
-            ariaLabel={text.overlays.toggleEditorJudgementGlow}
-            onToggle={() => setIsEditorJudgementGlowEnabled((current) => !current)}
-          />
-
-          <div className="mt-4">
-            <SettingsToggle
-              label={text.overlays.dr3FpPreview}
-              description={text.overlays.dr3FpPreviewDescription}
-              isEnabled={isDr3FpPreviewEnabled}
-              ariaLabel={text.overlays.toggleDr3FpPreview}
-              onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
-            />
-          </div>
-
-          <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isStatisticsRefreshRateMenuOpen ? 'z-20' : 'z-0'}`}>
-            <div className="mb-3">
-              <p className="text-sm font-medium text-white">{text.overlays.statisticsRefreshRate}</p>
-              <p className="mt-1 text-xs leading-5 text-neutral-500">
-                {text.overlays.statisticsRefreshRateDescription}
-              </p>
-            </div>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSelectionTypeMenuOpen(false);
-                  setIsStatisticsRefreshRateMenuOpen(current => !current);
-                }}
-                className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left font-mono text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
-                aria-haspopup="menu"
-                aria-expanded={isStatisticsRefreshRateMenuOpen}
-              >
-                <span>{statisticsRefreshRate}</span>
-                <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isStatisticsRefreshRateMenuOpen ? 'rotate-90' : ''}`} />
-              </button>
-              {isStatisticsRefreshRateMenuOpen && (
-                <div
-                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
-                  role="menu"
-                >
-                  {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
-                    <button
-                      key={refreshRate}
-                      type="button"
-                      onClick={() => {
-                        setStatisticsRefreshRate(refreshRate);
-                        setIsStatisticsRefreshRateMenuOpen(false);
-                      }}
-                      className={`w-full rounded px-3 py-2 text-left font-mono text-sm transition-colors ${
-                        statisticsRefreshRate === refreshRate
-                          ? 'bg-indigo-500/20 text-indigo-200'
-                          : 'text-neutral-200 hover:bg-neutral-800'
-                      }`}
-                      role="menuitem"
-                    >
-                      {refreshRate}
                     </button>
                   ))}
                 </div>
@@ -681,6 +610,55 @@ export default function EditorOverlays({
               onToggle={() => setIsPreviewPrecomputeEnabled((current) => !current)}
             />
           </div>
+
+          <div className={`relative mt-4 rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isStatisticsRefreshRateMenuOpen ? 'z-20' : 'z-0'}`}>
+            <div className="mb-3">
+              <p className="text-sm font-medium text-white">{text.overlays.statisticsRefreshRate}</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                {text.overlays.statisticsRefreshRateDescription}
+              </p>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionTypeMenuOpen(false);
+                  setIsStatisticsRefreshRateMenuOpen(current => !current);
+                }}
+                className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left font-mono text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
+                aria-haspopup="menu"
+                aria-expanded={isStatisticsRefreshRateMenuOpen}
+              >
+                <span>{statisticsRefreshRate}</span>
+                <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isStatisticsRefreshRateMenuOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {isStatisticsRefreshRateMenuOpen && (
+                <div
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
+                  role="menu"
+                >
+                  {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
+                    <button
+                      key={refreshRate}
+                      type="button"
+                      onClick={() => {
+                        setStatisticsRefreshRate(refreshRate);
+                        setIsStatisticsRefreshRateMenuOpen(false);
+                      }}
+                      className={`w-full rounded px-3 py-2 text-left font-mono text-sm transition-colors ${
+                        statisticsRefreshRate === refreshRate
+                          ? 'bg-indigo-500/20 text-indigo-200'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                      }`}
+                      role="menuitem"
+                    >
+                      {refreshRate}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </section>
       );
     }
@@ -701,6 +679,16 @@ export default function EditorOverlays({
           ariaLabel={text.overlays.toggleUseHoldSprites}
           onToggle={() => setIsPreviewHoldSpritesEnabled((current) => !current)}
         />
+
+        <div className="mt-4">
+          <SettingsToggle
+            label={text.overlays.dr3FpPreview}
+            description={text.overlays.dr3FpPreviewDescription}
+            isEnabled={isDr3FpPreviewEnabled}
+            ariaLabel={text.overlays.toggleDr3FpPreview}
+            onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
+          />
+        </div>
 
         <div className="mt-4">
           <SettingsToggle
@@ -972,7 +960,7 @@ export default function EditorOverlays({
               getKey={(section) => section}
               getItemClassName={(section) => (
                 (section === 'editing' && isSelectionTypeMenuOpen)
-                  || (section === 'preview' && isStatisticsRefreshRateMenuOpen)
+                  || (section === 'performance' && isStatisticsRefreshRateMenuOpen)
                   ? 'z-20'
                   : 'z-0'
               )}

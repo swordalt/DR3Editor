@@ -1,4 +1,4 @@
-import { AlignCenterHorizontal, ChevronLeft, ChevronRight, Copy, FlipHorizontal, Trash2, X } from 'lucide-react';
+import { AlignCenterHorizontal, ChevronLeft, ChevronRight, FlipHorizontal, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
@@ -24,8 +24,6 @@ export default function EditorRightSidebar(props: any) {
     selectedParentNote,
     jumpToNoteTime,
     selectedNoteIds,
-    handleCopySelectedNotes,
-    handleDeleteSelectedNotes,
     handleMirrorSelectedNotes,
     handleCenterSelectedNotes,
     notes,
@@ -257,28 +255,12 @@ export default function EditorRightSidebar(props: any) {
                       className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
                     >
                       <X className="h-3.5 w-3.5" />
-                      <span>{text.sidebar.deselectAll}</span>
+                      <span>{formatTranslation(text.sidebar.deselectSelected, { count: selectedNoteIds.length })}</span>
                     </button>
 
                     <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
                       <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.multiselectFunctions}</div>
                       <div className="flex flex-col gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCopySelectedNotes}
-                          className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          <span>{text.sidebar.copy}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDeleteSelectedNotes}
-                          className="flex w-full items-center justify-center gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 hover:text-white"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>{text.sidebar.delete}</span>
-                        </button>
                         <button
                           type="button"
                           onClick={handleMirrorSelectedNotes}
@@ -296,9 +278,6 @@ export default function EditorRightSidebar(props: any) {
                           <span>{text.sidebar.center}</span>
                         </button>
                       </div>
-                    </div>
-                    <div className="flex-1 flex items-center justify-center text-sm text-neutral-600 border border-dashed border-neutral-800 rounded-lg p-4 text-center">
-                      {formatTranslation(text.sidebar.notesSelected, { count: selectedNoteIds.length })}
                     </div>
                   </div>
                 ) : (
