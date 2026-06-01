@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { ArrowLeft, ChevronDown, ChevronRight, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import VirtualizedChangeList from './VirtualizedChangeList';
@@ -124,6 +124,23 @@ export default function EditorLeftEditInfoPanel(props: any) {
     event.currentTarget.blur();
     void handleConfirm({ formDataOverride: sanitizedFormData, stayInEditInfo: true });
   };
+  const handleSidebarAudioFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const songFile = event.target.files?.[0] || null;
+    if (!songFile) return;
+
+    const nextFormData = { ...formData, songFile };
+    setFormData(nextFormData);
+    showMetadataFieldValidation('songFile');
+    void handleConfirm({ formDataOverride: nextFormData, stayInEditInfo: true });
+  };
+  const handleSidebarIllustrationFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const songIllustration = event.target.files?.[0] || null;
+    if (!songIllustration) return;
+
+    const nextFormData = { ...formData, songIllustration };
+    setFormData(nextFormData);
+    void handleConfirm({ formDataOverride: nextFormData, stayInEditInfo: true });
+  };
 
   return (
     <>
@@ -190,7 +207,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
                     <p className="text-xs text-neutral-400 truncate w-full px-2 text-center">
                       {formData.songFile ? <span className="font-semibold text-indigo-400">{formData.songFile.name}</span> : <span>{text.sidebar.uploadAudio}</span>}
                     </p>
-                    <input type="file" accept="audio/*" required className="hidden" onChange={(e) => setFormData({...formData, songFile: e.target.files?.[0] || null})} />
+                    <input type="file" accept="audio/*" required className="hidden" onChange={handleSidebarAudioFileChange} />
                   </label>
                 </div>
                 <div>
@@ -205,7 +222,7 @@ export default function EditorLeftEditInfoPanel(props: any) {
                     <p className="text-xs text-neutral-300 truncate w-full px-2 text-center relative z-10">
                       {formData.songIllustration ? <span className="font-semibold text-indigo-300">{formData.songIllustration.name}</span> : <span>{text.sidebar.uploadImage}</span>}
                     </p>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => setFormData({...formData, songIllustration: e.target.files?.[0] || null})} />
+                    <input type="file" accept="image/*" className="hidden" onChange={handleSidebarIllustrationFileChange} />
                   </label>
                 </div>
                 <div>

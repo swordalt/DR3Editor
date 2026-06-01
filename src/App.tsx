@@ -171,19 +171,6 @@ const waitForPaint = () => new Promise<void>((resolve) => {
   requestAnimationFrame(() => requestAnimationFrame(resolve));
 });
 
-const convertNonOggAudioFileForProject = async (
-  file: File,
-  shouldConvertAudio: boolean,
-  onBeforeConvert?: () => Promise<void>,
-) => {
-  if (!shouldConvertAudio || isOggAudioFile(file)) {
-    return file;
-  }
-
-  await onBeforeConvert?.();
-  return convertAudioFileToOgg(file);
-};
-
 function ImportLoadingOverlay({
   status,
   isBackdropBlurDisabled,
@@ -332,7 +319,6 @@ export default function App() {
   const editorSettings = loadEditorSettings();
   const isBackdropBlurDisabled = editorSettings.isBackdropBlurDisabled;
   const isAnimationDisabled = editorSettings.isAnimationDisabled;
-  const isAudioConversionEnabled = editorSettings.isAudioConversionEnabled;
   const [view, setView] = useState<ViewState>({ page: 'landing' });
   const [notes, setNotes] = useState<Note[]>([]);
   const [bpmChanges, setBpmChanges] = useState<BpmChange[]>(DEFAULT_BPM_CHANGES);
@@ -458,13 +444,14 @@ export default function App() {
       let wasAudioConvertedToOgg = false;
       let audioFile = sourceAudioFile;
 
-      if (isAudioConversionEnabled && !isOggAudioFile(sourceAudioFile)) {
+      if (!isOggAudioFile(sourceAudioFile)) {
         try {
           await updateImportLoadStatus(text.importStatus.convertingAudio);
           audioFile = await convertAudioFileToOgg(sourceAudioFile);
           wasAudioConvertedToOgg = true;
         } catch (error) {
           console.warn(text.editor.audioConversionFailedLog, error);
+          throw new Error(text.editor.audioConversionFailedAlert);
         }
       }
       const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob

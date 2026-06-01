@@ -50,7 +50,6 @@ export default function EditorLayout(props: any) {
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
     isDr3FpPreviewEnabled,
-    isAudioConversionEnabled,
     isPreviewPrecomputeEnabled,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
@@ -78,7 +77,6 @@ export default function EditorLayout(props: any) {
     setIsEditorJudgementGlowEnabled,
     setIsVSyncEnabled,
     setIsDr3FpPreviewEnabled,
-    setIsAudioConversionEnabled,
     setIsPreviewPrecomputeEnabled,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
@@ -260,7 +258,6 @@ export default function EditorLayout(props: any) {
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
-        isAudioConversionEnabled={isAudioConversionEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
@@ -282,7 +279,6 @@ export default function EditorLayout(props: any) {
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
-        setIsAudioConversionEnabled={setIsAudioConversionEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}

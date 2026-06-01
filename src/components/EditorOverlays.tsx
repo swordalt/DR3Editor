@@ -42,7 +42,6 @@ interface EditorOverlaysProps {
   isEditorJudgementGlowEnabled: boolean;
   isVSyncEnabled: boolean;
   isDr3FpPreviewEnabled: boolean;
-  isAudioConversionEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
   isPreviewHoldSpritesEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
@@ -64,7 +63,6 @@ interface EditorOverlaysProps {
   setIsEditorJudgementGlowEnabled: Dispatch<SetStateAction<boolean>>;
   setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
   setIsDr3FpPreviewEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsAudioConversionEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewHoldSpritesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -284,7 +282,6 @@ export default function EditorOverlays({
   isEditorJudgementGlowEnabled,
   isVSyncEnabled,
   isDr3FpPreviewEnabled,
-  isAudioConversionEnabled,
   isPreviewPrecomputeEnabled,
   isPreviewHoldSpritesEnabled,
   isSelectionTypeMenuOpen,
@@ -306,7 +303,6 @@ export default function EditorOverlays({
   setIsEditorJudgementGlowEnabled,
   setIsVSyncEnabled,
   setIsDr3FpPreviewEnabled,
-  setIsAudioConversionEnabled,
   setIsPreviewPrecomputeEnabled,
   setIsPreviewHoldSpritesEnabled,
   setIsSelectionTypeMenuOpen,
@@ -690,15 +686,6 @@ export default function EditorOverlays({
           />
         </div>
 
-        <div className="mt-4">
-          <SettingsToggle
-            label={text.overlays.convertAudio}
-            description={text.overlays.convertAudioDescription}
-            isEnabled={isAudioConversionEnabled}
-            ariaLabel={text.overlays.toggleConvertAudio}
-            onToggle={() => setIsAudioConversionEnabled((current) => !current)}
-          />
-        </div>
       </section>
     );
   };

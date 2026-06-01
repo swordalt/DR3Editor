@@ -153,8 +153,8 @@ import { formatTranslation, translations } from './lang';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
 
-const convertNonOggAudioFileForProject = async (file: File, shouldConvertAudio: boolean) => (
-  shouldConvertAudio && !isOggAudioFile(file) ? convertAudioFileToOgg(file) : file
+const convertNonOggAudioFileForProject = async (file: File) => (
+  isOggAudioFile(file) ? file : convertAudioFileToOgg(file)
 );
 
 const getOffsetInSeconds = (offset: string | number) => {
@@ -514,7 +514,6 @@ export default function Editor({
   const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
   const [isVSyncEnabled, setIsVSyncEnabled] = useState(initialEditorSettings.isVSyncEnabled);
   const [isDr3FpPreviewEnabled, setIsDr3FpPreviewEnabled] = useState(initialEditorSettings.isDr3FpPreviewEnabled);
-  const [isAudioConversionEnabled, setIsAudioConversionEnabled] = useState(initialEditorSettings.isAudioConversionEnabled);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -651,7 +650,7 @@ export default function Editor({
       isEditorJudgementGlowEnabled,
       isVSyncEnabled,
       isDr3FpPreviewEnabled,
-      isAudioConversionEnabled,
+      isAudioConversionEnabled: true,
       selectionType,
       statisticsRefreshRate,
       musicVolume,
@@ -681,7 +680,6 @@ export default function Editor({
     isEditorJudgementGlowEnabled,
     isVSyncEnabled,
     isDr3FpPreviewEnabled,
-    isAudioConversionEnabled,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -2292,11 +2290,11 @@ export default function Editor({
     let audioUrl = projectData?.audioUrl || '';
 
     if (nextSongFile && nextSongFile !== projectData?.songFile) {
-      wasAudioConvertedToOgg = isAudioConversionEnabled && !isOggAudioFile(nextSongFile);
+      wasAudioConvertedToOgg = !isOggAudioFile(nextSongFile);
       setIsProjectAudioConverting(true);
 
       try {
-        nextSongFile = await convertNonOggAudioFileForProject(nextSongFile, isAudioConversionEnabled);
+        nextSongFile = await convertNonOggAudioFileForProject(nextSongFile);
       } catch (error) {
         console.warn(text.editor.audioConversionFailedLog, error);
         alert(text.editor.audioConversionFailedAlert);
@@ -7891,7 +7889,6 @@ export default function Editor({
         isEditorJudgementGlowEnabled={isEditorJudgementGlowEnabled}
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
-        isAudioConversionEnabled={isAudioConversionEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
@@ -7919,7 +7916,6 @@ export default function Editor({
         setIsEditorJudgementGlowEnabled={setIsEditorJudgementGlowEnabled}
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
-        setIsAudioConversionEnabled={setIsAudioConversionEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
