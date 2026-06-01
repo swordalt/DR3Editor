@@ -2270,18 +2270,24 @@ export default function Editor({
     }
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = async ({
+    formDataOverride,
+    stayInEditInfo = false,
+  }: { formDataOverride?: typeof formData; stayInEditInfo?: boolean } = {}) => {
     if (isProjectAudioConverting) return;
+
+    const nextFormData = formDataOverride ?? formData;
+    const nextInvalidMetadataFields = getInvalidMetadataFields(nextFormData);
 
     setMetadataTouchedFields(getRequiredMetadataTouchedFields());
 
-    if (hasInvalidMetadataFields(invalidMetadataFields)) {
+    if (hasInvalidMetadataFields(nextInvalidMetadataFields)) {
       alert(text.editor.invalidMetadataAlert);
       return;
     }
 
     const wasProjectCreated = !projectData;
-    let nextSongFile = formData.songFile;
+    let nextSongFile = nextFormData.songFile;
     let wasAudioConvertedToOgg = false;
     let audioUrl = projectData?.audioUrl || '';
 
@@ -2302,27 +2308,31 @@ export default function Editor({
       audioUrl = URL.createObjectURL(nextSongFile);
     }
 
-    const parsedBpm = parseFloat(formData.songBpm);
+    const parsedBpm = parseFloat(nextFormData.songBpm);
     const fallbackBpm = projectData?.bpm || bpmChanges[0]?.bpm || 120;
     const nextBpm = Number.isFinite(parsedBpm) ? parsedBpm : fallbackBpm;
     const sanitizedFormData = {
-      ...formData,
+      ...nextFormData,
       songFile: nextSongFile,
-      songId: stripInputWhitespace(formData.songId),
-      songName: stripInputWhitespace(formData.songName),
-      songArtist: stripInputWhitespace(formData.songArtist),
-      songBpm: stripInputWhitespace(formData.songBpm),
-      difficulty: stripInputWhitespace(formData.difficulty),
+      songId: stripInputWhitespace(nextFormData.songId),
+      songName: stripInputWhitespace(nextFormData.songName),
+      songArtist: stripInputWhitespace(nextFormData.songArtist),
+      songBpm: stripInputWhitespace(nextFormData.songBpm),
+      difficulty: stripInputWhitespace(nextFormData.difficulty),
+    };
+    const committedFormData = {
+      ...sanitizedFormData,
+      songBpm: nextBpm.toString(),
     };
 
     setProjectData({
-      ...sanitizedFormData,
+      ...committedFormData,
       chartFormat: projectData?.chartFormat ?? 'Official',
-      songBpm: nextBpm.toString(),
       bpm: nextBpm,
       audioUrl,
       audioConvertedToOgg: wasAudioConvertedToOgg || projectData?.audioConvertedToOgg,
     });
+    setFormData(committedFormData);
 
     // Imported charts can exist before project metadata is set, so only seed BPMs for actual new projects.
     if (!projectData && mode === 'new') {
@@ -2334,7 +2344,7 @@ export default function Editor({
     if (wasAudioConvertedToOgg && !wasProjectCreated) {
       setIsAudioOffsetNoticeOpen(true);
     }
-    if (activeLeftPanel === 'editInfo') {
+    if (activeLeftPanel === 'editInfo' && !stayInEditInfo) {
       setActiveLeftPanel('main');
     }
     setMetadataTouchedFields({});
@@ -2342,7 +2352,7 @@ export default function Editor({
     recordOperation({
       category: 'metadata',
       title: wasProjectCreated ? text.operations.createdProjectMetadata : text.operations.updatedChartMetadata,
-      detail: `${sanitizedFormData.songName || text.editor.untitledProject} | ${text.sidebar.bpm} ${formatHistoryNumber(nextBpm)} | ${text.modal.difficultyRequired.replace(' *', '')} ${sanitizedFormData.difficulty || text.common.none}`,
+      detail: `${committedFormData.songName || text.editor.untitledProject} | ${text.sidebar.bpm} ${formatHistoryNumber(nextBpm)} | ${text.modal.difficultyRequired.replace(' *', '')} ${committedFormData.difficulty || text.common.none}`,
     });
   };
 

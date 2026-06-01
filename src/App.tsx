@@ -455,10 +455,18 @@ export default function App() {
         audioFileEntry!.name,
         { type: getMimeType(audioFileEntry!.extension) },
       );
-      const wasAudioConvertedToOgg = isAudioConversionEnabled && !isOggAudioFile(sourceAudioFile);
-      const audioFile = await convertNonOggAudioFileForProject(sourceAudioFile, isAudioConversionEnabled, async () => {
-        await updateImportLoadStatus(text.importStatus.convertingAudio);
-      });
+      let wasAudioConvertedToOgg = false;
+      let audioFile = sourceAudioFile;
+
+      if (isAudioConversionEnabled && !isOggAudioFile(sourceAudioFile)) {
+        try {
+          await updateImportLoadStatus(text.importStatus.convertingAudio);
+          audioFile = await convertAudioFileToOgg(sourceAudioFile);
+          wasAudioConvertedToOgg = true;
+        } catch (error) {
+          console.warn(text.editor.audioConversionFailedLog, error);
+        }
+      }
       const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob
         ? new File(
             [imageBlob],
