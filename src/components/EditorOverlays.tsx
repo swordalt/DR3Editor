@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { CheckCircle2, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -102,6 +102,51 @@ interface VirtualizedListProps<T> {
   overscan?: number;
 }
 
+interface VirtualizedListItemProps<T> {
+  item: T;
+  index: number;
+  offset: number;
+  className: string;
+  renderItem: (item: T, index: number) => ReactNode;
+  onSizeChange: (index: number, size: number) => void;
+}
+
+function VirtualizedListItem<T>({
+  item,
+  index,
+  offset,
+  className,
+  renderItem,
+  onSizeChange,
+}: VirtualizedListItemProps<T>) {
+  const itemRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = itemRef.current;
+    if (!node) return;
+
+    const measure = () => {
+      onSizeChange(index, node.getBoundingClientRect().height);
+    };
+    measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [index, onSizeChange]);
+
+  return (
+    <div
+      ref={itemRef}
+      className={`absolute left-0 right-0 pb-5 ${className}`}
+      style={{ transform: `translateY(${offset}px)` }}
+    >
+      {renderItem(item, index)}
+    </div>
+  );
+}
+
 function VirtualizedList<T>({
   items,
   estimateSize,
@@ -115,8 +160,8 @@ function VirtualizedList<T>({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [itemSizes, setItemSizes] = useState(() => new Map<number, number>());
   const containerObserverRef = useRef<ResizeObserver | null>(null);
-  const itemObserverRef = useRef<ResizeObserver | null>(null);
-  const itemNodesRef = useRef(new Map<Element, number>());
+  const scrollFrameRef = useRef<number | null>(null);
+  const pendingScrollTopRef = useRef(0);
 
   const setContainerRef = useCallback((node: HTMLDivElement | null) => {
     containerObserverRef.current?.disconnect();
@@ -132,39 +177,30 @@ function VirtualizedList<T>({
     containerObserverRef.current = observer;
   }, []);
 
-  const setItemRef = useCallback((index: number, node: HTMLDivElement | null) => {
-    if (!itemObserverRef.current) {
-      itemObserverRef.current = new ResizeObserver((entries) => {
-        setItemSizes((currentSizes) => {
-          let didChange = false;
-          const nextSizes = new Map(currentSizes);
+  const updateItemSize = useCallback((index: number, size: number) => {
+    setItemSizes((currentSizes) => {
+      if (currentSizes.get(index) === size) return currentSizes;
 
-          entries.forEach((entry) => {
-            const itemIndex = itemNodesRef.current.get(entry.target);
-            if (itemIndex === undefined) return;
-
-            const measuredHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-            if (nextSizes.get(itemIndex) !== measuredHeight) {
-              nextSizes.set(itemIndex, measuredHeight);
-              didChange = true;
-            }
-          });
-
-          return didChange ? nextSizes : currentSizes;
-        });
-      });
-    }
-
-    itemNodesRef.current.forEach((itemIndex, element) => {
-      if (itemIndex === index) {
-        itemObserverRef.current?.unobserve(element);
-        itemNodesRef.current.delete(element);
-      }
+      const nextSizes = new Map(currentSizes);
+      nextSizes.set(index, size);
+      return nextSizes;
     });
+  }, []);
 
-    if (node) {
-      itemNodesRef.current.set(node, index);
-      itemObserverRef.current.observe(node);
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    pendingScrollTopRef.current = event.currentTarget.scrollTop;
+
+    if (scrollFrameRef.current !== null) return;
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      setScrollTop(pendingScrollTopRef.current);
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
     }
   }, []);
 
@@ -180,10 +216,18 @@ function VirtualizedList<T>({
   }, [estimateSize, itemSizes, items.length]);
 
   const totalHeight = offsets[items.length] ?? 0;
-  const firstVisibleIndex = offsets.findIndex((offset, index) => (
-    index < items.length && offset + (itemSizes.get(index) ?? estimateSize) >= scrollTop
-  ));
-  const visibleStartIndex = Math.max(0, (firstVisibleIndex === -1 ? 0 : firstVisibleIndex) - overscan);
+  let lowIndex = 0;
+  let highIndex = items.length;
+  while (lowIndex < highIndex) {
+    const middleIndex = Math.floor((lowIndex + highIndex) / 2);
+    if (offsets[middleIndex + 1] < scrollTop) {
+      lowIndex = middleIndex + 1;
+    } else {
+      highIndex = middleIndex;
+    }
+  }
+
+  const visibleStartIndex = Math.max(0, lowIndex - overscan);
   let visibleEndIndex = visibleStartIndex;
   while (
     visibleEndIndex < items.length
@@ -197,21 +241,22 @@ function VirtualizedList<T>({
     <div
       ref={setContainerRef}
       className={`flex-1 overflow-y-auto ${className}`}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={handleScroll}
     >
       <div className="relative" style={{ height: totalHeight }}>
         {items.slice(visibleStartIndex, visibleEndIndex).map((item, sliceIndex) => {
           const index = visibleStartIndex + sliceIndex;
 
           return (
-            <div
+            <VirtualizedListItem
               key={getKey(item, index)}
-              ref={(node) => setItemRef(index, node)}
-              className={`absolute left-0 right-0 pb-5 ${getItemClassName?.(item, index) ?? ''}`}
-              style={{ transform: `translateY(${offsets[index]}px)` }}
-            >
-              {renderItem(item, index)}
-            </div>
+              item={item}
+              index={index}
+              offset={offsets[index]}
+              className={getItemClassName?.(item, index) ?? ''}
+              renderItem={renderItem}
+              onSizeChange={updateItemSize}
+            />
           );
         })}
       </div>

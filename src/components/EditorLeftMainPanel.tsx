@@ -21,6 +21,7 @@ export default function EditorLeftMainPanel(props: any) {
     isLeftPanelContentVisible,
     activeLeftPanel,
     setActiveLeftPanel,
+    openNscTool,
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -141,6 +142,10 @@ export default function EditorLeftMainPanel(props: any) {
                 >
                   <span className="min-w-0 truncate">{text.sidebar.chartIssues}</span>
                   {renderTabBadge(chartIssuesBadge)}
+                </button>
+                <div className="my-1 border-t border-neutral-800" />
+                <button onClick={openNscTool} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  {text.sidebar.nscTool}
                 </button>
               </div>
             </div>

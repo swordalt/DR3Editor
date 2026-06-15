@@ -7,6 +7,7 @@ import EditorLeftSidebar from './EditorLeftSidebar';
 import EditorPreviewSidebar from './EditorPreviewSidebar';
 import EditorCanvasStage from './EditorCanvasStage';
 import EditorRightSidebar from './EditorRightSidebar';
+import EditorNscToolModal from './EditorNscToolModal';
 import { translations } from '../lang';
 import {
   dialogFooterClassName,
@@ -137,6 +138,7 @@ export default function EditorLayout(props: any) {
     leftSidebarProps,
     canvasStageProps,
     rightSidebarProps,
+    nscToolProps,
   } = props;
   const text = translations;
   const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
@@ -242,6 +244,8 @@ export default function EditorLayout(props: any) {
           </motion.div>
         </motion.div>
       )}
+
+      <EditorNscToolModal {...nscToolProps} />
 
       <EditorOverlays
         isExitWarningOpen={isExitWarningOpen}

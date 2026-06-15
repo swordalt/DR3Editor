@@ -546,6 +546,7 @@ export default function Editor({
   const [previewDisplayMode, setPreviewDisplayMode] = useState<PreviewDisplayMode>(initialEditorSettings.previewDisplayMode);
   const [preview3DTiltDegrees, setPreview3DTiltDegrees] = useState(initialEditorSettings.preview3DTiltDegrees);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
+  const [isNscToolOpen, setIsNscToolOpen] = useState(false);
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewCanvasLoadPhase, setPreviewCanvasLoadPhase] = useState<PreviewCanvasLoadPhase>('idle');
@@ -794,6 +795,16 @@ export default function Editor({
 
     requestRef.current = undefined;
     requestSchedulerRef.current = undefined;
+  }, []);
+  const recordFpsSample = useCallback((now: number) => {
+    fpsFrameCountRef.current += 1;
+    const elapsed = now - fpsWindowStartRef.current;
+
+    if (elapsed >= PERFORMANCE_STATS_UPDATE_INTERVAL_MS) {
+      setFps(Math.round((fpsFrameCountRef.current * 1000) / elapsed));
+      fpsFrameCountRef.current = 0;
+      fpsWindowStartRef.current = now;
+    }
   }, []);
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
@@ -3402,15 +3413,6 @@ export default function Editor({
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const now = performance.now();
-    fpsFrameCountRef.current += 1;
-    const elapsed = now - fpsWindowStartRef.current;
-    if (elapsed >= PERFORMANCE_STATS_UPDATE_INTERVAL_MS) {
-      setFps(Math.round((fpsFrameCountRef.current * 1000) / elapsed));
-      fpsFrameCountRef.current = 0;
-      fpsWindowStartRef.current = now;
-    }
-
     const rect = container.getBoundingClientRect();
     const displayWidth = Math.max(1, Math.floor(rect.width));
     const displayHeight = Math.max(1, Math.floor(rect.height));
@@ -6010,15 +6012,16 @@ export default function Editor({
     };
   }, [drawGrid, updateRenderedObjectsDisplay]);
 
-  const update = useCallback(() => {
+  const update = useCallback((frameTime = performance.now()) => {
     if (stateRef.current.isPlaying && audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
       const activePlaybackSpeed = stateRef.current.playbackSpeed;
       const currentTime = getPlaybackTimeFromClock(audioRef.current, offsetInSeconds);
-      const now = performance.now();
+      const now = frameTime;
 
       if (timelineDuration > 0 && currentTime >= timelineDuration) {
         void loopPlaybackToBeginning();
+        recordFpsSample(frameTime);
         drawGrid();
         updateRenderedObjectsDisplay();
         scheduleEditorUpdate(update);
@@ -6060,6 +6063,7 @@ export default function Editor({
       lastPlayedTimeRef.current = stateRef.current.currentTime;
     }
 
+    recordFpsSample(frameTime);
     drawGrid();
     updateRenderedObjectsDisplay();
     if (stateRef.current.isPlaying) {
@@ -6070,7 +6074,7 @@ export default function Editor({
       requestRef.current = undefined;
       requestSchedulerRef.current = undefined;
     }
-  }, [drawGrid, offset, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [drawGrid, offset, recordFpsSample, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -7697,6 +7701,7 @@ export default function Editor({
     toggleLeftPanelCompact,
     activeLeftPanel,
     setActiveLeftPanel,
+    openNscTool: () => setIsNscToolOpen(true),
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -7853,6 +7858,17 @@ export default function Editor({
     selectedNoteType,
     noteWidth,
   };
+  const nscToolProps = {
+    isOpen: isNscToolOpen,
+    onClose: () => setIsNscToolOpen(false),
+    selectedNote: selectedSingleNote,
+    selectedNoteTimepos,
+    currentBpm: currentEditorBpm,
+    isOfficialChartFormat,
+    isBackdropBlurDisabled,
+    isAnimationDisabled,
+    updateSelectedNote,
+  };
 
   return (
     <>
@@ -7991,6 +8007,7 @@ export default function Editor({
         setPreview3DTiltDegrees={setPreview3DTiltDegrees}
         canvasStageProps={canvasStageProps}
         rightSidebarProps={rightSidebarProps}
+        nscToolProps={nscToolProps}
       />
       <EditorFilePreviewModal
         file={previewedProjectFile}

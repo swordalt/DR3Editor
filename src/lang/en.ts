@@ -193,6 +193,7 @@ export const en = {
     organizeNotes: 'Organize Notes',
     operationHistory: 'Operation History',
     chartIssues: 'Chart Issues',
+    nscTool: 'NSC Tool',
     clearClipboard: 'Clear Clipboard',
     currentParent: 'Current Parent',
     auto: 'Auto',
