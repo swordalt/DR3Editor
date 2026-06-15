@@ -7231,6 +7231,9 @@ export default function Editor({
     currentEditorCombo,
     currentEditorScore,
   } = chartStatistics;
+  const selectedNoteBpm = selectedSingleNote
+    ? getActiveChange(selectedSingleNote.time, timedBpmChanges).bpm
+    : currentEditorBpm;
   const leftSidebarInfoBadge = useMemo(() => {
     const requiredMissingCount = [
       !projectData || !isValidSongId(projectData.songId),
@@ -7863,10 +7866,17 @@ export default function Editor({
     onClose: () => setIsNscToolOpen(false),
     selectedNote: selectedSingleNote,
     selectedNoteTimepos,
-    currentBpm: currentEditorBpm,
+    currentBpm: selectedNoteBpm,
     isOfficialChartFormat,
     isBackdropBlurDisabled,
     isAnimationDisabled,
+    playbackAudioUrl,
+    chartOffset: offset,
+    audioTimingCorrection,
+    musicVolume,
+    tapSoundVolume,
+    getTimeFromTimepos,
+    getTimeposFromTime,
     updateSelectedNote,
   };
 

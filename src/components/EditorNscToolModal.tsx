@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { motion } from 'motion/react';
 import { Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
-import { isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
+import { isOfficialNoteSpeedLockedType, NOTE_TYPES, UNKNOWN_NOTE_TYPE } from '../constants/editorConstants';
+import {
+  getMediaTimeFromPlaybackTime,
+  getPlaybackTimeFromMediaTime,
+  type AudioTimingCorrection,
+} from '../editor/audioTiming';
+import { SOUND_URLS } from '../editor/editorAudioAssets';
 import { APPEAR_MODE_P_NSC } from '../editor/editorViewConstants';
 import { formatHistoryNumber } from '../editor/editorHistory';
 import { PREVIEW_NOTE_TEXTURE_URLS } from '../editor/previewNoteSprites';
@@ -43,6 +49,13 @@ interface EditorNscToolModalProps {
   isOfficialChartFormat: boolean;
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
+  playbackAudioUrl: string;
+  chartOffset: string | number;
+  audioTimingCorrection: AudioTimingCorrection;
+  musicVolume: number;
+  tapSoundVolume: number;
+  getTimeFromTimepos: (timepos: number) => number;
+  getTimeposFromTime: (time: number) => number;
   updateSelectedNote: (updates: Partial<Note>) => void;
 }
 
@@ -241,6 +254,13 @@ export default function EditorNscToolModal({
   isOfficialChartFormat,
   isBackdropBlurDisabled,
   isAnimationDisabled,
+  playbackAudioUrl,
+  chartOffset,
+  audioTimingCorrection,
+  musicVolume,
+  tapSoundVolume,
+  getTimeFromTimepos,
+  getTimeposFromTime,
   updateSelectedNote,
 }: EditorNscToolModalProps) {
   const [keyframes, setKeyframes] = useState<NscKeyframe[]>(() => getStoredKeyframes() ?? createKeyframes(DEFAULT_KEYFRAMES));
@@ -257,6 +277,9 @@ export default function EditorNscToolModal({
   const [statusMessage, setStatusMessage] = useState('');
   const [chartValueError, setChartValueError] = useState('');
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const hitSoundAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewProgressRef = useRef(0);
   const loadedNoteIdRef = useRef<number | null>(null);
   const bpm = Number.isFinite(currentBpm) && currentBpm > 0 ? currentBpm : 120;
   const isSelectedNoteSpeedLocked = Boolean(
@@ -264,9 +287,12 @@ export default function EditorNscToolModal({
     && selectedNote
     && isOfficialNoteSpeedLockedType(selectedNote.type),
   );
+  const isSelectedNoteNscCompatible = Boolean(selectedNote && !isSelectedNoteSpeedLocked);
 
   useEffect(() => {
     if (!isOpen) {
+      setIsPreviewPlaying(false);
+      previewAudioRef.current?.pause();
       return;
     }
 
@@ -317,11 +343,30 @@ export default function EditorNscToolModal({
   const activeGraphAxisBounds = dragAxisBounds ?? graphAxisBounds;
   const serializedSpeed = useMemo(() => serializeCurveKeyframes(sortedKeyframes), [sortedKeyframes]);
   const previewPlaybackRange = Math.max(0.5, maxTimeOffset);
-  const previewDurationSeconds = Math.max(1.2, Math.min(4, previewPlaybackRange * SECONDS_PER_TIMEPOS_BEATS / bpm));
-  const playbackLeadOffset = maxTimeOffset - previewPlaybackRange * previewProgress;
+  const previewStartTimepos = selectedNoteTimepos - previewPlaybackRange;
+  const previewStartChartTime = isSelectedNoteNscCompatible ? getTimeFromTimepos(previewStartTimepos) : 0;
+  const previewEndChartTime = isSelectedNoteNscCompatible ? getTimeFromTimepos(selectedNoteTimepos) : 0;
+  const notePreviewPlaybackSeconds = Math.max(0.001, previewEndChartTime - previewStartChartTime);
+  const standalonePreviewDurationSeconds = Math.max(1.2, Math.min(4, previewPlaybackRange * SECONDS_PER_TIMEPOS_BEATS / bpm));
+  const previewPlaybackSeconds = isSelectedNoteNscCompatible
+    ? notePreviewPlaybackSeconds
+    : standalonePreviewDurationSeconds;
+  const previewDurationSeconds = previewPlaybackSeconds;
+  const previewPlaybackChartTime = isSelectedNoteNscCompatible
+    ? previewStartChartTime + previewPlaybackSeconds * previewProgress
+    : 0;
+  const previewPlaybackTimepos = isSelectedNoteNscCompatible ? getTimeposFromTime(previewPlaybackChartTime) : selectedNoteTimepos;
+  const playbackLeadOffset = isSelectedNoteNscCompatible
+    ? selectedNoteTimepos - previewPlaybackTimepos
+    : maxTimeOffset - previewPlaybackRange * previewProgress;
   const visualLeadOffset = evaluateCurveValueOffset(sortedKeyframes, playbackLeadOffset);
-  const visualLeadSeconds = visualLeadOffset * SECONDS_PER_TIMEPOS_BEATS / bpm;
-  const playbackLeadSeconds = playbackLeadOffset * SECONDS_PER_TIMEPOS_BEATS / bpm;
+  const visualLeadSeconds = isSelectedNoteNscCompatible
+    ? getTimeFromTimepos(selectedNoteTimepos) - getTimeFromTimepos(selectedNoteTimepos - visualLeadOffset)
+    : visualLeadOffset * SECONDS_PER_TIMEPOS_BEATS / bpm;
+  const playbackLeadSeconds = isSelectedNoteNscCompatible
+    ? Math.max(0, previewEndChartTime - previewPlaybackChartTime)
+    : playbackLeadOffset * SECONDS_PER_TIMEPOS_BEATS / bpm;
+  const selectedNoteType = selectedNote ? (NOTE_TYPES[selectedNote.type] ?? UNKNOWN_NOTE_TYPE) : null;
   const autoPreviewScaleOffset = Math.max(0.5, maxValueOffset);
   const previewMaxVisualOffset = previewZoom > 0 ? previewZoom : autoPreviewScaleOffset;
   const previewVisualOffsetRange = previewMaxVisualOffset;
@@ -354,16 +399,53 @@ export default function EditorNscToolModal({
   }, [previewZoom]);
 
   useEffect(() => {
+    previewProgressRef.current = previewProgress;
+  }, [previewProgress]);
+
+  useEffect(() => {
     if (!isPreviewPlaying) {
+      previewAudioRef.current?.pause();
       return undefined;
     }
 
+    const initialPreviewProgress = previewProgressRef.current;
+    const audio = previewAudioRef.current;
+    const canPlayPreviewAudio = Boolean(
+      audio
+      && playbackAudioUrl
+      && isSelectedNoteNscCompatible
+    );
+    const chartOffsetSeconds = Number(chartOffset) / 1000;
+    const normalizedChartOffsetSeconds = Number.isFinite(chartOffsetSeconds) ? chartOffsetSeconds : 0;
+    const seekPreviewAudio = (playbackProgress: number) => {
+      if (!audio || !isSelectedNoteNscCompatible) {
+        return;
+      }
+
+      const clampedProgress = Math.min(1, Math.max(0, playbackProgress));
+      const playbackChartTime = previewStartChartTime + previewPlaybackSeconds * clampedProgress;
+      audio.currentTime = getMediaTimeFromPlaybackTime(
+        playbackChartTime,
+        normalizedChartOffsetSeconds,
+        audioTimingCorrection,
+      );
+    };
+
+    if (audio && canPlayPreviewAudio) {
+      audio.volume = musicVolume;
+      audio.playbackRate = 1;
+      seekPreviewAudio(initialPreviewProgress);
+      void audio.play().catch(() => {
+        // Browsers can reject autoplay. Visual preview should continue.
+      });
+    }
+
     const durationMs = previewDurationSeconds * 1000;
-    const startTime = performance.now() - previewProgress * durationMs;
+    const startTime = performance.now() - initialPreviewProgress * durationMs;
     const judgementProgress = 1;
     let hasPlayedHit = false;
-    let previousCycle = Math.floor((performance.now() - startTime) / durationMs);
-    let previousProgress = previewProgress;
+    let previousCycle = 0;
+    let previousProgress = initialPreviewProgress;
     let frameId = 0;
     const triggerHitIfCrossed = (currentProgress: number) => {
       if (!hasPlayedHit && previousProgress < judgementProgress && currentProgress >= judgementProgress) {
@@ -374,15 +456,26 @@ export default function EditorNscToolModal({
 
     const tick = (now: number) => {
       const rawElapsed = Math.max(0, now - startTime);
-      const currentCycle = Math.floor(rawElapsed / durationMs);
-      const rawProgress = rawElapsed / durationMs;
+      const fallbackRawProgress = rawElapsed / durationMs;
+      const audioPlaybackTime = canPlayPreviewAudio && audio && !audio.paused
+        ? getPlaybackTimeFromMediaTime(audio.currentTime, normalizedChartOffsetSeconds, audioTimingCorrection)
+        : null;
+      const rawProgress = audioPlaybackTime !== null
+        ? (audioPlaybackTime - previewStartChartTime) / previewPlaybackSeconds
+        : fallbackRawProgress;
+      const normalizedRawProgress = Math.max(0, rawProgress);
+      const currentCycle = Math.floor(normalizedRawProgress);
       const currentProgress = isPreviewLooping
-        ? rawProgress % 1
-        : Math.min(1, rawProgress);
+        ? normalizedRawProgress % 1
+        : Math.min(1, normalizedRawProgress);
 
       if (isPreviewLooping && currentCycle > previousCycle) {
         triggerHitIfCrossed(1);
-        previousCycle = currentCycle;
+        if (canPlayPreviewAudio) {
+          seekPreviewAudio(0);
+          void audio?.play().catch(() => undefined);
+        }
+        previousCycle = canPlayPreviewAudio ? 0 : currentCycle;
         previousProgress = 0;
         hasPlayedHit = false;
       }
@@ -391,9 +484,10 @@ export default function EditorNscToolModal({
       previousProgress = currentProgress;
       setPreviewProgress(currentProgress);
 
-      if (!isPreviewLooping && rawElapsed >= durationMs) {
+      if (!isPreviewLooping && normalizedRawProgress >= 1) {
         setPreviewProgress(1);
         setIsPreviewPlaying(false);
+        audio?.pause();
         return;
       }
 
@@ -401,17 +495,39 @@ export default function EditorNscToolModal({
     };
 
     frameId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [isPreviewLooping, isPreviewPlaying, previewDurationSeconds, previewProgress]);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      audio?.pause();
+    };
+  }, [
+    audioTimingCorrection,
+    chartOffset,
+    isPreviewLooping,
+    isPreviewPlaying,
+    isSelectedNoteNscCompatible,
+    musicVolume,
+    playbackAudioUrl,
+    previewDurationSeconds,
+    previewStartChartTime,
+    previewPlaybackSeconds,
+    selectedNote,
+  ]);
 
   useEffect(() => {
     if (hitEffectId === 0) {
       return undefined;
     }
 
+    const hitSoundAudio = hitSoundAudioRef.current;
+    if (hitSoundAudio && tapSoundVolume > 0) {
+      hitSoundAudio.volume = tapSoundVolume;
+      hitSoundAudio.currentTime = 0;
+      void hitSoundAudio.play().catch(() => undefined);
+    }
+
     const timeoutId = window.setTimeout(() => setHitEffectId(0), 420);
     return () => window.clearTimeout(timeoutId);
-  }, [hitEffectId]);
+  }, [hitEffectId, tapSoundVolume]);
 
   if (!isOpen) {
     return null;
@@ -568,11 +684,15 @@ export default function EditorNscToolModal({
       {...getOverlayMotionProps(isAnimationDisabled)}
       onMouseDown={onClose}
     >
+      {playbackAudioUrl && (
+        <audio ref={previewAudioRef} src={playbackAudioUrl} preload="auto" />
+      )}
+      <audio ref={hitSoundAudioRef} src={SOUND_URLS['hit.ogg']} preload="auto" />
       <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby="nsc-tool-title"
-        className={`max-h-[92vh] w-full max-w-5xl ${dialogSurfaceClassName}`}
+        className={`relative max-h-[92vh] w-full max-w-5xl ${dialogSurfaceClassName}`}
         {...getDialogMotionProps(isAnimationDisabled)}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -976,7 +1096,18 @@ export default function EditorNscToolModal({
               ? 'This note type does not support note speed changes.'
               : statusMessage}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div
+              className={`rounded border px-3 py-2 text-xs font-semibold uppercase tracking-wider ${
+                selectedNote
+                  ? 'border-indigo-400/40 bg-indigo-950/80 text-indigo-100'
+                  : 'border-neutral-700 bg-neutral-900 text-neutral-400'
+              }`}
+            >
+              {selectedNote
+                ? `Selected note #${selectedNote.id} - ${selectedNoteType?.name ?? UNKNOWN_NOTE_TYPE.name} - ${formatNscNumber(selectedNoteTimepos, 3)}`
+                : 'No note selected'}
+            </div>
             <button
               type="button"
               onClick={() => {
