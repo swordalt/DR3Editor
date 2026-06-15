@@ -1,19 +1,18 @@
-a fanmade chart maker and editor for DanceRail3. try [here](https://swordalt.github.io/dancerail3-editor).
+a fanmade chart maker and editor for the rhythm game DanceRail3. try it out [here](https://swordalt.github.io/dancerail3-editor).
 
-press the ? button to see all keybinds. most are true to the original DR3Maker.
+most keybinds are true to DRMaker, the official chart editor. additional keybinds visible via the ? button.
 
-current status:
-- support official format fully.
-- eased note generator (with hold note support).
-- note ID organizer.
-- undo/redo with edit history.
-- edit note properties.
-- live statistics.
-- top-down chart preview (features SC, NSC, NoteAppearMode, camera tilt, camera movement).
-- export raw or as DR3FV format (with info.txt).
+Current Status:
+- Full support for the official chart format. (new 25-27 note types)
+- Curved note generator.
+- Curved SC generator.
+- Note organization.
+- Issue (playability) finder.
+- Preview Mode (top-down view, with NSC and Appear Mode).
+- Operation history (with undo/redo).
+- Export as multiple formats.
+- Statistics window.
 
-future plans:
-- advanced multi-note edit (like PhiEdit).
-- curve SC generator (and multi-SC edit).
-- advanced BPM system w/ time signature support (already implemented but disabled).
-- custom chart format support (storyboard, dynamic note scaling, better NSC implementation, etc.)
+Future:
+- NSC helper (creator / preview).
+- Integration with a modified version of DR3Viewer for accurate preview.
