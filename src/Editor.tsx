@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorLayout from './components/EditorLayout';
 import EditorFilePreviewModal from './components/EditorFilePreviewModal';
+import type { NoteMultiEditCondition, NoteMultiEditRequest, NoteMultiEditResult } from './components/EditorNoteMultiEditModal';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import type { ExportFormat } from './types/exportTypes';
@@ -78,6 +79,7 @@ import type {
   ActiveLeftPanel,
   CopiedNote,
   CurveEasingFamily,
+  CurveEasingId,
   CurveEasingType,
   CurveIdSelectTarget,
   EditorProps,
@@ -547,6 +549,7 @@ export default function Editor({
   const [preview3DTiltDegrees, setPreview3DTiltDegrees] = useState(initialEditorSettings.preview3DTiltDegrees);
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isNscToolOpen, setIsNscToolOpen] = useState(false);
+  const [isNoteMultiEditOpen, setIsNoteMultiEditOpen] = useState(false);
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewCanvasLoadPhase, setPreviewCanvasLoadPhase] = useState<PreviewCanvasLoadPhase>('idle');
@@ -7207,6 +7210,10 @@ export default function Editor({
     selectedNoteIds.length === 1
       ? notes.find((note) => note.id === selectedNoteIds[0]) || null
       : null;
+  const selectedNotesForMultiEdit = useMemo(() => {
+    const selectedIdSet = new Set(selectedNoteIds);
+    return notes.filter(note => selectedIdSet.has(note.id));
+  }, [notes, selectedNoteIds]);
   const canUseSelectedAsParent = selectedNoteIds.length === 1 && selectedSingleNote !== null;
   const selectedParentNote =
     selectedSingleNote?.parentId === null || selectedSingleNote?.parentId === undefined
@@ -7321,6 +7328,292 @@ export default function Editor({
     setNotes(prev => prev.map(note => (
       note.id === selectedSingleNote.id ? { ...note, ...normalizedUpdates } : note
     )));
+  };
+
+  const getSimpleNoteSpeedValue = (note: Note) => {
+    const normalizedSpeed = note.speed?.trim();
+    if (!normalizedSpeed) {
+      return 1;
+    }
+
+    const parsedSpeed = Number(normalizedSpeed);
+    return Number.isFinite(parsedSpeed) ? parsedSpeed : null;
+  };
+
+  const formatNoteMultiEditNumber = (value: number) => {
+    const roundedValue = Number(value.toFixed(6));
+    return Object.is(roundedValue, -0) ? '0' : roundedValue.toString();
+  };
+
+  const getNearestAvailableNoteType = (value: number) => (
+    AVAILABLE_NOTE_TYPES.reduce((nearestType, candidateType) => (
+      Math.abs(candidateType - value) < Math.abs(nearestType - value)
+        ? candidateType
+        : nearestType
+    ), AVAILABLE_NOTE_TYPES[0] ?? 1)
+  );
+
+  const getAppearModeFromValue = (value: string): Note['appearMode'] | undefined => (
+    APPEAR_MODE_OPTIONS.includes(value as typeof APPEAR_MODE_OPTIONS[number]) && value !== 'none'
+      ? value as Note['appearMode']
+      : undefined
+  );
+
+  const validateNoteMultiEditCondition = (condition: NoteMultiEditCondition) => {
+    if (condition.operator === 'empty' || condition.operator === 'notEmpty' || condition.field === 'appearMode') {
+      return '';
+    }
+
+    const parsedValue = Number(condition.value);
+    if (!Number.isFinite(parsedValue)) {
+      return text.noteMultiEdit.invalidCondition;
+    }
+
+    if ((condition.operator === 'between' || condition.operator === 'outside') && !Number.isFinite(Number(condition.upperValue))) {
+      return text.noteMultiEdit.invalidCondition;
+    }
+
+    return '';
+  };
+
+  const matchesNoteMultiEditCondition = (note: Note, condition: NoteMultiEditCondition) => {
+    const isEmpty = () => {
+      if (condition.field === 'speed') {
+        return !note.speed?.trim();
+      }
+
+      if (condition.field === 'parentId') {
+        return note.parentId === null;
+      }
+
+      if (condition.field === 'appearMode') {
+        return !note.appearMode;
+      }
+
+      return false;
+    };
+
+    if (condition.operator === 'empty') {
+      return isEmpty();
+    }
+
+    if (condition.operator === 'notEmpty') {
+      return !isEmpty();
+    }
+
+    if (condition.field === 'appearMode') {
+      const currentValue = note.appearMode ?? 'none';
+      const targetValue = condition.value === '' ? 'none' : condition.value;
+      return condition.operator === 'notEquals'
+        ? currentValue !== targetValue
+        : currentValue === targetValue;
+    }
+
+    const getNumericValue = () => {
+      if (condition.field === 'type') return note.type;
+      if (condition.field === 'lane') return note.lane;
+      if (condition.field === 'time') return getTimeposFromTime(note.time);
+      if (condition.field === 'width') return note.width;
+      if (condition.field === 'parentId') return note.parentId;
+      return getSimpleNoteSpeedValue(note);
+    };
+
+    const currentValue = getNumericValue();
+    if (currentValue === null) {
+      return false;
+    }
+
+    const conditionValue = Number(condition.value);
+    const conditionUpperValue = Number(condition.upperValue);
+    const lowerValue = Math.min(conditionValue, conditionUpperValue);
+    const upperValue = Math.max(conditionValue, conditionUpperValue);
+
+    if (condition.operator === 'equals') {
+      return Math.abs(currentValue - conditionValue) <= SNAP_EPSILON;
+    }
+
+    if (condition.operator === 'notEquals') {
+      return Math.abs(currentValue - conditionValue) > SNAP_EPSILON;
+    }
+
+    if (condition.operator === 'between') {
+      return currentValue >= lowerValue - SNAP_EPSILON && currentValue <= upperValue + SNAP_EPSILON;
+    }
+
+    if (condition.operator === 'outside') {
+      return currentValue < lowerValue - SNAP_EPSILON || currentValue > upperValue + SNAP_EPSILON;
+    }
+
+    if (condition.operator === 'atLeast') {
+      return currentValue >= conditionValue - SNAP_EPSILON;
+    }
+
+    return currentValue <= conditionValue + SNAP_EPSILON;
+  };
+
+  const applyNoteMultiEdit = (request: NoteMultiEditRequest): NoteMultiEditResult => {
+    const selectedIdSet = new Set(selectedNoteIds);
+    const selectedNotes = stateRef.current.notes
+      .filter(note => selectedIdSet.has(note.id))
+      .sort((a, b) => (
+        a.time - b.time
+        || a.lane - b.lane
+        || a.id - b.id
+      ));
+
+    if (selectedNotes.length === 0) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: text.noteMultiEdit.noNotesSelected,
+      };
+    }
+
+    const invalidConditionMessage = request.conditions
+      .map(validateNoteMultiEditCondition)
+      .find(Boolean);
+    if (invalidConditionMessage) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: invalidConditionMessage,
+      };
+    }
+
+    const parsedLowerValue = Number(request.lowerValue);
+    const parsedUpperValue = Number(request.upperValue);
+    const isNumericTarget = request.target !== 'appearMode';
+    if (isNumericTarget && (!Number.isFinite(parsedLowerValue) || !Number.isFinite(parsedUpperValue))) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: text.noteMultiEdit.invalidRange,
+      };
+    }
+
+    const lowerAppearModeIndex = APPEAR_MODE_OPTIONS.indexOf(request.lowerValue as typeof APPEAR_MODE_OPTIONS[number]);
+    const upperAppearModeIndex = APPEAR_MODE_OPTIONS.indexOf(request.upperValue as typeof APPEAR_MODE_OPTIONS[number]);
+    if (request.target === 'appearMode' && (lowerAppearModeIndex < 0 || upperAppearModeIndex < 0)) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: text.noteMultiEdit.invalidRange,
+      };
+    }
+
+    const easingOption = CURVE_EASINGS_BY_ID.get(request.easingId as CurveEasingId);
+    if (!easingOption) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: text.operations.easingValidation,
+      };
+    }
+
+    const matchedNotes = selectedNotes.filter(note => (
+      request.conditions.every(condition => matchesNoteMultiEditCondition(note, condition))
+    ));
+
+    if (matchedNotes.length === 0) {
+      return {
+        changedCount: 0,
+        matchedCount: 0,
+        message: text.noteMultiEdit.noMatchingNotes,
+      };
+    }
+
+    const getNextNumericValue = (currentValue: number, editValue: number) => {
+      if (request.operation === 'add') {
+        return currentValue + editValue;
+      }
+
+      if (request.operation === 'multiply') {
+        return currentValue * editValue;
+      }
+
+      return editValue;
+    };
+
+    const nextNotesById = new Map<number, Note>();
+
+    matchedNotes.forEach((note, index) => {
+      const progress = matchedNotes.length <= 1 ? 0 : index / (matchedNotes.length - 1);
+      const easedProgress = easingOption.ease(progress);
+      const editValue = request.target === 'appearMode'
+        ? lowerAppearModeIndex + (upperAppearModeIndex - lowerAppearModeIndex) * easedProgress
+        : parsedLowerValue + (parsedUpperValue - parsedLowerValue) * easedProgress;
+      let nextNote: Note | null = null;
+
+      if (request.target === 'lane') {
+        const laneMinimum = isOutOfBoundsPlacementEnabled ? -16 : 0;
+        const laneMaximum = isOutOfBoundsPlacementEnabled ? 32 : X_POSITION_COUNT;
+        const nextLane = Math.max(laneMinimum, Math.min(laneMaximum, getNextNumericValue(note.lane, editValue)));
+        nextNote = Math.abs(nextLane - note.lane) > SNAP_EPSILON ? { ...note, lane: nextLane } : null;
+      } else if (request.target === 'time') {
+        const currentTimepos = getTimeposFromTime(note.time);
+        const nextTimepos = Math.max(0, getNextNumericValue(currentTimepos, editValue));
+        const nextTime = getTimeFromTimepos(nextTimepos);
+        nextNote = Math.abs(nextTime - note.time) > SNAP_EPSILON ? { ...note, time: nextTime } : null;
+      } else if (request.target === 'width') {
+        const nextWidth = Math.max(0, Math.min(X_POSITION_COUNT, getNextNumericValue(note.width, editValue)));
+        nextNote = Math.abs(nextWidth - note.width) > SNAP_EPSILON ? { ...note, width: nextWidth } : null;
+      } else if (request.target === 'type') {
+        const nextType = getNearestAvailableNoteType(getNextNumericValue(note.type, editValue));
+        const normalizedUpdates = shouldOmitParentForType(nextType)
+          ? { type: nextType, parentId: null }
+          : { type: nextType };
+        nextNote = note.type !== nextType || ('parentId' in normalizedUpdates && note.parentId !== null)
+          ? { ...note, ...normalizedUpdates }
+          : null;
+      } else if (request.target === 'appearMode') {
+        const nextAppearMode = getAppearModeFromValue(APPEAR_MODE_OPTIONS[Math.round(editValue)] ?? 'none');
+        nextNote = note.appearMode !== nextAppearMode ? { ...note, appearMode: nextAppearMode } : null;
+      } else {
+        const currentSpeed = getSimpleNoteSpeedValue(note);
+        if (request.operation === 'to' || currentSpeed !== null) {
+          const nextSpeed = getNextNumericValue(currentSpeed ?? 1, editValue);
+          const nextSpeedText = formatNoteMultiEditNumber(nextSpeed);
+          nextNote = note.speed !== nextSpeedText ? { ...note, speed: nextSpeedText } : null;
+        }
+      }
+
+      if (nextNote) {
+        nextNotesById.set(note.id, nextNote);
+      }
+    });
+
+    if (nextNotesById.size === 0) {
+      return {
+        changedCount: 0,
+        matchedCount: matchedNotes.length,
+        message: formatTranslation(text.noteMultiEdit.noChangedNotes, { count: matchedNotes.length }),
+      };
+    }
+
+    const changedNoteIds = Array.from(nextNotesById.keys());
+    const targetLabel = text.noteMultiEdit.targets[request.target];
+    const operationLabel = text.noteMultiEdit.operations[request.operation];
+    const conditionDetail = request.conditions.length > 0
+      ? formatTranslation(text.noteMultiEdit.historyConditions, { count: request.conditions.length })
+      : text.noteMultiEdit.historyNoConditions;
+
+    recordOperation({
+      category: 'note',
+      title: formatTranslation(text.noteMultiEdit.historyTitle, { count: nextNotesById.size }),
+      detail: `${targetLabel}, ${operationLabel}, ${request.lowerValue} -> ${request.upperValue}, ${easingOption.label}, ${conditionDetail}, ${formatTranslation(text.operations.idsDetail, { ids: formatGroupedIds(changedNoteIds) })}`,
+    });
+
+    setNotes(prev => prev.map(note => nextNotesById.get(note.id) ?? note));
+    clearActiveNoteInteraction();
+
+    return {
+      changedCount: nextNotesById.size,
+      matchedCount: matchedNotes.length,
+      message: formatTranslation(text.noteMultiEdit.appliedToNotes, {
+        changed: nextNotesById.size,
+        matched: matchedNotes.length,
+      }),
+    };
   };
   const updateBpmChange = (index: number, updates: Partial<BpmChange>) => {
     const previousChange = bpmChanges[index];
@@ -7705,6 +7998,7 @@ export default function Editor({
     activeLeftPanel,
     setActiveLeftPanel,
     openNscTool: () => setIsNscToolOpen(true),
+    openNoteMultiEdit: () => setIsNoteMultiEditOpen(true),
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -7879,6 +8173,14 @@ export default function Editor({
     getTimeposFromTime,
     updateSelectedNote,
   };
+  const noteMultiEditProps = {
+    isOpen: isNoteMultiEditOpen,
+    onClose: () => setIsNoteMultiEditOpen(false),
+    selectedNotes: selectedNotesForMultiEdit,
+    isBackdropBlurDisabled,
+    isAnimationDisabled,
+    onApply: applyNoteMultiEdit,
+  };
 
   return (
     <>
@@ -8018,6 +8320,7 @@ export default function Editor({
         canvasStageProps={canvasStageProps}
         rightSidebarProps={rightSidebarProps}
         nscToolProps={nscToolProps}
+        noteMultiEditProps={noteMultiEditProps}
       />
       <EditorFilePreviewModal
         file={previewedProjectFile}

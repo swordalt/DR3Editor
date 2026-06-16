@@ -22,6 +22,7 @@ export default function EditorLeftMainPanel(props: any) {
     activeLeftPanel,
     setActiveLeftPanel,
     openNscTool,
+    openNoteMultiEdit,
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -146,6 +147,9 @@ export default function EditorLeftMainPanel(props: any) {
                 <div className="my-1 border-t border-neutral-800" />
                 <button onClick={openNscTool} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.nscTool}
+                </button>
+                <button onClick={openNoteMultiEdit} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  {text.sidebar.noteMultiEdit}
                 </button>
               </div>
             </div>
