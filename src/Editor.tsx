@@ -1628,40 +1628,28 @@ export default function Editor({
     setCopiedNotesPreviewVersion(prev => prev + 1);
   }, []);
 
-  const restoreCurrentParentAfterDeletingNotes = useCallback((deletedNotes: Note[]) => {
+  const restoreCurrentParentAfterDeletingNotes = useCallback((deletedNotes: Note[], preferredDeletedNoteId?: number) => {
+    if (deletedNotes.length === 0) {
+      return;
+    }
+
     const parsedCurrentParentId = currentParentInput.trim() === ''
       ? nextNoteIdRef.current - 1
       : Number(currentParentInput.trim());
-    if (!Number.isInteger(parsedCurrentParentId) || parsedCurrentParentId <= 0) {
-      return;
-    }
 
     const deletedNoteById = new Map(deletedNotes.map(note => [note.id, note]));
-    const deletedCurrentParent = deletedNoteById.get(parsedCurrentParentId);
-    if (!deletedCurrentParent) {
-      return;
-    }
+    const deletedCurrentParent = Number.isInteger(parsedCurrentParentId) && parsedCurrentParentId > 0
+      ? deletedNoteById.get(parsedCurrentParentId)
+      : undefined;
+    const deletedAnchorNote = preferredDeletedNoteId === undefined
+      ? deletedCurrentParent ?? deletedNotes[0]
+      : deletedNoteById.get(preferredDeletedNoteId) ?? deletedCurrentParent ?? deletedNotes[0];
 
-    const remainingNotes = stateRef.current.notes.filter(note => !deletedNoteById.has(note.id));
-    const getPreviousExistingNoteId = (noteId: number) => (
-      remainingNotes
-        .filter(note => note.id < noteId)
-        .reduce<number | null>((previousId, note) => (
-          previousId === null || note.id > previousId ? note.id : previousId
-        ), null)
-    );
-
-    let nextParentId = deletedCurrentParent.parentId;
-    if (nextParentId === null && HOLD_START_TYPES.includes(deletedCurrentParent.type)) {
-      nextParentId = getPreviousExistingNoteId(deletedCurrentParent.id);
-    }
+    let nextParentId = deletedAnchorNote.parentId;
 
     while (nextParentId !== null && deletedNoteById.has(nextParentId)) {
       const deletedParent = deletedNoteById.get(nextParentId);
       nextParentId = deletedParent?.parentId ?? null;
-      if (nextParentId === null && deletedParent && HOLD_START_TYPES.includes(deletedParent.type)) {
-        nextParentId = getPreviousExistingNoteId(deletedParent.id);
-      }
     }
 
     setCurrentParentInput(nextParentId === null ? '' : nextParentId.toString());
@@ -6423,7 +6411,7 @@ export default function Editor({
               : formatTranslation(text.operations.idsDetail, { ids: formatGroupedIds(deletedNotes.map(note => note.id)) }),
           });
         }
-        restoreCurrentParentAfterDeletingNotes(deletedNotes);
+        restoreCurrentParentAfterDeletingNotes(deletedNotes, clickedNote.id);
         setNotes(prev => prev.filter(note => !noteIdsToDeleteSet.has(note.id)));
         setSelectedNoteIds(prev => prev.filter(id => !noteIdsToDeleteSet.has(id)));
       }
@@ -7489,20 +7477,21 @@ export default function Editor({
   };
 
   const applyNoteMultiEdit = (request: NoteMultiEditRequest): NoteMultiEditResult => {
+    const isApplyingToAllNotes = selectedNoteIds.length === 0;
     const selectedIdSet = new Set(selectedNoteIds);
-    const selectedNotes = stateRef.current.notes
-      .filter(note => selectedIdSet.has(note.id))
+    const targetNotes = stateRef.current.notes
+      .filter(note => isApplyingToAllNotes || selectedIdSet.has(note.id))
       .sort((a, b) => (
         a.time - b.time
         || a.lane - b.lane
         || a.id - b.id
       ));
 
-    if (selectedNotes.length === 0) {
+    if (targetNotes.length === 0) {
       return {
         changedCount: 0,
         matchedCount: 0,
-        message: text.noteMultiEdit.noNotesSelected,
+        message: text.noteMultiEdit.noNotesInChart,
       };
     }
 
@@ -7573,7 +7562,7 @@ export default function Editor({
       };
     }
 
-    const matchedNotes = selectedNotes.filter(note => (
+    const matchedNotes = targetNotes.filter(note => (
       request.conditions.every(condition => matchesNoteMultiEditCondition(note, condition))
     ));
 

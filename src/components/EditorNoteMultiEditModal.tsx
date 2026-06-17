@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { APPEAR_MODE_OPTIONS, CURVE_EASING_OPTIONS } from '../editor/editorViewConstants';
@@ -221,11 +221,13 @@ export default function EditorNoteMultiEditModal({
   const [conditions, setConditions] = useState<NoteMultiEditCondition[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [isConfirmingAllNotesApply, setIsConfirmingAllNotesApply] = useState(false);
   const isNumericTarget = targetUsesNumericValue(target);
   const isAppearModeTarget = targetUsesAppearModeValue(target);
   const isComplexNscTarget = targetUsesComplexNscValue(target);
   const isToOnlyTarget = isAppearModeTarget || isComplexNscTarget;
   const effectiveOperation = isToOnlyTarget ? 'to' : operation;
+  const isApplyingToAllNotes = selectedNotes.length === 0;
   const noteTypeOptions = useMemo<Array<NoteMultiEditSelectOption<string>>>(() => (
     Object.entries(NOTE_TYPES).map(([type, noteType]) => ({
       id: type,
@@ -241,20 +243,28 @@ export default function EditorNoteMultiEditModal({
 
   const selectedNoteSummary = useMemo(() => {
     if (selectedNotes.length === 0) {
-      return text.noNotesSelected;
+      return text.noSelectionAppliesAll;
     }
 
     return formatTranslation(text.selectedNotes, {
       count: selectedNotes.length,
       ids: formatGroupedIds(selectedNotes.map(note => note.id)),
     });
-  }, [selectedNotes, text.noNotesSelected, text.selectedNotes]);
+  }, [selectedNotes, text.noSelectionAppliesAll, text.selectedNotes]);
+
+  useEffect(() => {
+    setIsConfirmingAllNotesApply(false);
+    if (!isOpen) {
+      setStatusMessage('');
+    }
+  }, [isOpen, selectedNotes.length]);
 
   if (!isOpen) {
     return null;
   }
 
   const updateCondition = (conditionId: string, updates: Partial<NoteMultiEditCondition>) => {
+    setIsConfirmingAllNotesApply(false);
     setConditions(currentConditions => currentConditions.map(condition => (
       condition.id === conditionId
         ? (() => {
@@ -278,6 +288,7 @@ export default function EditorNoteMultiEditModal({
 
   const updateTarget = (nextTarget: NoteMultiEditTarget) => {
     const defaultValues = getDefaultTargetValues(nextTarget);
+    setIsConfirmingAllNotesApply(false);
     setTarget(nextTarget);
     setLowerValue(defaultValues.lowerValue);
     setUpperValue(defaultValues.upperValue);
@@ -294,6 +305,12 @@ export default function EditorNoteMultiEditModal({
       return;
     }
 
+    if (isApplyingToAllNotes && !isConfirmingAllNotesApply) {
+      setIsConfirmingAllNotesApply(true);
+      setStatusMessage(text.confirmAllNotesReminder);
+      return;
+    }
+
     const result = onApply({
       target,
       lowerValue,
@@ -303,6 +320,7 @@ export default function EditorNoteMultiEditModal({
       conditions,
     });
     setStatusMessage(result.message);
+    setIsConfirmingAllNotesApply(false);
   };
 
   return (
@@ -368,7 +386,10 @@ export default function EditorNoteMultiEditModal({
                 {targetUsesComplexNscValue(target) ? (
                   <textarea
                     value={lowerValue}
-                    onChange={(event) => setLowerValue(event.target.value)}
+                    onChange={(event) => {
+                      setLowerValue(event.target.value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                     spellCheck={false}
                     rows={3}
                     className="w-full resize-y rounded border border-neutral-700 bg-neutral-800 p-2 font-mono text-xs text-neutral-100 outline-none focus:border-indigo-500"
@@ -380,7 +401,10 @@ export default function EditorNoteMultiEditModal({
                     options={noteTypeOptions}
                     openMenuId={openMenuId}
                     setOpenMenuId={setOpenMenuId}
-                    onChange={setLowerValue}
+                    onChange={(value) => {
+                      setLowerValue(value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                   />
                 ) : targetUsesAppearModeValue(target) ? (
                   <NoteMultiEditSelect
@@ -389,13 +413,19 @@ export default function EditorNoteMultiEditModal({
                     options={appearModeOptions}
                     openMenuId={openMenuId}
                     setOpenMenuId={setOpenMenuId}
-                    onChange={setLowerValue}
+                    onChange={(value) => {
+                      setLowerValue(value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                   />
                 ) : (
                   <input
                     type="number"
                     value={lowerValue}
-                    onChange={(event) => setLowerValue(event.target.value)}
+                    onChange={(event) => {
+                      setLowerValue(event.target.value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                     className="w-full rounded border border-neutral-700 bg-neutral-800 p-2 text-sm outline-none focus:border-indigo-500"
                   />
                 )}
@@ -405,7 +435,10 @@ export default function EditorNoteMultiEditModal({
                 {targetUsesComplexNscValue(target) ? (
                   <textarea
                     value={upperValue}
-                    onChange={(event) => setUpperValue(event.target.value)}
+                    onChange={(event) => {
+                      setUpperValue(event.target.value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                     spellCheck={false}
                     rows={3}
                     className="w-full resize-y rounded border border-neutral-700 bg-neutral-800 p-2 font-mono text-xs text-neutral-100 outline-none focus:border-indigo-500"
@@ -417,7 +450,10 @@ export default function EditorNoteMultiEditModal({
                     options={noteTypeOptions}
                     openMenuId={openMenuId}
                     setOpenMenuId={setOpenMenuId}
-                    onChange={setUpperValue}
+                    onChange={(value) => {
+                      setUpperValue(value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                   />
                 ) : targetUsesAppearModeValue(target) ? (
                   <NoteMultiEditSelect
@@ -426,13 +462,19 @@ export default function EditorNoteMultiEditModal({
                     options={appearModeOptions}
                     openMenuId={openMenuId}
                     setOpenMenuId={setOpenMenuId}
-                    onChange={setUpperValue}
+                    onChange={(value) => {
+                      setUpperValue(value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                   />
                 ) : (
                   <input
                     type="number"
                     value={upperValue}
-                    onChange={(event) => setUpperValue(event.target.value)}
+                    onChange={(event) => {
+                      setUpperValue(event.target.value);
+                      setIsConfirmingAllNotesApply(false);
+                    }}
                     className="w-full rounded border border-neutral-700 bg-neutral-800 p-2 text-sm outline-none focus:border-indigo-500"
                   />
                 )}
@@ -448,7 +490,10 @@ export default function EditorNoteMultiEditModal({
                   options={CURVE_EASING_OPTIONS}
                   openMenuId={openMenuId}
                   setOpenMenuId={setOpenMenuId}
-                  onChange={setEasingId}
+                  onChange={(value) => {
+                    setEasingId(value);
+                    setIsConfirmingAllNotesApply(false);
+                  }}
                 />
               </label>
               <label className="block">
@@ -459,7 +504,10 @@ export default function EditorNoteMultiEditModal({
                   options={operationOptions}
                   openMenuId={openMenuId}
                   setOpenMenuId={setOpenMenuId}
-                  onChange={setOperation}
+                  onChange={(value) => {
+                    setOperation(value);
+                    setIsConfirmingAllNotesApply(false);
+                  }}
                   disabled={isToOnlyTarget}
                 />
               </label>
@@ -474,7 +522,10 @@ export default function EditorNoteMultiEditModal({
               </div>
               <button
                 type="button"
-                onClick={() => setConditions(currentConditions => [...currentConditions, createCondition()])}
+                onClick={() => {
+                  setConditions(currentConditions => [...currentConditions, createCondition()]);
+                  setIsConfirmingAllNotesApply(false);
+                }}
                 className="inline-flex items-center gap-2 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
               >
                 <Plus className="h-4 w-4" />
@@ -552,7 +603,10 @@ export default function EditorNoteMultiEditModal({
                       </label>
                       <button
                         type="button"
-                        onClick={() => setConditions(currentConditions => currentConditions.filter(currentCondition => currentCondition.id !== condition.id))}
+                        onClick={() => {
+                          setConditions(currentConditions => currentConditions.filter(currentCondition => currentCondition.id !== condition.id));
+                          setIsConfirmingAllNotesApply(false);
+                        }}
                         className="mt-5 inline-flex h-9 w-9 items-center justify-center rounded border border-neutral-700 bg-neutral-800 text-neutral-400 transition-colors hover:bg-red-500/20 hover:text-red-200"
                         aria-label={text.removeCondition}
                       >
@@ -567,7 +621,7 @@ export default function EditorNoteMultiEditModal({
         </div>
 
         <div className={`${dialogFooterClassName} flex flex-wrap items-center justify-between gap-3`}>
-          <div className="min-h-5 text-xs text-neutral-400">{statusMessage}</div>
+          <div className={`min-h-5 text-xs ${isConfirmingAllNotesApply ? 'text-amber-300' : 'text-neutral-400'}`}>{statusMessage}</div>
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -579,10 +633,13 @@ export default function EditorNoteMultiEditModal({
             <button
               type="button"
               onClick={applyEdit}
-              disabled={selectedNotes.length === 0}
-              className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              className={`rounded px-4 py-2 text-sm font-semibold text-white transition-colors ${isConfirmingAllNotesApply ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
             >
-              {text.applyToSelectedNotes}
+              {isConfirmingAllNotesApply
+                ? text.confirmApplyToAllNotes
+                : isApplyingToAllNotes
+                  ? text.applyToAllNotes
+                  : text.applyToSelectedNotes}
             </button>
           </div>
         </div>

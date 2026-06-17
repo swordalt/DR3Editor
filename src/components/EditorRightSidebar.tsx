@@ -2,9 +2,8 @@ import { AlignCenterHorizontal, ChevronLeft, ChevronRight, FlipHorizontal, X } f
 import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
-import { formatHistoryNumber, formatNoteLane } from '../editor/editorHistory';
+import { formatHistoryNumber } from '../editor/editorHistory';
 import { formatTranslation, translations } from '../lang';
-import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { Note } from '../types/editorTypes';
 
 export default function EditorRightSidebar(props: any) {
@@ -34,13 +33,8 @@ export default function EditorRightSidebar(props: any) {
     currentEditorDistance,
     currentEditorCombo,
     currentEditorScore,
-    canUseSelectedAsParent,
-    currentId,
-    currentParentInput,
-    currentParentNote,
     noteWidth,
     selectedNoteType,
-    setCurrentParentInput,
   } = props;
   const text = translations;
   const isSelectedNoteSpeedLocked = Boolean(
@@ -323,49 +317,7 @@ export default function EditorRightSidebar(props: any) {
             </div>
             {!isPreviewMode && (
               <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-neutral-800 p-4">
-                <div className="mb-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.currentParent}</div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={currentParentInput}
-                    placeholder={text.sidebar.auto}
-                    className="w-full rounded border border-neutral-700 bg-neutral-800 p-2 text-sm outline-none focus:border-indigo-500"
-                    onChange={(e) => setCurrentParentInput(e.target.value)}
-                    onBlur={() => setCurrentParentInput(stripInputWhitespace(currentParentInput))}
-                  />
-                  <div className="mt-2 text-xs text-neutral-400">
-                    {currentParentNote
-                      ? `ID ${currentParentNote.id} | XPos ${formatNoteLane(currentParentNote.lane)} | Type ${NOTE_TYPES[currentParentNote.type]?.name || currentParentNote.type}`
-                      : currentParentInput.trim() === ''
-                        ? text.sidebar.autoSelectCurrentIdWhenPlacing
-                        : text.sidebar.noNoteExistsWithThatId}
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => setCurrentParentInput('')}
-                      className="flex-1 rounded bg-neutral-800 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-700"
-                    >
-                      {text.sidebar.auto}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (selectedSingleNote) {
-                          setCurrentParentInput(selectedSingleNote.id.toString());
-                        }
-                      }}
-                      disabled={!canUseSelectedAsParent}
-                      className="flex-1 rounded bg-neutral-800 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-700 disabled:bg-neutral-900 disabled:text-neutral-600"
-                    >
-                      {text.sidebar.useSelected}
-                    </button>
-                  </div>
-                  <div className="mt-2 text-xs text-neutral-500">
-                    {text.sidebar.currentId}: {currentId}
-                  </div>
-                </div>
-
-                <div className="border-t border-neutral-800 pt-4">
+                <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.selectedNote}</div>
                   <div className="flex items-center gap-3">
                     <div
