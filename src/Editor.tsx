@@ -7359,6 +7359,43 @@ export default function Editor({
       : undefined
   );
 
+  const parseComplexNscKeyframes = (value: string) => {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+      return null;
+    }
+
+    const segments = normalizedValue.split(';');
+    if (segments.length === 0 || segments.some(segment => segment.trim() === '')) {
+      return null;
+    }
+
+    const keyframes = segments.map(segment => {
+      const parts = segment.split(':');
+      if (parts.length !== 2) {
+        return null;
+      }
+
+      const timeOffset = Number(parts[0].trim());
+      const valueOffset = Number(parts[1].trim());
+      if (!Number.isFinite(timeOffset) || !Number.isFinite(valueOffset)) {
+        return null;
+      }
+
+      return { timeOffset, valueOffset };
+    });
+
+    return keyframes.some(keyframe => keyframe === null)
+      ? null
+      : keyframes as Array<{ timeOffset: number; valueOffset: number }>;
+  };
+
+  const formatComplexNscKeyframes = (keyframes: Array<{ timeOffset: number; valueOffset: number }>) => (
+    keyframes
+      .map(keyframe => `${formatNoteMultiEditNumber(keyframe.timeOffset)}:${formatNoteMultiEditNumber(keyframe.valueOffset)}`)
+      .join(';')
+  );
+
   const validateNoteMultiEditCondition = (condition: NoteMultiEditCondition) => {
     if (condition.operator === 'empty' || condition.operator === 'notEmpty' || condition.field === 'appearMode') {
       return '';
@@ -7482,7 +7519,7 @@ export default function Editor({
 
     const parsedLowerValue = Number(request.lowerValue);
     const parsedUpperValue = Number(request.upperValue);
-    const isNumericTarget = request.target !== 'appearMode';
+    const isNumericTarget = request.target !== 'appearMode' && request.target !== 'complexSpeed';
     if (isNumericTarget && (!Number.isFinite(parsedLowerValue) || !Number.isFinite(parsedUpperValue))) {
       return {
         changedCount: 0,
@@ -7499,6 +7536,32 @@ export default function Editor({
         matchedCount: 0,
         message: text.noteMultiEdit.invalidRange,
       };
+    }
+
+    const lowerComplexNscValue = request.lowerValue.trim();
+    const upperComplexNscValue = request.upperValue.trim();
+    const lowerComplexNscKeyframes = request.target === 'complexSpeed'
+      ? parseComplexNscKeyframes(lowerComplexNscValue)
+      : null;
+    const upperComplexNscKeyframes = request.target === 'complexSpeed'
+      ? parseComplexNscKeyframes(upperComplexNscValue)
+      : null;
+    if (request.target === 'complexSpeed') {
+      if (!lowerComplexNscKeyframes || !upperComplexNscKeyframes) {
+        return {
+          changedCount: 0,
+          matchedCount: 0,
+          message: text.noteMultiEdit.invalidComplexNsc,
+        };
+      }
+
+      if (lowerComplexNscValue !== upperComplexNscValue && lowerComplexNscKeyframes.length !== upperComplexNscKeyframes.length) {
+        return {
+          changedCount: 0,
+          matchedCount: 0,
+          message: text.noteMultiEdit.complexNscKeyframeMismatch,
+        };
+      }
     }
 
     const easingOption = CURVE_EASINGS_BY_ID.get(request.easingId as CurveEasingId);
@@ -7568,6 +7631,17 @@ export default function Editor({
       } else if (request.target === 'appearMode') {
         const nextAppearMode = getAppearModeFromValue(APPEAR_MODE_OPTIONS[Math.round(editValue)] ?? 'none');
         nextNote = note.appearMode !== nextAppearMode ? { ...note, appearMode: nextAppearMode } : null;
+      } else if (request.target === 'complexSpeed') {
+        const nextComplexNsc = lowerComplexNscValue === upperComplexNscValue
+          ? lowerComplexNscValue
+          : formatComplexNscKeyframes((lowerComplexNscKeyframes ?? []).map((lowerKeyframe, keyframeIndex) => {
+            const upperKeyframe = upperComplexNscKeyframes?.[keyframeIndex] ?? lowerKeyframe;
+            return {
+              timeOffset: lowerKeyframe.timeOffset + (upperKeyframe.timeOffset - lowerKeyframe.timeOffset) * easedProgress,
+              valueOffset: lowerKeyframe.valueOffset + (upperKeyframe.valueOffset - lowerKeyframe.valueOffset) * easedProgress,
+            };
+          }));
+        nextNote = note.speed !== nextComplexNsc ? { ...note, speed: nextComplexNsc } : null;
       } else {
         const currentSpeed = getSimpleNoteSpeedValue(note);
         if (request.operation === 'to' || currentSpeed !== null) {

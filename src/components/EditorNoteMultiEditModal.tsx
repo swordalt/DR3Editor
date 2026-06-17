@@ -17,7 +17,7 @@ import {
   menuSurfaceClassName,
 } from './editorDesign';
 
-export type NoteMultiEditTarget = 'lane' | 'time' | 'speed' | 'width' | 'type' | 'appearMode';
+export type NoteMultiEditTarget = 'lane' | 'time' | 'speed' | 'complexSpeed' | 'width' | 'type' | 'appearMode';
 export type NoteMultiEditOperation = 'to' | 'add' | 'multiply';
 export type NoteMultiEditConditionField = 'type' | 'lane' | 'time' | 'speed' | 'width' | 'parentId' | 'appearMode';
 export type NoteMultiEditConditionOperator = 'equals' | 'notEquals' | 'between' | 'outside' | 'atLeast' | 'atMost' | 'empty' | 'notEmpty';
@@ -73,6 +73,7 @@ const targetOptions: Array<{ id: NoteMultiEditTarget; label: string }> = [
   { id: 'lane', label: translations.noteMultiEdit.targets.lane },
   { id: 'time', label: translations.noteMultiEdit.targets.time },
   { id: 'speed', label: translations.noteMultiEdit.targets.speed },
+  { id: 'complexSpeed', label: translations.noteMultiEdit.targets.complexSpeed },
   { id: 'width', label: translations.noteMultiEdit.targets.width },
   { id: 'type', label: translations.noteMultiEdit.targets.type },
   { id: 'appearMode', label: translations.noteMultiEdit.targets.appearMode },
@@ -142,10 +143,12 @@ const isConditionOperatorAllowed = (field: NoteMultiEditConditionField, operator
 const fieldUsesSelectValue = (field: NoteMultiEditConditionField) => field === 'type' || field === 'appearMode';
 const targetUsesNoteTypeValue = (target: NoteMultiEditTarget) => target === 'type';
 const targetUsesAppearModeValue = (target: NoteMultiEditTarget) => target === 'appearMode';
-const targetUsesNumericValue = (target: NoteMultiEditTarget) => !targetUsesNoteTypeValue(target) && !targetUsesAppearModeValue(target);
+const targetUsesComplexNscValue = (target: NoteMultiEditTarget) => target === 'complexSpeed';
+const targetUsesNumericValue = (target: NoteMultiEditTarget) => !targetUsesNoteTypeValue(target) && !targetUsesAppearModeValue(target) && !targetUsesComplexNscValue(target);
 const getDefaultTargetValues = (target: NoteMultiEditTarget) => {
   if (target === 'type') return { lowerValue: '1', upperValue: '1' };
   if (target === 'appearMode') return { lowerValue: 'none', upperValue: 'none' };
+  if (target === 'complexSpeed') return { lowerValue: '0:0', upperValue: '0:0' };
   if (target === 'width') return { lowerValue: '4', upperValue: '4' };
   return { lowerValue: '0', upperValue: target === 'lane' ? '16' : '0' };
 };
@@ -220,7 +223,9 @@ export default function EditorNoteMultiEditModal({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const isNumericTarget = targetUsesNumericValue(target);
   const isAppearModeTarget = targetUsesAppearModeValue(target);
-  const effectiveOperation = isAppearModeTarget ? 'to' : operation;
+  const isComplexNscTarget = targetUsesComplexNscValue(target);
+  const isToOnlyTarget = isAppearModeTarget || isComplexNscTarget;
+  const effectiveOperation = isToOnlyTarget ? 'to' : operation;
   const noteTypeOptions = useMemo<Array<NoteMultiEditSelectOption<string>>>(() => (
     Object.entries(NOTE_TYPES).map(([type, noteType]) => ({
       id: type,
@@ -276,7 +281,7 @@ export default function EditorNoteMultiEditModal({
     setTarget(nextTarget);
     setLowerValue(defaultValues.lowerValue);
     setUpperValue(defaultValues.upperValue);
-    if (nextTarget === 'appearMode') {
+    if (nextTarget === 'appearMode' || nextTarget === 'complexSpeed') {
       setOperation('to');
     }
     setOpenMenuId(null);
@@ -360,7 +365,15 @@ export default function EditorNoteMultiEditModal({
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">{text.lowerValue}</span>
-                {targetUsesNoteTypeValue(target) ? (
+                {targetUsesComplexNscValue(target) ? (
+                  <textarea
+                    value={lowerValue}
+                    onChange={(event) => setLowerValue(event.target.value)}
+                    spellCheck={false}
+                    rows={3}
+                    className="w-full resize-y rounded border border-neutral-700 bg-neutral-800 p-2 font-mono text-xs text-neutral-100 outline-none focus:border-indigo-500"
+                  />
+                ) : targetUsesNoteTypeValue(target) ? (
                   <NoteMultiEditSelect
                     id="lower-note-type"
                     value={lowerValue}
@@ -389,7 +402,15 @@ export default function EditorNoteMultiEditModal({
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">{text.upperValue}</span>
-                {targetUsesNoteTypeValue(target) ? (
+                {targetUsesComplexNscValue(target) ? (
+                  <textarea
+                    value={upperValue}
+                    onChange={(event) => setUpperValue(event.target.value)}
+                    spellCheck={false}
+                    rows={3}
+                    className="w-full resize-y rounded border border-neutral-700 bg-neutral-800 p-2 font-mono text-xs text-neutral-100 outline-none focus:border-indigo-500"
+                  />
+                ) : targetUsesNoteTypeValue(target) ? (
                   <NoteMultiEditSelect
                     id="upper-note-type"
                     value={upperValue}
@@ -439,7 +460,7 @@ export default function EditorNoteMultiEditModal({
                   openMenuId={openMenuId}
                   setOpenMenuId={setOpenMenuId}
                   onChange={setOperation}
-                  disabled={isAppearModeTarget}
+                  disabled={isToOnlyTarget}
                 />
               </label>
             </div>

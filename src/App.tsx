@@ -111,33 +111,77 @@ const createSilentImportAudioUrl = (notes: Note[]) => {
   return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
 };
 
+interface ChartBundleManifest {
+  keyword?: unknown;
+  title?: unknown;
+  artist?: unknown;
+  bpm?: unknown;
+  diff?: unknown;
+  chart?: unknown;
+  audio?: unknown;
+  illustration?: unknown;
+}
+
+const getManifestString = (value: unknown) => (
+  typeof value === 'string' ? value.trim() : ''
+);
+
+const getManifestNumber = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const getManifestDifficulty = (manifest: ChartBundleManifest | null) => {
+  if (!manifest) return '';
+
+  if (typeof manifest.diff === 'number' && Number.isFinite(manifest.diff)) {
+    return Math.max(0, Math.trunc(manifest.diff)).toString();
+  }
+
+  return getManifestString(manifest.diff);
+};
+
 const createAudioLessImportProjectData = ({
   sourceName,
   chartMetadata,
   difficulty,
   firstBpm,
+  manifest,
   notes,
 }: {
   sourceName: string;
   chartMetadata: ReturnType<typeof getChartMetadataFromFileName>;
   difficulty?: string;
   firstBpm: number;
+  manifest?: ChartBundleManifest | null;
   notes: Note[];
 }): ProjectData => {
   const sourceBaseName = getFileBaseName(sourceName);
-  const songId = sanitizeSongId(chartMetadata?.songId || sourceBaseName);
-  const inferredDifficulty = difficulty || chartMetadata?.difficulty || '0';
+  const manifestKeyword = getManifestString(manifest?.keyword);
+  const songId = manifestKeyword
+    ? sanitizeSongId(manifestKeyword)
+    : sanitizeSongId(chartMetadata?.songId || sourceBaseName);
+  const bpm = getManifestNumber(manifest?.bpm) ?? firstBpm;
+  const inferredDifficulty = getManifestDifficulty(manifest ?? null) || difficulty || chartMetadata?.difficulty || '0';
 
   return {
     chartFormat: 'Official',
     songId,
-    songName: songId,
-    songArtist: '',
-    songBpm: firstBpm.toString(),
+    songName: getManifestString(manifest?.title) || songId,
+    songArtist: getManifestString(manifest?.artist),
+    songBpm: bpm.toString(),
     difficulty: inferredDifficulty,
     songFile: null,
     songIllustration: null,
-    bpm: firstBpm,
+    bpm,
     audioUrl: createSilentImportAudioUrl(notes),
   };
 };
@@ -212,6 +256,7 @@ interface ZipImportDialogState {
   audioFiles: ZipImportEntry[];
   imageFiles: ZipImportEntry[];
   infoFile: ZipImportEntry | null;
+  manifest: ChartBundleManifest | null;
   selectedChartId: string;
   selectedAudioId: string;
   selectedImageId: string;
@@ -315,6 +360,30 @@ function ZipImportResolverSection({
 const getDefaultBpmChanges = (): BpmChange[] => DEFAULT_BPM_CHANGES.map(change => ({ ...change }));
 const getDefaultSpeedChanges = (): SpeedChange[] => DEFAULT_SPEED_CHANGES.map(change => ({ ...change }));
 
+const parseChartBundleManifest = (manifestText: string): ChartBundleManifest | null => {
+  try {
+    const parsed = JSON.parse(manifestText) as unknown;
+
+    return parsed && typeof parsed === 'object'
+      ? parsed as ChartBundleManifest
+      : null;
+  } catch (error) {
+    console.warn('Unable to parse chart bundle manifest.', error);
+    return null;
+  }
+};
+
+const findManifestFileEntry = (files: ZipImportEntry[], manifestPath: unknown) => {
+  const requestedPath = getManifestString(manifestPath).replace(/\\/g, '/').toLowerCase();
+  if (!requestedPath) return null;
+
+  const requestedName = requestedPath.split('/').pop() || requestedPath;
+
+  return files.find(file => file.id.replace(/\\/g, '/').toLowerCase() === requestedPath)
+    ?? files.find(file => file.name.toLowerCase() === requestedName)
+    ?? null;
+};
+
 export default function App() {
   const editorSettings = loadEditorSettings();
   const isBackdropBlurDisabled = editorSettings.isBackdropBlurDisabled;
@@ -378,12 +447,17 @@ export default function App() {
     const audioFiles = sortByName(zipFiles.filter(({ extension }) => AUDIO_EXTENSIONS.has(extension)));
     const imageFiles = sortByName(zipFiles.filter(({ extension }) => IMAGE_EXTENSIONS.has(extension)));
     const infoFile = textFiles.find(({ name }) => name.toLowerCase() === 'info.txt') ?? null;
+    const manifestFile = zipFiles.find(({ name }) => name.toLowerCase() === 'manifest.json') ?? null;
+    const manifest = manifestFile
+      ? parseChartBundleManifest(await manifestFile.entry.async('text') as string)
+      : null;
 
     return {
       chartFiles: textFiles.filter(({ name }) => name.toLowerCase() !== 'info.txt'),
       audioFiles,
       imageFiles,
       infoFile,
+      manifest,
     };
   };
 
@@ -397,6 +471,7 @@ export default function App() {
     imageFileEntry,
     localImageFile,
     infoFile,
+    manifest,
   }: {
     sourceFile: File;
     difficulty?: string;
@@ -407,6 +482,7 @@ export default function App() {
     imageFileEntry: ZipImportEntry | null;
     localImageFile?: File | null;
     infoFile: ZipImportEntry | null;
+    manifest: ChartBundleManifest | null;
   }) => {
     await updateImportLoadStatus(text.importStatus.readingChart);
     const chartText = localChartFile
@@ -465,16 +541,22 @@ export default function App() {
         .split(/\r?\n/)
         .map((line) => line.trim());
       const audioBaseName = getFileBaseName(audioFile.name);
-      const songId = chartMetadata?.songId || (audioBaseName.toLowerCase() === 'base' ? zipBaseName : audioBaseName);
-      const bpm = parseFloat(infoBpm) || firstBpm;
+      const manifestKeyword = getManifestString(manifest?.keyword);
+      const manifestTitle = getManifestString(manifest?.title);
+      const manifestArtist = getManifestString(manifest?.artist);
+      const manifestDifficulty = getManifestDifficulty(manifest);
+      const songId = manifestKeyword
+        ? sanitizeSongId(manifestKeyword)
+        : chartMetadata?.songId || (audioBaseName.toLowerCase() === 'base' ? zipBaseName : audioBaseName);
+      const bpm = getManifestNumber(manifest?.bpm) ?? (parseFloat(infoBpm) || firstBpm);
 
       setInitialProjectData({
         chartFormat: 'Official',
         songId,
-        songName: infoTitle || songId,
-        songArtist: infoArtist,
+        songName: manifestTitle || infoTitle || songId,
+        songArtist: manifestArtist || infoArtist,
         songBpm: bpm.toString(),
-        difficulty: difficulty || chartMetadata?.difficulty || inferredDifficulty || '0',
+        difficulty: manifestDifficulty || difficulty || chartMetadata?.difficulty || inferredDifficulty || '0',
         songFile: audioFile,
         songIllustration: imageFile,
         bpm,
@@ -487,6 +569,7 @@ export default function App() {
         chartMetadata,
         difficulty: difficulty || inferredDifficulty || '0',
         firstBpm,
+        manifest,
         notes: parsedLevel.notes,
       }));
     }
@@ -500,12 +583,17 @@ export default function App() {
 
     try {
       await updateImportLoadStatus(text.importStatus.preparingImport);
-      const { chartFiles, audioFiles, imageFiles, infoFile } = await getZipImportEntries(file);
+      const { chartFiles, audioFiles, imageFiles, infoFile, manifest } = await getZipImportEntries(file);
+      const manifestChartFile = findManifestFileEntry(chartFiles, manifest?.chart);
+      const manifestAudioFile = findManifestFileEntry(audioFiles, manifest?.audio);
+      const manifestImageFile = findManifestFileEntry(imageFiles, manifest?.illustration);
       const missingMessages = [
         ...(chartFiles.length === 0 ? [text.importDialog.missingChartFile] : []),
         ...(audioFiles.length === 0 ? [text.importDialog.missingAudioFile] : []),
       ];
-      const needsSelection = chartFiles.length > 1 || audioFiles.length > 1 || imageFiles.length > 1;
+      const needsSelection = (chartFiles.length > 1 && !manifestChartFile)
+        || (audioFiles.length > 1 && !manifestAudioFile)
+        || (imageFiles.length > 1 && !manifestImageFile);
 
       if (showImportNotice && (missingMessages.length > 0 || needsSelection)) {
         setZipImportDialog({
@@ -515,9 +603,10 @@ export default function App() {
           audioFiles,
           imageFiles,
           infoFile,
-          selectedChartId: chartFiles[0]?.id ?? '',
-          selectedAudioId: audioFiles[0]?.id ?? '',
-          selectedImageId: imageFiles[0]?.id ?? '',
+          manifest,
+          selectedChartId: manifestChartFile?.id ?? chartFiles[0]?.id ?? '',
+          selectedAudioId: manifestAudioFile?.id ?? audioFiles[0]?.id ?? '',
+          selectedImageId: manifestImageFile?.id ?? imageFiles[0]?.id ?? '',
           localChartFile: null,
           localAudioFile: null,
           localImageFile: null,
@@ -528,7 +617,7 @@ export default function App() {
         return;
       }
 
-      const chartFile = chartFiles[0] ?? null;
+      const chartFile = manifestChartFile ?? chartFiles[0] ?? null;
       if (!chartFile) {
         throw new Error(text.importDialog.noChartFileInZip);
       }
@@ -538,11 +627,12 @@ export default function App() {
         difficulty,
         chartFile,
         localChartFile: null,
-        audioFileEntry: audioFiles[0] ?? null,
+        audioFileEntry: manifestAudioFile ?? audioFiles[0] ?? null,
         localAudioFile: null,
-        imageFileEntry: imageFiles[0] ?? null,
+        imageFileEntry: manifestImageFile ?? imageFiles[0] ?? null,
         localImageFile: null,
         infoFile,
+        manifest,
       });
     } catch (error) {
       console.error(error);
@@ -555,6 +645,7 @@ export default function App() {
           audioFiles: [],
           imageFiles: [],
           infoFile: null,
+          manifest: null,
           selectedChartId: '',
           selectedAudioId: '',
           selectedImageId: '',
@@ -607,6 +698,7 @@ export default function App() {
         imageFileEntry,
         localImageFile: dialogState.localImageFile,
         infoFile: dialogState.infoFile,
+        manifest: dialogState.manifest,
       });
     } catch (error) {
       console.error(error);

@@ -80,6 +80,35 @@ const createDr3FpEntries = ({
   };
 };
 
+const createChartBundleManifest = ({
+  projectData,
+  bpmChanges,
+  difficulty,
+  chartFileName,
+  audioFileName,
+  illustrationFileName,
+  files,
+}: {
+  projectData: ExportWorkerPayload['projectData'];
+  bpmChanges: BpmChange[];
+  difficulty: string;
+  chartFileName: string;
+  audioFileName: string;
+  illustrationFileName?: string;
+  files: string[];
+}) => ({
+  version: 1,
+  keyword: projectData.songId || 'editor-preview',
+  title: projectData.songName || 'Untitled Project',
+  artist: projectData.songArtist || '',
+  bpm: getFirstBpm(bpmChanges, projectData.bpm),
+  diff: Number.parseInt(difficulty, 10) || 0,
+  chart: chartFileName,
+  audio: audioFileName,
+  ...(illustrationFileName ? { illustration: illustrationFileName } : {}),
+  files,
+});
+
 const createExportZip = async (payload: ExportWorkerPayload) => {
   const { format, projectData, notes, bpmChanges, speedChanges, offset, chartFileName } = payload;
 
@@ -100,6 +129,11 @@ const createExportZip = async (payload: ExportWorkerPayload) => {
   if (format === 'raw') {
     const rawChartFileName = chartFileName || `${songId}.${difficulty}.txt`;
     assertSafeZipFileName(rawChartFileName);
+    const audioFileName = getOriginalFileName(projectData.songFile);
+    const illustrationFileName = projectData.songIllustration
+      ? getOriginalFileName(projectData.songIllustration)
+      : undefined;
+    const files = [rawChartFileName, audioFileName];
 
     const entries = [
       {
@@ -107,17 +141,31 @@ const createExportZip = async (payload: ExportWorkerPayload) => {
         data: chartText,
       },
       {
-        name: getOriginalFileName(projectData.songFile),
+        name: audioFileName,
         data: projectData.songFile,
       },
     ];
 
-    if (projectData.songIllustration) {
+    if (projectData.songIllustration && illustrationFileName) {
+      files.push(illustrationFileName);
       entries.push({
-        name: getOriginalFileName(projectData.songIllustration),
+        name: illustrationFileName,
         data: projectData.songIllustration,
       });
     }
+
+    entries.push({
+      name: 'manifest.json',
+      data: `${JSON.stringify(createChartBundleManifest({
+        projectData,
+        bpmChanges,
+        difficulty,
+        chartFileName: rawChartFileName,
+        audioFileName,
+        illustrationFileName,
+        files,
+      }), null, 2)}\n`,
+    });
 
     return {
       zipBuffer: await createZipBuffer(entries),
@@ -165,23 +213,19 @@ const createExportZip = async (payload: ExportWorkerPayload) => {
 
     files.forEach(assertSafeZipFileName);
 
-    const manifest = {
-      version: 1,
-      keyword: projectData.songId || 'editor-preview',
-      title: projectData.songName || 'Untitled Project',
-      artist: projectData.songArtist || '',
-      diff: Number.parseInt(difficulty, 10) || 0,
-      chart: dr3FpBundle.chartFileName,
-      audio: dr3FpBundle.audioFileName,
-      ...(dr3FpBundle.illustrationFileName ? { illustration: dr3FpBundle.illustrationFileName } : {}),
-      files,
-    };
-
     const entries = [
       ...dr3FpBundle.entries,
       {
         name: 'manifest.json',
-        data: `${JSON.stringify(manifest, null, 2)}\n`,
+        data: `${JSON.stringify(createChartBundleManifest({
+          projectData,
+          bpmChanges,
+          difficulty,
+          chartFileName: dr3FpBundle.chartFileName,
+          audioFileName: dr3FpBundle.audioFileName,
+          illustrationFileName: dr3FpBundle.illustrationFileName,
+          files,
+        }), null, 2)}\n`,
       },
     ];
 
