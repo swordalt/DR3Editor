@@ -121,6 +121,13 @@ export const en = {
     select: 'Select',
     set: 'Set',
   },
+  tutorial: {
+    stepProgress: 'Step {current} of {total}',
+    objective: 'Objective:',
+    back: 'Back',
+    skip: 'Skip',
+    exit: 'Exit tutorial',
+  },
   editor: {
     backToLanding: 'Exit the editor',
     untitledProject: 'Untitled Project',

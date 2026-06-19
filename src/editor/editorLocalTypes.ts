@@ -38,6 +38,7 @@ export type CurveEasingId =
 export interface EditorProps {
   onBack: () => void;
   mode?: EditorMode;
+  isTutorial?: boolean;
   initialProjectData?: ProjectData | null;
   initialChartFileName?: string | null;
   notes: Note[];

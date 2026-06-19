@@ -9,7 +9,10 @@ import EditorCanvasStage from './EditorCanvasStage';
 import EditorRightSidebar from './EditorRightSidebar';
 import EditorNscToolModal from './EditorNscToolModal';
 import EditorNoteMultiEditModal from './EditorNoteMultiEditModal';
+import EditorTutorialOverlay from './EditorTutorialOverlay';
 import { translations } from '../lang';
+import { getActiveTutorialStep, isTutorialRegionFocused } from '../editor/tutorial';
+import type { TutorialRegion } from '../editor/tutorial';
 import {
   dialogFooterClassName,
   dialogHeaderClassName,
@@ -106,6 +109,7 @@ export default function EditorLayout(props: any) {
     hasExportIncompatibleTimeSignature,
     duration,
     currentTime,
+    timelinePositionLabel,
     effectiveGridZoom,
     pixelsPerBeat,
     playbackSpeed,
@@ -141,10 +145,42 @@ export default function EditorLayout(props: any) {
     rightSidebarProps,
     nscToolProps,
     noteMultiEditProps,
+    tutorialSession,
+    setTutorialSession,
+    exitTutorial,
   } = props;
   const text = translations;
   const overlayMotionProps = getOverlayMotionProps(isAnimationDisabled);
   const dialogMotionProps = getDialogMotionProps(isAnimationDisabled);
+  const activeTutorialStep = getActiveTutorialStep(tutorialSession);
+  const focusedTutorialRegions = activeTutorialStep?.focusTargets ?? [];
+  const shouldKeepTutorialRegionAvailable = (region: TutorialRegion) => (
+    isTutorialRegionFocused(tutorialSession, region)
+    || (region === 'rightSidebar' && focusedTutorialRegions.includes('selectedNoteTypeIndicator'))
+  );
+  const getTutorialRegionClassName = (region: TutorialRegion) => (
+    activeTutorialStep && !shouldKeepTutorialRegionAvailable(region)
+      ? 'opacity-30 pointer-events-none select-none transition-opacity'
+      : 'relative z-30 transition-opacity'
+  );
+  const goToPreviousTutorialStep = () => {
+    setTutorialSession?.((current: any) => current
+      ? {
+          ...current,
+          currentStepIndex: Math.max(0, current.currentStepIndex - 1),
+        }
+      : current);
+  };
+  const goToNextTutorialStep = () => {
+    setTutorialSession?.((current: any) => current
+      ? current.currentStepIndex >= current.steps.length - 1
+        ? null
+        : {
+          ...current,
+          currentStepIndex: current.currentStepIndex + 1,
+        }
+      : current);
+  };
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -299,52 +335,55 @@ export default function EditorLayout(props: any) {
       />
 
       {/* Top Navigation Bar */}
-      <EditorTopBar
-        projectData={projectData}
-        tierBadge={tierBadge}
-        isXPositionGridEnabled={isXPositionGridEnabled}
-        isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
-        isPlaying={isPlaying}
-        isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
-        isHelpOpen={isHelpOpen}
-        isSettingsOpen={isSettingsOpen}
-        isPreviewMode={isPreviewMode}
-        isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
-        isBackdropBlurDisabled={isBackdropBlurDisabled}
-        isAnimationDisabled={isAnimationDisabled}
-        isExportMenuOpen={isExportMenuOpen}
-        isPreviewMenuOpen={isPreviewMenuOpen}
-        isExportDisabled={isExportDisabled}
-        hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
-        duration={duration}
-        currentTime={currentTime}
-        effectiveGridZoom={effectiveGridZoom}
-        pixelsPerBeat={pixelsPerBeat}
-        playbackSpeed={playbackSpeed}
-        bpmChanges={bpmChanges}
-        progressBarRef={progressBarRef}
-        timeDisplayRef={timeDisplayRef}
-        isDraggingProgress={isDraggingProgress}
-        isProgressBarInteractive={isProgressBarInteractive}
-        openExitWarning={openExitWarning}
-        togglePlay={togglePlay}
-        handleSeekChange={handleSeekChange}
-        beginProgressSeek={beginProgressSeek}
-        finishProgressSeek={finishProgressSeek}
-        setIsXPositionGridEnabled={setIsXPositionGridEnabled}
-        setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
-        setIsExportMenuOpen={setIsExportMenuOpen}
-        setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
-        setIsPreviewMenuOpen={setIsPreviewMenuOpen}
-        changePlaybackSpeed={changePlaybackSpeed}
-        openHelp={openHelp}
-        openSettings={openSettings}
-        togglePreviewMode={togglePreviewMode}
-        previewDr3Fp={previewDr3Fp}
-        exportRaw={exportRaw}
-        exportDr3Viewer={exportDr3Viewer}
-        exportDr3Fp={exportDr3Fp}
-      />
+      <div className={getTutorialRegionClassName('topBar')}>
+        <EditorTopBar
+          projectData={projectData}
+          tierBadge={tierBadge}
+          isXPositionGridEnabled={isXPositionGridEnabled}
+          isOutOfBoundsPlacementEnabled={isOutOfBoundsPlacementEnabled}
+          isPlaying={isPlaying}
+          isPlaybackSpeedMenuOpen={isPlaybackSpeedMenuOpen}
+          isHelpOpen={isHelpOpen}
+          isSettingsOpen={isSettingsOpen}
+          isPreviewMode={isPreviewMode}
+          isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
+          isBackdropBlurDisabled={isBackdropBlurDisabled}
+          isAnimationDisabled={isAnimationDisabled}
+          isExportMenuOpen={isExportMenuOpen}
+          isPreviewMenuOpen={isPreviewMenuOpen}
+          isExportDisabled={isExportDisabled}
+          hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
+          duration={duration}
+          currentTime={currentTime}
+          timelinePositionLabel={timelinePositionLabel}
+          effectiveGridZoom={effectiveGridZoom}
+          pixelsPerBeat={pixelsPerBeat}
+          playbackSpeed={playbackSpeed}
+          bpmChanges={bpmChanges}
+          progressBarRef={progressBarRef}
+          timeDisplayRef={timeDisplayRef}
+          isDraggingProgress={isDraggingProgress}
+          isProgressBarInteractive={isProgressBarInteractive}
+          openExitWarning={openExitWarning}
+          togglePlay={togglePlay}
+          handleSeekChange={handleSeekChange}
+          beginProgressSeek={beginProgressSeek}
+          finishProgressSeek={finishProgressSeek}
+          setIsXPositionGridEnabled={setIsXPositionGridEnabled}
+          setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
+          setIsExportMenuOpen={setIsExportMenuOpen}
+          setIsPlaybackSpeedMenuOpen={setIsPlaybackSpeedMenuOpen}
+          setIsPreviewMenuOpen={setIsPreviewMenuOpen}
+          changePlaybackSpeed={changePlaybackSpeed}
+          openHelp={openHelp}
+          openSettings={openSettings}
+          togglePreviewMode={togglePreviewMode}
+          previewDr3Fp={previewDr3Fp}
+          exportRaw={exportRaw}
+          exportDr3Viewer={exportDr3Viewer}
+          exportDr3Fp={exportDr3Fp}
+        />
+      </div>
 
       {projectData && (
         <EditorPerformanceStats
@@ -360,37 +399,59 @@ export default function EditorLayout(props: any) {
       <main className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Sidebar - General Functions */}
         {!isPreviewMode && (
-          <EditorLeftSidebar {...leftSidebarProps} />
+          <div className={getTutorialRegionClassName('leftSidebar')}>
+            <EditorLeftSidebar {...leftSidebarProps} />
+          </div>
         )}
 
         {isPreviewMode && (
-          <EditorPreviewSidebar
-            isLeftPanelCompact={leftSidebarProps.isLeftPanelCompact}
-            isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
-            toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
-            isPreviewSpritesEnabled={isPreviewSpritesEnabled}
-            isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
-            isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
-            isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
-            isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
-            isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
-            setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
-            setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
-            setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
-            setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
-            setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
-            setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
-          />
+          <div className={getTutorialRegionClassName('previewSidebar')}>
+            <EditorPreviewSidebar
+              isLeftPanelCompact={leftSidebarProps.isLeftPanelCompact}
+              isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
+              toggleLeftPanelCompact={leftSidebarProps.toggleLeftPanelCompact}
+              isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+              isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
+              isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
+              isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
+              isPreviewNoteSpeedChangesEnabled={isPreviewNoteSpeedChangesEnabled}
+              isPreviewNoteAppearModeEnabled={isPreviewNoteAppearModeEnabled}
+              setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+              setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
+              setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
+              setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}
+              setIsPreviewNoteSpeedChangesEnabled={setIsPreviewNoteSpeedChangesEnabled}
+              setIsPreviewNoteAppearModeEnabled={setIsPreviewNoteAppearModeEnabled}
+            />
+          </div>
         )}
 
-        <EditorCanvasStage {...canvasStageProps} />
+        <div className={`min-w-0 flex flex-1 ${getTutorialRegionClassName('canvas')}`}>
+          <EditorCanvasStage {...canvasStageProps} />
+        </div>
 
         {/* Right Sidebar - Properties */}
-        <EditorRightSidebar
-          {...rightSidebarProps}
-          isPreviewMode={isPreviewMode}
-        />
+        <div className={getTutorialRegionClassName('rightSidebar')}>
+          <EditorRightSidebar
+            {...rightSidebarProps}
+            isPreviewMode={isPreviewMode}
+            tutorialFocusTargets={focusedTutorialRegions}
+          />
+        </div>
       </main>
+
+      {activeTutorialStep && (
+        <EditorTutorialOverlay
+          currentStep={activeTutorialStep}
+          currentStepIndex={tutorialSession.currentStepIndex}
+          stepCount={tutorialSession.steps.length}
+          isAnimationDisabled={isAnimationDisabled}
+          canGoBack={tutorialSession.currentStepIndex > 0}
+          onBack={goToPreviousTutorialStep}
+          onSkip={goToNextTutorialStep}
+          onExit={exitTutorial}
+        />
+      )}
     </motion.div>
   );
 }

@@ -25,6 +25,7 @@ interface ExampleOption {
 interface LandingPageProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onCreateProject: () => void;
+  onStartTutorial: () => void;
   onImportClick: () => void;
   examples: readonly ExampleOption[];
   onExampleSelect: (exampleId: string) => void;
@@ -51,6 +52,7 @@ const shouldWarnForDesktopDisplay = () => {
 export default function LandingPage({
   fileInputRef,
   onCreateProject,
+  onStartTutorial,
   onImportClick,
   examples,
   onExampleSelect,
@@ -129,6 +131,7 @@ export default function LandingPage({
 
                 <button
                   type="button"
+                  onClick={onStartTutorial}
                   className="group flex min-h-16 cursor-pointer items-center gap-4 rounded-xl border border-white/10 bg-neutral-950/50 px-5 py-4 text-left transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1] active:translate-y-0 sm:col-span-2"
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 text-neutral-200 transition-transform group-hover:scale-105">

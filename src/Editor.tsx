@@ -151,6 +151,14 @@ import {
   type Dr3FpPreviewLogEntry,
   type Dr3FpPreviewStatus,
 } from './editor/dr3FpPreviewStatus';
+import {
+  TUTORIAL_STEP_8_END_TIMEPOS,
+  TUTORIAL_STEP_8_NOTES,
+  createTutorialSession,
+  isTutorialOperationAllowed,
+  type TutorialOperation,
+  type TutorialObjective,
+} from './editor/tutorial';
 import { formatTranslation, translations } from './lang';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
@@ -481,6 +489,7 @@ const getBeatIndexedEntriesInRange = <T,>(
 export default function Editor({ 
   onBack, 
   mode,
+  isTutorial = false,
   initialProjectData = null,
   initialChartFileName = null,
   notes,
@@ -494,6 +503,44 @@ export default function Editor({
   onImportLoadStatusChange,
 }: EditorProps) {
   const initialEditorSettings = useMemo(loadEditorSettings, []);
+  const [tutorialSession, setTutorialSession] = useState(() => (
+    isTutorial ? createTutorialSession() : null
+  ));
+  const shouldExitTutorialAfterCompletionRef = useRef(false);
+  const canUseTutorialOperation = useCallback((operation: TutorialOperation) => (
+    isTutorialOperationAllowed(tutorialSession, operation)
+  ), [tutorialSession]);
+  const completeCurrentTutorialObjective = useCallback((objectiveId: TutorialObjective) => {
+    setTutorialSession(current => {
+      const currentStep = current?.steps[current.currentStepIndex];
+      if (!current || currentStep?.objectiveId !== objectiveId) {
+        return current;
+      }
+
+      if (current.currentStepIndex >= current.steps.length - 1) {
+        shouldExitTutorialAfterCompletionRef.current = true;
+        return null;
+      }
+
+      return {
+        ...current,
+        currentStepIndex: current.currentStepIndex + 1,
+      };
+    });
+  }, []);
+  useEffect(() => {
+    if (!tutorialSession && shouldExitTutorialAfterCompletionRef.current) {
+      shouldExitTutorialAfterCompletionRef.current = false;
+      onBack();
+    }
+  }, [onBack, tutorialSession]);
+  const isCurrentTutorialObjective = useCallback((objectiveId: TutorialObjective) => {
+    const currentStep = tutorialSession?.steps[tutorialSession.currentStepIndex];
+    return currentStep?.objectiveId === objectiveId;
+  }, [tutorialSession]);
+  const getAllowedSelectedNoteTypes = useCallback(() => (
+    isCurrentTutorialObjective('holdSequencePlaced') ? [5, 6, 7] : AVAILABLE_NOTE_TYPES
+  ), [isCurrentTutorialObjective]);
   const [isModalOpen, setIsModalOpen] = useState(mode === 'new');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -559,6 +606,16 @@ export default function Editor({
   const [isLeftPanelContentVisible, setIsLeftPanelContentVisible] = useState(true);
   const [isRightPanelContentVisible, setIsRightPanelContentVisible] = useState(true);
   const [selectedNoteType, setSelectedNoteType] = useState<number>(1);
+  useEffect(() => {
+    if (isCurrentTutorialObjective('noteTypeSelected') && selectedNoteType === 5) {
+      completeCurrentTutorialObjective('noteTypeSelected');
+      return;
+    }
+
+    if (isCurrentTutorialObjective('holdSequencePlaced') && ![5, 6, 7].includes(selectedNoteType)) {
+      setSelectedNoteType(5);
+    }
+  }, [completeCurrentTutorialObjective, isCurrentTutorialObjective, selectedNoteType]);
   const [noteWidth, setNoteWidth] = useState(4);
   const [currentParentInput, setCurrentParentInput] = useState('');
   const [curveStartIdInput, setCurveStartIdInput] = useState('');
@@ -594,15 +651,17 @@ export default function Editor({
   const hasScannedInitialChartIssuesRef = useRef(false);
   const pendingOperationSnapshotIdsRef = useRef<number[]>([]);
   const lastPlayedTimeRef = useRef<number>(0);
-  const [formData, setFormData] = useState<EditorFormData>({
-    songId: '',
-    songName: '',
-    songArtist: '',
-    songBpm: '',
-    difficulty: '',
-    songFile: null as File | null,
-    songIllustration: null as File | null,
-  });
+  const tutorialHoldSequenceRef = useRef<Note[]>([]);
+  const isTutorialPlaybackStepPreparedRef = useRef(false);
+  const [formData, setFormData] = useState<EditorFormData>(() => ({
+    songId: initialProjectData?.songId ?? '',
+    songName: initialProjectData?.songName ?? '',
+    songArtist: initialProjectData?.songArtist ?? '',
+    songBpm: initialProjectData?.songBpm ?? '',
+    difficulty: initialProjectData?.difficulty ?? '',
+    songFile: initialProjectData?.songFile ?? null,
+    songIllustration: initialProjectData?.songIllustration ?? null,
+  }));
   const [metadataTouchedFields, setMetadataTouchedFields] = useState<MetadataTouchedFields>(
     () => (mode === 'import' ? getRequiredMetadataTouchedFields() : {}),
   );
@@ -633,6 +692,11 @@ export default function Editor({
 
     return () => window.clearTimeout(timeoutId);
   }, [isRightPanelCompact]);
+
+  useEffect(() => {
+    tutorialHoldSequenceRef.current = [];
+    isTutorialPlaybackStepPreparedRef.current = false;
+  }, [tutorialSession?.currentStepIndex]);
 
   const toggleLeftPanelCompact = () => {
     setIsLeftPanelContentVisible(false);
@@ -971,6 +1035,8 @@ export default function Editor({
   }, []);
 
   const openSettings = () => {
+    if (!canUseTutorialOperation('openSettings')) return;
+
     setIsHelpOpen(false);
     setIsPlaybackSpeedMenuOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
@@ -979,6 +1045,8 @@ export default function Editor({
   };
 
   const openHelp = () => {
+    if (!canUseTutorialOperation('openHelp')) return;
+
     setIsSettingsOpen(false);
     setIsPlaybackSpeedMenuOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
@@ -987,6 +1055,8 @@ export default function Editor({
   };
 
   const openExitWarning = () => {
+    if (!canUseTutorialOperation('exitEditor')) return;
+
     if (!isExitWarningEnabled) {
       onBack();
       return;
@@ -1401,6 +1471,68 @@ export default function Editor({
 
     return `${currentMeasure}/${totalTimelineMeasures}`;
   }, [getTimeposFromTime, timelineDuration, totalTimelineMeasures]);
+
+  useEffect(() => {
+    const isTutorialPlaybackSetupStep = (
+      isCurrentTutorialObjective('playbackMeasure2Completed')
+      || isCurrentTutorialObjective('previewPlaybackMeasure2Completed')
+    );
+    if (!isTutorialPlaybackSetupStep || isTutorialPlaybackStepPreparedRef.current) {
+      return;
+    }
+
+    isTutorialPlaybackStepPreparedRef.current = true;
+    const tutorialNotes: Note[] = TUTORIAL_STEP_8_NOTES.map(note => ({
+      id: note.id,
+      type: note.type,
+      time: getTimeFromTimepos(note.timepos),
+      lane: note.lane,
+      width: note.width,
+      parentId: note.parentId,
+    }));
+
+    if (stateRef.current.isPlaying) {
+      playRequestIdRef.current += 1;
+      audioRef.current?.pause();
+      stateRef.current.isPlaying = false;
+      setIsPlaying(false);
+    }
+    setIsPreviewMode(false);
+
+    setNotes(tutorialNotes);
+    stateRef.current.notes = tutorialNotes;
+    nextNoteIdRef.current = Math.max(...tutorialNotes.map(note => note.id), 0) + 1;
+    setSelectedNoteIds([]);
+    setDraggingNoteId(null);
+    setSelectionBox(null);
+    setHoverPreview(null);
+    pendingDragUpdateRef.current = null;
+    dragStartNoteRef.current = null;
+    const startTime = 0;
+    setCurrentTime(startTime);
+    stateRef.current.currentTime = startTime;
+    stateRef.current.playbackStartTime = startTime;
+    stateRef.current.playbackStartPerformanceTime = performance.now();
+    stateRef.current.playbackAudioClockReadyTime = 0;
+    lastPlayedTimeRef.current = startTime;
+    hitSoundCursorRef.current = 0;
+    scheduledHitSoundKeysRef.current.clear();
+
+    if (audioRef.current) {
+      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+        startTime,
+        getOffsetInSeconds(offset),
+        audioTimingCorrectionRef.current,
+      );
+    }
+
+    if (timeDisplayRef.current) {
+      timeDisplayRef.current.textContent = formatTimelineMeasureProgress(startTime);
+    }
+    updateProgressBarValue(startTime, true);
+    renderPausedTimelineAtFullFps();
+  }, [formatTimelineMeasureProgress, getTimeFromTimepos, isCurrentTutorialObjective, offset, renderPausedTimelineAtFullFps, setNotes]);
+
   const bpmIndicatorEntries = useMemo(
     () => bpmChanges
       .map((change, index) => ({
@@ -2354,6 +2486,9 @@ export default function Editor({
       title: wasProjectCreated ? text.operations.createdProjectMetadata : text.operations.updatedChartMetadata,
       detail: `${committedFormData.songName || text.editor.untitledProject} | ${text.sidebar.bpm} ${formatHistoryNumber(nextBpm)} | ${text.modal.difficultyRequired.replace(' *', '')} ${committedFormData.difficulty || text.common.none}`,
     });
+    if (committedFormData.difficulty === '15') {
+      completeCurrentTutorialObjective('metadataSaved');
+    }
   };
 
   const handleEditInfo = () => {
@@ -3168,6 +3303,24 @@ export default function Editor({
     setRedoableOperationIds(prev => prev.slice(1));
   }, [operationHistory, redoableOperationIds, restoreOperationSnapshot]);
 
+  const selectAdjacentNoteType = useCallback((direction: -1 | 1) => {
+    setSelectedNoteType(prev => {
+      const availableTypes = getAllowedSelectedNoteTypes();
+      const currentIndex = availableTypes.indexOf(prev);
+      const nextType = currentIndex === -1
+        ? availableTypes[0]
+        : availableTypes[
+        (currentIndex + direction + availableTypes.length) % availableTypes.length
+      ];
+
+      if (nextType === 5) {
+        completeCurrentTutorialObjective('noteTypeSelected');
+      }
+
+      return nextType;
+    });
+  }, [completeCurrentTutorialObjective, getAllowedSelectedNoteTypes]);
+
   useEffect(() => {
     const isOnlyKeyPressed = (e: KeyboardEvent) => (
       !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey
@@ -3175,6 +3328,37 @@ export default function Editor({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+
+      const key = e.key.toLowerCase();
+      const canUseAnyKeyboardShortcut = canUseTutorialOperation('keyboardShortcuts');
+      const canUseNoteTypeHotkeys = canUseTutorialOperation('noteTypeHotkeys');
+      const canUsePlayback = canUseTutorialOperation('playback');
+      const canUsePreviewMode = canUseTutorialOperation('previewMode');
+
+      if (!canUseAnyKeyboardShortcut) {
+        if (canUseNoteTypeHotkeys && isOnlyKeyPressed(e) && (key === 'a' || key === 'd')) {
+          e.preventDefault();
+          selectAdjacentNoteType(key === 'a' ? -1 : 1);
+          return;
+        }
+
+        if (canUsePlayback && isOnlyKeyPressed(e) && (e.code === 'Space' || key === 'p')) {
+          e.preventDefault();
+          togglePlay();
+          return;
+        }
+
+        if (canUsePreviewMode && isOnlyKeyPressed(e) && key === 'i') {
+          e.preventDefault();
+          if (!e.repeat) {
+            togglePreviewMode();
+          }
+          return;
+        }
+
+        e.preventDefault();
+        return;
+      }
 
       if (isPreviewMode) {
         if (!isOnlyKeyPressed(e)) {
@@ -3350,17 +3534,11 @@ export default function Editor({
       }
 
       if (e.key.toLowerCase() === 'a') {
-        setSelectedNoteType(prev => {
-          const idx = AVAILABLE_NOTE_TYPES.indexOf(prev);
-          return AVAILABLE_NOTE_TYPES[(idx - 1 + AVAILABLE_NOTE_TYPES.length) % AVAILABLE_NOTE_TYPES.length];
-        });
+        selectAdjacentNoteType(-1);
       }
 
       if (e.key.toLowerCase() === 'd') {
-        setSelectedNoteType(prev => {
-          const idx = AVAILABLE_NOTE_TYPES.indexOf(prev);
-          return AVAILABLE_NOTE_TYPES[(idx + 1) % AVAILABLE_NOTE_TYPES.length];
-        });
+        selectAdjacentNoteType(1);
       }
 
       if (e.key.toLowerCase() === 'q') {
@@ -3397,7 +3575,7 @@ export default function Editor({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, isPreviewMode, recordOperation, redoLastOperation, timedBpmChanges, togglePlay, togglePreviewMode, undoLastOperation]);
+  }, [canUseTutorialOperation, getNoteHistoryDetail, getTimeFromTimepos, getTimeposFromTime, handleCopySelectedNotes, handleDeleteSelectedNotes, isPreviewMode, recordOperation, redoLastOperation, selectAdjacentNoteType, timedBpmChanges, togglePlay, togglePreviewMode, undoLastOperation]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -6009,6 +6187,19 @@ export default function Editor({
       const activePlaybackSpeed = stateRef.current.playbackSpeed;
       const currentTime = getPlaybackTimeFromClock(audioRef.current, offsetInSeconds);
       const now = frameTime;
+      if (
+        isCurrentTutorialObjective('playbackMeasure2Completed')
+        && currentTime >= getTimeFromTimepos(TUTORIAL_STEP_8_END_TIMEPOS) - SNAP_EPSILON
+      ) {
+        completeCurrentTutorialObjective('playbackMeasure2Completed');
+      }
+      if (
+        isCurrentTutorialObjective('previewPlaybackMeasure2Completed')
+        && isPreviewMode
+        && currentTime >= getTimeFromTimepos(TUTORIAL_STEP_8_END_TIMEPOS) - SNAP_EPSILON
+      ) {
+        completeCurrentTutorialObjective('previewPlaybackMeasure2Completed');
+      }
 
       if (timelineDuration > 0 && currentTime >= timelineDuration) {
         void loopPlaybackToBeginning();
@@ -6065,7 +6256,7 @@ export default function Editor({
       requestRef.current = undefined;
       requestSchedulerRef.current = undefined;
     }
-  }, [drawGrid, offset, recordFpsSample, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [completeCurrentTutorialObjective, drawGrid, getTimeFromTimepos, isCurrentTutorialObjective, offset, recordFpsSample, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -6218,7 +6409,50 @@ export default function Editor({
       : null);
   }, [getSelectionPointFromClient]);
 
+  const trackTutorialHoldSequencePlacement = useCallback((placedNote: Note) => {
+    if (!isCurrentTutorialObjective('holdSequencePlaced')) {
+      return;
+    }
+
+    const sequence = tutorialHoldSequenceRef.current;
+    let nextSequence: Note[] = [];
+
+    if (placedNote.type === 5) {
+      nextSequence = [placedNote];
+    } else if (
+      placedNote.type === 6
+      && sequence.length === 1
+      && sequence[0].type === 5
+      && placedNote.time > sequence[0].time
+      && placedNote.parentId === sequence[0].id
+    ) {
+      nextSequence = [...sequence, placedNote];
+    } else if (
+      placedNote.type === 7
+      && sequence.length === 2
+      && sequence[0].type === 5
+      && sequence[1].type === 6
+      && placedNote.time > sequence[1].time
+      && placedNote.parentId === sequence[1].id
+    ) {
+      nextSequence = [...sequence, placedNote];
+    }
+
+    tutorialHoldSequenceRef.current = nextSequence;
+
+    if (
+      nextSequence.length === 3
+      && nextSequence[0].type === 5
+      && nextSequence[1].type === 6
+      && nextSequence[2].type === 7
+    ) {
+      completeCurrentTutorialObjective('holdSequencePlaced');
+      tutorialHoldSequenceRef.current = [];
+    }
+  }, [completeCurrentTutorialObjective, isCurrentTutorialObjective]);
+
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canUseTutorialOperation('canvasPointer')) return;
     if (isPreviewMode) return;
     if (isOrganizingNotes) return;
 
@@ -6368,6 +6602,8 @@ export default function Editor({
           title: text.operations.placedNote,
           detail: `${getNoteHistoryDetail(placedNote)}${parentId === null ? '' : formatTranslation(text.operations.parentDetail, { parentId })}`,
         });
+        completeCurrentTutorialObjective('notePlaced');
+        trackTutorialHoldSequencePlacement(placedNote);
 
         if (currentParentInput.trim() !== '') {
           setCurrentParentInput(newId.toString());
@@ -6414,6 +6650,9 @@ export default function Editor({
         restoreCurrentParentAfterDeletingNotes(deletedNotes, clickedNote.id);
         setNotes(prev => prev.filter(note => !noteIdsToDeleteSet.has(note.id)));
         setSelectedNoteIds(prev => prev.filter(id => !noteIdsToDeleteSet.has(id)));
+        if (deletedNotes.length > 0) {
+          completeCurrentTutorialObjective('noteDeleted');
+        }
       }
     }
   };
@@ -6601,6 +6840,7 @@ export default function Editor({
   }, [getSelectionPointFromClient, selectionBox, updateSelectionBoxEndFromClient]);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!canUseTutorialOperation('timelineScroll')) return;
     if (!projectData) return;
     
     if (stateRef.current.isPlaying) {
@@ -6639,6 +6879,7 @@ export default function Editor({
     }
     updateProgressBarValue(clampedTime, true);
     renderPausedTimelineAtFullFps();
+    completeCurrentTutorialObjective('timelineScrolled');
   };
 
   const createZipBlobForSave = (zipBuffer: ArrayBuffer) => {
@@ -7859,6 +8100,9 @@ export default function Editor({
         title: text.operations.modifiedOffset,
         detail: `${formatMaybeValue(previousOffset)} ms -> ${formatMaybeValue(value)} ms`,
       });
+      if (Number(value) === 50) {
+        completeCurrentTutorialObjective('offsetEdited');
+      }
     }
   };
 
@@ -8054,6 +8298,21 @@ export default function Editor({
     renderPausedTimelineAtFullFps();
   };
 
+  const runTutorialOperation = <Args extends unknown[]>(
+    operation: TutorialOperation,
+    callback: (...args: Args) => void,
+  ) => (...args: Args) => {
+    if (!canUseTutorialOperation(operation)) return;
+    callback(...args);
+  };
+  const runAsyncTutorialOperation = <Args extends unknown[], Result>(
+    operation: TutorialOperation,
+    callback: (...args: Args) => Promise<Result>,
+    fallback: Result,
+  ) => (...args: Args) => (
+    canUseTutorialOperation(operation) ? callback(...args) : Promise.resolve(fallback)
+  );
+
   const leftSidebarProps = {
     isLeftPanelCompact,
     isLeftPanelContentVisible,
@@ -8084,9 +8343,9 @@ export default function Editor({
     onPreviewProjectFile: setPreviewedProjectFile,
     infoBadge: leftSidebarInfoBadge,
     chartIssuesBadge: leftSidebarChartIssuesBadge,
-    handleConfirm,
+    handleConfirm: runAsyncTutorialOperation('metadata', handleConfirm, undefined),
     offset,
-    updateOffset,
+    updateOffset: runTutorialOperation('offset', updateOffset),
     isOfficialChartFormat,
     bpmChangeGridClass,
     bpmChanges,
@@ -8343,10 +8602,10 @@ export default function Editor({
         isDraggingProgress={isDraggingProgress}
         isProgressBarInteractive={isProgressBarInteractive}
         openExitWarning={openExitWarning}
-        togglePlay={togglePlay}
-        handleSeekChange={handleSeekChange}
-        beginProgressSeek={beginProgressSeek}
-        finishProgressSeek={finishProgressSeek}
+        togglePlay={runAsyncTutorialOperation('playback', togglePlay, undefined)}
+        handleSeekChange={runTutorialOperation('timelineScroll', handleSeekChange)}
+        beginProgressSeek={runTutorialOperation('timelineScroll', beginProgressSeek)}
+        finishProgressSeek={runAsyncTutorialOperation('timelineScroll', finishProgressSeek, undefined)}
         setIsXPositionGridEnabled={setIsXPositionGridEnabled}
         setIsOutOfBoundsPlacementEnabled={setIsOutOfBoundsPlacementEnabled}
         setIsExportMenuOpen={setIsExportMenuOpen}
@@ -8355,11 +8614,11 @@ export default function Editor({
         changePlaybackSpeed={changePlaybackSpeed}
         openHelp={openHelp}
         openSettings={openSettings}
-        togglePreviewMode={togglePreviewMode}
-        previewDr3Fp={previewDr3Fp}
-        exportRaw={exportRaw}
-        exportDr3Viewer={exportDr3Viewer}
-        exportDr3Fp={exportDr3Fp}
+        togglePreviewMode={runTutorialOperation('previewMode', togglePreviewMode)}
+        previewDr3Fp={runAsyncTutorialOperation('previewMode', previewDr3Fp, undefined)}
+        exportRaw={runAsyncTutorialOperation('export', exportRaw, 'cancelled')}
+        exportDr3Viewer={runAsyncTutorialOperation('export', exportDr3Viewer, 'cancelled')}
+        exportDr3Fp={runAsyncTutorialOperation('export', exportDr3Fp, 'cancelled')}
         fps={fps}
         renderedObjects={renderedObjects}
         onPerformanceStatsMouseEnter={() => {
@@ -8384,6 +8643,9 @@ export default function Editor({
         rightSidebarProps={rightSidebarProps}
         nscToolProps={nscToolProps}
         noteMultiEditProps={noteMultiEditProps}
+        tutorialSession={tutorialSession}
+        setTutorialSession={setTutorialSession}
+        exitTutorial={onBack}
       />
       <EditorFilePreviewModal
         file={previewedProjectFile}

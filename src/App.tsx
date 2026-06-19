@@ -22,6 +22,7 @@ const DEFAULT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const SILENT_IMPORT_AUDIO_SAMPLE_RATE = 8000;
 const SILENT_IMPORT_AUDIO_MARGIN_SECONDS = 5;
 const SILENT_IMPORT_AUDIO_MIN_SECONDS = 10;
+const TUTORIAL_MEASURE_COUNT = 20;
 const EXAMPLES = [
   {
     id: 'eviternity',
@@ -85,9 +86,13 @@ const writeAscii = (view: DataView, offset: number, value: string) => {
   }
 };
 
-const createSilentImportAudioUrl = (notes: Note[]) => {
-  const duration = getSilentImportAudioDuration(notes);
-  const sampleCount = Math.max(1, Math.ceil(duration * SILENT_IMPORT_AUDIO_SAMPLE_RATE));
+const createSilentWavBlob = (duration: number, sampleCountMode: 'ceil' | 'floor' = 'ceil') => {
+  const sampleCount = Math.max(
+    1,
+    sampleCountMode === 'floor'
+      ? Math.floor(duration * SILENT_IMPORT_AUDIO_SAMPLE_RATE)
+      : Math.ceil(duration * SILENT_IMPORT_AUDIO_SAMPLE_RATE),
+  );
   const bytesPerSample = 2;
   const channelCount = 1;
   const dataSize = sampleCount * bytesPerSample * channelCount;
@@ -108,7 +113,32 @@ const createSilentImportAudioUrl = (notes: Note[]) => {
   writeAscii(view, 36, 'data');
   view.setUint32(40, dataSize, true);
 
-  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+const createSilentImportAudioUrl = (notes: Note[]) => (
+  URL.createObjectURL(createSilentWavBlob(getSilentImportAudioDuration(notes)))
+);
+
+const createTutorialProjectData = (): ProjectData => {
+  const tutorialBpm = DEFAULT_BPM_CHANGES[0].bpm;
+  const tutorialBeatsPerMeasure = parseInt(DEFAULT_BPM_CHANGES[0].timeSignature.split('/')[0], 10) || 4;
+  const tutorialDurationSeconds = TUTORIAL_MEASURE_COUNT * tutorialBeatsPerMeasure * (60 / tutorialBpm);
+  const audioBlob = createSilentWavBlob(tutorialDurationSeconds, 'floor');
+  const songFile = new File([audioBlob], 'tutorial.wav', { type: 'audio/wav' });
+
+  return {
+    chartFormat: 'Official',
+    songId: 'Tutorial',
+    songName: 'Tutorial',
+    songArtist: 'Artist',
+    songBpm: tutorialBpm.toString(),
+    difficulty: '0',
+    songFile,
+    songIllustration: null,
+    bpm: tutorialBpm,
+    audioUrl: URL.createObjectURL(audioBlob),
+  };
 };
 
 interface ChartBundleManifest {
@@ -417,6 +447,13 @@ export default function App() {
   const handleImportClick = () => {
     resetEditorState();
     fileInputRef.current?.click();
+  };
+
+  const handleStartTutorial = () => {
+    resetEditorState();
+    setInitialProjectData(createTutorialProjectData());
+    setInitialChartFileName('tutorial.txt');
+    setView({ page: 'editor', isTutorial: true });
   };
 
   const handleLevelImport = async (text: string) => {
@@ -814,6 +851,7 @@ export default function App() {
             resetEditorState();
             setView({ page: 'editor', mode: 'new' });
           }}
+          onStartTutorial={handleStartTutorial}
           onImportClick={handleImportClick}
           examples={EXAMPLES}
           onExampleSelect={handleExampleSelect}
@@ -833,6 +871,7 @@ export default function App() {
           <Editor
             onBack={() => setView({ page: 'landing' })}
             mode={view.mode}
+            isTutorial={Boolean(view.isTutorial)}
             initialProjectData={initialProjectData}
             initialChartFileName={initialChartFileName}
             notes={notes}

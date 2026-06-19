@@ -4,6 +4,7 @@ export type ChartFormat = 'Official';
 export interface ViewState {
   page: 'landing' | 'editor';
   mode?: EditorMode;
+  isTutorial?: boolean;
 }
 
 export interface Note {

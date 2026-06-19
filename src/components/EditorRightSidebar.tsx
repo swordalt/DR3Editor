@@ -35,8 +35,17 @@ export default function EditorRightSidebar(props: any) {
     currentEditorScore,
     noteWidth,
     selectedNoteType,
+    tutorialFocusTargets = [],
   } = props;
   const text = translations;
+  const isOnlySelectedNoteTypeIndicatorFocused = tutorialFocusTargets.includes('selectedNoteTypeIndicator')
+    && !tutorialFocusTargets.includes('rightSidebar');
+  const tutorialMutedClassName = isOnlySelectedNoteTypeIndicatorFocused
+    ? 'opacity-30 pointer-events-none select-none transition-opacity'
+    : '';
+  const tutorialFocusedIndicatorClassName = isOnlySelectedNoteTypeIndicatorFocused
+    ? 'relative z-30 rounded-lg border border-indigo-400/40 bg-neutral-950/80 p-3 shadow-lg shadow-indigo-950/30 transition-opacity'
+    : '';
   const isSelectedNoteSpeedLocked = Boolean(
     isOfficialChartFormat
     && selectedSingleNote
@@ -61,7 +70,7 @@ export default function EditorRightSidebar(props: any) {
           </div>
           {isRightPanelContentVisible && (
             <>
-            <div className="min-h-0 flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
+            <div className={`min-h-0 flex-1 p-4 flex flex-col gap-4 overflow-y-auto ${tutorialMutedClassName}`}>
               <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">{text.sidebar.properties}</div>
               {isPreviewMode ? (
                 <div className="flex flex-col gap-4">
@@ -316,8 +325,8 @@ export default function EditorRightSidebar(props: any) {
               )}
             </div>
             {!isPreviewMode && (
-              <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-neutral-800 p-4">
-                <div>
+              <div className={`max-h-[45%] shrink-0 overflow-y-auto border-t border-neutral-800 p-4 ${isOnlySelectedNoteTypeIndicatorFocused ? 'relative z-30' : ''}`}>
+                <div className={tutorialFocusedIndicatorClassName}>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.sidebar.selectedNote}</div>
                   <div className="flex items-center gap-3">
                     <div
