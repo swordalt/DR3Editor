@@ -12,7 +12,8 @@ Current Status:
 - Operation history (with undo/redo).
 - Export as multiple formats.
 - Statistics window.
+- NSC Helper Tool
+- Multi-edit Tool
 
 Future:
-- NSC helper (creator / preview).
 - Integration with a modified version of DR3Viewer for accurate preview.
