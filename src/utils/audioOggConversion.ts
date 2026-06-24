@@ -1,7 +1,11 @@
+import { createEncoder } from 'wasm-media-encoders';
+import oggEncoderWasmUrl from 'wasm-media-encoders/wasm/ogg.wasm?url';
+
 const OGG_DECODE_TARGET_SAMPLE_RATE = 44100;
-const OGG_VORBIS_QUALITY = 0.4;
+const OGG_VORBIS_VBR_QUALITY = 4;
+const OGG_ENCODER_CHUNK_SIZE = 4096;
 const oggConversionCache = new WeakMap<File, Promise<File>>();
-let vorbisEncoderConstructorPromise: Promise<typeof import('vorbis-encoder-js').encoder> | null = null;
+let oggEncoderModule: WebAssembly.Module | null = null;
 
 const getOggFileName = (file: File) => {
   const baseName = file.name.replace(/\.[^/.]+$/, '') || 'audio';
@@ -12,24 +16,40 @@ export const isOggAudioFile = (file: File | null | undefined) => (
   Boolean(file && (file.type === 'audio/ogg' || /\.ogg$/i.test(file.name)))
 );
 
-const loadVorbisEncoderConstructor = () => {
-  vorbisEncoderConstructorPromise ??= import('vorbis-encoder-js')
-    .then(({ encoder }) => encoder);
-
-  return vorbisEncoderConstructorPromise;
-};
+const createOggEncoder = () => (
+  createEncoder('audio/ogg', oggEncoderModule ?? oggEncoderWasmUrl, (module) => {
+    oggEncoderModule = module;
+  })
+);
 
 const encodeAudioBufferToOgg = async (audioBuffer: AudioBuffer) => {
   const channelCount = Math.min(2, audioBuffer.numberOfChannels);
-  const VorbisEncoder = await loadVorbisEncoderConstructor();
-  const encoder = new VorbisEncoder(
-    audioBuffer.sampleRate,
-    channelCount,
-    OGG_VORBIS_QUALITY,
-  );
+  const encoder = await createOggEncoder();
+  encoder.configure({
+    sampleRate: audioBuffer.sampleRate,
+    channels: channelCount as 1 | 2,
+    vbrQuality: OGG_VORBIS_VBR_QUALITY,
+  });
 
-  encoder.encodeFrom(audioBuffer);
-  const oggBlob = encoder.finish('audio/ogg');
+  const oggChunks: Uint8Array[] = [];
+  const audioLength = audioBuffer.length;
+  for (let start = 0; start < audioLength; start += OGG_ENCODER_CHUNK_SIZE) {
+    const end = Math.min(start + OGG_ENCODER_CHUNK_SIZE, audioLength);
+    const samples = Array.from({ length: channelCount }, (_, channelIndex) => (
+      audioBuffer.getChannelData(channelIndex).slice(start, end)
+    ));
+    const encodedChunk = encoder.encode(samples);
+    if (encodedChunk.length > 0) {
+      oggChunks.push(encodedChunk.slice());
+    }
+  }
+
+  const finalChunk = encoder.finalize();
+  if (finalChunk.length > 0) {
+    oggChunks.push(finalChunk.slice());
+  }
+
+  const oggBlob = new Blob(oggChunks, { type: 'audio/ogg' });
   if (oggBlob.size === 0) {
     throw new Error('OGG encoder returned an empty file.');
   }
