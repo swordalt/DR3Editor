@@ -1778,8 +1778,15 @@ export default function Editor({
       : deletedNoteById.get(preferredDeletedNoteId) ?? deletedCurrentParent ?? deletedNotes[0];
 
     let nextParentId = deletedAnchorNote.parentId;
+    const visitedDeletedParentIds = new Set<number>();
 
     while (nextParentId !== null && deletedNoteById.has(nextParentId)) {
+      if (visitedDeletedParentIds.has(nextParentId)) {
+        nextParentId = null;
+        break;
+      }
+
+      visitedDeletedParentIds.add(nextParentId);
       const deletedParent = deletedNoteById.get(nextParentId);
       nextParentId = deletedParent?.parentId ?? null;
     }
