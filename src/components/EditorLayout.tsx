@@ -335,7 +335,7 @@ export default function EditorLayout(props: any) {
       />
 
       {/* Top Navigation Bar */}
-      <div className={getTutorialRegionClassName('topBar')}>
+      <div className={`${getTutorialRegionClassName('topBar')} ${isExportMenuOpen || isPreviewMenuOpen || isPlaybackSpeedMenuOpen ? 'z-50' : ''}`}>
         <EditorTopBar
           projectData={projectData}
           tierBadge={tierBadge}
@@ -399,13 +399,13 @@ export default function EditorLayout(props: any) {
       <main className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Sidebar - General Functions */}
         {!isPreviewMode && (
-          <div className={getTutorialRegionClassName('leftSidebar')}>
+          <div className={`h-full ${getTutorialRegionClassName('leftSidebar')}`}>
             <EditorLeftSidebar {...leftSidebarProps} />
           </div>
         )}
 
         {isPreviewMode && (
-          <div className={getTutorialRegionClassName('previewSidebar')}>
+          <div className={`h-full ${getTutorialRegionClassName('previewSidebar')}`}>
             <EditorPreviewSidebar
               isLeftPanelCompact={leftSidebarProps.isLeftPanelCompact}
               isLeftPanelContentVisible={leftSidebarProps.isLeftPanelContentVisible}
@@ -431,7 +431,7 @@ export default function EditorLayout(props: any) {
         </div>
 
         {/* Right Sidebar - Properties */}
-        <div className={getTutorialRegionClassName('rightSidebar')}>
+        <div className={`h-full ${getTutorialRegionClassName('rightSidebar')}`}>
           <EditorRightSidebar
             {...rightSidebarProps}
             isPreviewMode={isPreviewMode}
