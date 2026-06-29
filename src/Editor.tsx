@@ -89,6 +89,7 @@ import type {
   PendingDragUpdate,
   PreviewCameraTiltInterval,
   PreviewCameraTiltSegment,
+  PreviewHitFxEvent,
   PreviewHoldConnectorSegment,
   PreviewNoteRenderEntry,
   PreviewNoteSpeed,
@@ -209,6 +210,12 @@ const getPreviewConnectorParentSpeedSource = (
 const text = translations;
 const EDITOR_NOTE_JUDGEMENT_OVERLAY_DURATION_SECONDS = 0.25;
 const EDITOR_NOTE_JUDGEMENT_OVERLAY_MAX_ALPHA = 0.75;
+const PREVIEW_HIT_FX_DURATION_SECONDS = 0.36;
+const PREVIEW_HIT_FX_REFERENCE_WIDTH = 2;
+const PREVIEW_HIT_FX_FRAME_COUNT = 12;
+const PREVIEW_HIT_FX_CACHE_MAX_ENTRIES = 192;
+const PREVIEW_HIT_FX_GOLD = '#ffd45a';
+const PREVIEW_HIT_FX_WHITE = '#ffffff';
 
 const createDr3FpPreviewLogEntry = (message: string, detail?: string): Dr3FpPreviewLogEntry => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -375,6 +382,12 @@ interface PreviewCachedHoldTexture {
   canvas: HTMLCanvasElement;
   x: number;
   y: number;
+  width: number;
+  height: number;
+}
+
+interface PreviewCachedHitFxFrame {
+  canvas: HTMLCanvasElement;
   width: number;
   height: number;
 }
@@ -586,6 +599,7 @@ export default function Editor({
   const [isPreviewPrecomputeEnabled, setIsPreviewPrecomputeEnabled] = useState(initialEditorSettings.isPreviewPrecomputeEnabled);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [isPreviewSpritesEnabled, setIsPreviewSpritesEnabled] = useState(initialEditorSettings.isPreviewSpritesEnabled);
+  const [isPreviewHitFxEnabled, setIsPreviewHitFxEnabled] = useState(initialEditorSettings.isPreviewHitFxEnabled);
   const [isPreviewHoldSpritesEnabled, setIsPreviewHoldSpritesEnabled] = useState(initialEditorSettings.isPreviewHoldSpritesEnabled);
   const [isPreviewChartSpeedChangesEnabled, setIsPreviewChartSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewChartSpeedChangesEnabled);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
@@ -730,6 +744,7 @@ export default function Editor({
       isPreviewPrecomputeEnabled,
       pixelsPerBeat,
       isPreviewSpritesEnabled,
+      isPreviewHitFxEnabled,
       isPreviewHoldSpritesEnabled,
       isPreviewChartSpeedChangesEnabled,
       isPreviewCameraTiltEnabled,
@@ -759,6 +774,7 @@ export default function Editor({
     isPreviewPrecomputeEnabled,
     pixelsPerBeat,
     isPreviewSpritesEnabled,
+    isPreviewHitFxEnabled,
     isPreviewHoldSpritesEnabled,
     isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
@@ -876,6 +892,7 @@ export default function Editor({
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
+  const previewHitFxEventsRef = useRef<PreviewHitFxEvent[]>([]);
   const previewComboTimesRef = useRef<number[]>([]);
   const previewModePrecomputeCacheRef = useRef<PreviewModePrecomputeCache | null>(null);
   const previewChartStatisticsIndexRef = useRef<ChartStatisticsIndex | null>(null);
@@ -895,6 +912,7 @@ export default function Editor({
   const decodedPreviewSpritesRef = useRef<WeakSet<HTMLImageElement>>(new WeakSet());
   const previewNoteSpriteCanvasCacheRef = useRef<Map<string, PreviewCachedNoteSprite>>(new Map());
   const previewHoldTextureCanvasCacheRef = useRef<Map<string, PreviewCachedHoldTexture>>(new Map());
+  const previewHitFxCanvasCacheRef = useRef<Map<string, PreviewCachedHitFxFrame>>(new Map());
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
   useEffect(() => {
@@ -997,11 +1015,13 @@ export default function Editor({
       decodedPreviewSpritesRef.current = new WeakSet();
       previewNoteSpriteCanvasCacheRef.current.clear();
       previewHoldTextureCanvasCacheRef.current.clear();
+      previewHitFxCanvasCacheRef.current.clear();
     };
   }, []);
 
   const resetPreviewJudgementState = useCallback((time = stateRef.current.currentTime, hidePastNotes = false) => {
     hiddenPreviewNoteIdsRef.current.clear();
+    previewHitFxEventsRef.current = [];
     if (hidePastNotes) {
       stateRef.current.notes.forEach(note => {
         if (note.time <= time) {
@@ -1011,6 +1031,12 @@ export default function Editor({
     }
     previewJudgementCursorTimeRef.current = time;
   }, []);
+
+  useEffect(() => {
+    if (!isPreviewHitFxEnabled) {
+      previewHitFxEventsRef.current = [];
+    }
+  }, [isPreviewHitFxEnabled]);
 
   const updateProgressBarValue = (time: number, force = false) => {
     if (progressBarRef.current && (force || !isDraggingProgress.current)) {
@@ -2094,7 +2120,13 @@ export default function Editor({
   );
   const previewJudgementNoteEntries = useMemo(
     () => isPreviewMode
-      ? noteRenderIndex.noteBeatEntries.map(({ note }) => ({ id: note.id, time: note.time }))
+      ? noteRenderIndex.noteBeatEntries.map(({ note }) => ({
+          id: note.id,
+          time: note.time,
+          type: note.type,
+          lane: note.lane,
+          width: note.width,
+        }))
       : [],
     [isPreviewMode, noteRenderIndex.noteBeatEntries],
   );
@@ -6075,6 +6107,222 @@ export default function Editor({
       countRenderedObject();
     }
 
+    const activePreviewHitFxEvents = isPreviewPlaybackCanvas && isPreviewHitFxEnabled && previewHitFxEventsRef.current.length > 0
+      ? previewHitFxEventsRef.current.filter((effect) => {
+          const elapsed = time - effect.time;
+          return elapsed >= 0 && elapsed <= PREVIEW_HIT_FX_DURATION_SECONDS;
+        })
+      : [];
+    if (previewHitFxEventsRef.current.length !== activePreviewHitFxEvents.length) {
+      previewHitFxEventsRef.current = activePreviewHitFxEvents;
+    }
+
+    const getCachedPreviewHitFxFrame = (
+      kind: 'circle' | 'slash',
+      notePixelWidth: number,
+      scale: number,
+      progress: number,
+      options: { color?: string; direction?: 'horizontal' | 'vertical' },
+    ) => {
+      const frameIndex = Math.max(
+        0,
+        Math.min(PREVIEW_HIT_FX_FRAME_COUNT - 1, Math.floor(progress * PREVIEW_HIT_FX_FRAME_COUNT)),
+      );
+      const frameProgress = frameIndex / Math.max(1, PREVIEW_HIT_FX_FRAME_COUNT - 1);
+      const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
+      const widthBucket = Math.max(1, Math.round(notePixelWidth));
+      const scaleBucket = Math.max(1, Math.round(scale * 100) / 100);
+      const color = options.color ?? PREVIEW_HIT_FX_GOLD;
+      const direction = options.direction ?? 'horizontal';
+      const cacheKey = [
+        kind,
+        color,
+        direction,
+        widthBucket,
+        scaleBucket,
+        dprBucket,
+        frameIndex,
+      ].join(':');
+      const cachedFrame = previewHitFxCanvasCacheRef.current.get(cacheKey);
+      if (cachedFrame) {
+        return cachedFrame;
+      }
+
+      const alpha = kind === 'circle'
+        ? (1 - frameProgress) ** 1.4
+        : (1 - frameProgress) ** 1.25;
+      const easeOut = 1 - ((1 - frameProgress) ** 3);
+      const lineWidth = kind === 'circle'
+        ? Math.max(1.5, 4.5 * scaleBucket * (1 - frameProgress))
+        : Math.max(2, 12 * scaleBucket * (1 - frameProgress));
+      const maxCircleRadius = Math.max(24 * scaleBucket, widthBucket * 0.55) * 1.28;
+      const radius = kind === 'circle'
+        ? maxCircleRadius * (0.32 + easeOut * 0.68)
+        : maxCircleRadius;
+      const slashLength = Math.max(82 * scaleBucket, widthBucket * 1.9) * (0.88 + easeOut * 0.34);
+      const halfLength = slashLength / 2;
+      const padding = kind === 'circle'
+        ? 24 * scaleBucket + lineWidth
+        : 28 * scaleBucket + lineWidth;
+      const logicalWidth = Math.ceil(kind === 'circle'
+        ? (radius + padding) * 2
+        : direction === 'horizontal'
+          ? (halfLength + padding) * 2
+          : (lineWidth + padding) * 2);
+      const logicalHeight = Math.ceil(kind === 'circle'
+        ? (radius + padding) * 2
+        : direction === 'horizontal'
+          ? (lineWidth + padding) * 2
+          : (halfLength + padding) * 2);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.ceil(logicalWidth * dprBucket));
+      canvas.height = Math.max(1, Math.ceil(logicalHeight * dprBucket));
+
+      const hitFxCtx = canvas.getContext('2d');
+      if (!hitFxCtx) {
+        return null;
+      }
+
+      const centerX = logicalWidth / 2;
+      const centerY = logicalHeight / 2;
+      hitFxCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
+      hitFxCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+      hitFxCtx.globalCompositeOperation = 'lighter';
+
+      if (kind === 'circle') {
+        hitFxCtx.globalAlpha = alpha;
+        hitFxCtx.strokeStyle = color;
+        hitFxCtx.lineWidth = lineWidth;
+        hitFxCtx.shadowColor = color;
+        hitFxCtx.shadowBlur = 18 * scaleBucket * alpha;
+        hitFxCtx.beginPath();
+        hitFxCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        hitFxCtx.stroke();
+      } else {
+        const x1 = direction === 'horizontal' ? centerX - halfLength : centerX;
+        const y1 = direction === 'horizontal' ? centerY : centerY - halfLength;
+        const x2 = direction === 'horizontal' ? centerX + halfLength : centerX;
+        const y2 = direction === 'horizontal' ? centerY : centerY + halfLength;
+
+        hitFxCtx.lineCap = 'round';
+        hitFxCtx.globalAlpha = alpha;
+        hitFxCtx.strokeStyle = PREVIEW_HIT_FX_GOLD;
+        hitFxCtx.lineWidth = lineWidth;
+        hitFxCtx.shadowColor = PREVIEW_HIT_FX_GOLD;
+        hitFxCtx.shadowBlur = 24 * scaleBucket * alpha;
+        hitFxCtx.beginPath();
+        hitFxCtx.moveTo(x1, y1);
+        hitFxCtx.lineTo(x2, y2);
+        hitFxCtx.stroke();
+        hitFxCtx.globalAlpha = alpha * 0.78;
+        hitFxCtx.strokeStyle = PREVIEW_HIT_FX_WHITE;
+        hitFxCtx.lineWidth = Math.max(1.5, lineWidth * 0.28);
+        hitFxCtx.shadowBlur = 10 * scaleBucket * alpha;
+        hitFxCtx.beginPath();
+        hitFxCtx.moveTo(x1, y1);
+        hitFxCtx.lineTo(x2, y2);
+        hitFxCtx.stroke();
+      }
+
+      const nextCachedFrame = {
+        canvas,
+        width: logicalWidth,
+        height: logicalHeight,
+      };
+      const cache = previewHitFxCanvasCacheRef.current;
+      if (cache.size >= PREVIEW_HIT_FX_CACHE_MAX_ENTRIES) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey !== undefined) {
+          cache.delete(oldestKey);
+        }
+      }
+      cache.set(cacheKey, nextCachedFrame);
+
+      return nextCachedFrame;
+    };
+
+    const drawCachedPreviewHitFxFrame = (
+      centerX: number,
+      centerY: number,
+      cachedFrame: PreviewCachedHitFxFrame | null,
+    ) => {
+      if (!cachedFrame) {
+        return false;
+      }
+
+      const x = centerX - cachedFrame.width / 2;
+      const y = centerY - cachedFrame.height / 2;
+
+      if (
+        x + cachedFrame.width < 0
+        || x > width
+        || y + cachedFrame.height < 0
+        || y > height
+      ) {
+        return false;
+      }
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(cachedFrame.canvas, x, y, cachedFrame.width, cachedFrame.height);
+      ctx.restore();
+      return true;
+    };
+
+    const drawPreviewHitCircleFx = (
+      centerX: number,
+      centerY: number,
+      notePixelWidth: number,
+      scale: number,
+      progress: number,
+      color: string,
+    ) => {
+      return drawCachedPreviewHitFxFrame(
+        centerX,
+        centerY,
+        getCachedPreviewHitFxFrame('circle', notePixelWidth, scale, progress, { color }),
+      );
+    };
+
+    const drawPreviewHitSlashFx = (
+      centerX: number,
+      centerY: number,
+      notePixelWidth: number,
+      scale: number,
+      progress: number,
+      direction: 'horizontal' | 'vertical',
+    ) => {
+      return drawCachedPreviewHitFxFrame(
+        centerX,
+        centerY,
+        getCachedPreviewHitFxFrame('slash', notePixelWidth, scale, progress, { direction }),
+      );
+    };
+
+    activePreviewHitFxEvents.forEach((effect) => {
+      const progress = (time - effect.time) / PREVIEW_HIT_FX_DURATION_SECONDS;
+      const effectScale = getProjectedScale(hitLineY);
+      const effectPixelWidth = getProjectedNoteWidth(PREVIEW_HIT_FX_REFERENCE_WIDTH, hitLineY);
+      const notePixelWidth = getProjectedNoteWidth(effect.width, hitLineY);
+      const centerX = getProjectedXFromLane(effect.lane, hitLineY) + notePixelWidth / 2;
+      let didDrawEffect = false;
+
+      if (effect.type === 9 || effect.type === 13 || effect.type === 14) {
+        didDrawEffect = drawPreviewHitSlashFx(centerX, hitLineY, effectPixelWidth, effectScale, progress, 'horizontal');
+      } else if (effect.type === 15 || effect.type === 16) {
+        didDrawEffect = drawPreviewHitSlashFx(centerX, hitLineY, effectPixelWidth, effectScale, progress, 'vertical');
+      } else {
+        const color = effect.type === 1 || effect.type === 2 || effect.type === 25 || effect.type === 26 || effect.type === 27
+          ? PREVIEW_HIT_FX_GOLD
+          : PREVIEW_HIT_FX_WHITE;
+        didDrawEffect = drawPreviewHitCircleFx(centerX, hitLineY, effectPixelWidth, effectScale, progress, color);
+      }
+
+      if (didDrawEffect) {
+        countRenderedObject();
+      }
+    });
+
     // Draw hit line
     const hitLineStartX = !isPreviewPlaybackCanvas && isOutOfBoundsPlacementEnabled
       ? 0
@@ -6140,7 +6388,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHoldSpritesEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewHoldSpritesEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -6237,8 +6485,26 @@ export default function Editor({
             }
 
             hiddenPreviewNoteIdsRef.current.add(note.id);
+            if (isPreviewHitFxEnabled) {
+              previewHitFxEventsRef.current.push({
+                id: `${note.id}-${note.time}-${currentTime}`,
+                noteId: note.id,
+                time: note.time,
+                type: note.type,
+                lane: note.lane,
+                width: note.width,
+              });
+            }
           }
           previewJudgementCursorTimeRef.current = currentTime;
+        }
+
+        if (previewHitFxEventsRef.current.length > 0) {
+          previewHitFxEventsRef.current = isPreviewHitFxEnabled
+            ? previewHitFxEventsRef.current.filter(effect => (
+                currentTime - effect.time <= PREVIEW_HIT_FX_DURATION_SECONDS
+              ))
+            : [];
         }
       }
 
@@ -6263,7 +6529,7 @@ export default function Editor({
       requestRef.current = undefined;
       requestSchedulerRef.current = undefined;
     }
-  }, [completeCurrentTutorialObjective, drawGrid, getTimeFromTimepos, isCurrentTutorialObjective, offset, recordFpsSample, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
+  }, [completeCurrentTutorialObjective, drawGrid, getTimeFromTimepos, isCurrentTutorialObjective, isPreviewHitFxEnabled, offset, recordFpsSample, scheduleHitSoundsThrough, isPausedTimelineRendering, isPreviewMode, previewJudgementNoteEntries, resetPreviewJudgementState, scheduleEditorUpdate, statisticsRefreshIntervalMs, timelineDuration, loopPlaybackToBeginning, updateRenderedObjectsDisplay]);
 
   useEffect(() => {
     if (!shouldAnimateCanvas) {
@@ -8555,6 +8821,7 @@ export default function Editor({
         tapSoundVolume={tapSoundVolume}
         flickSoundVolume={flickSoundVolume}
         isPreviewSpritesEnabled={isPreviewSpritesEnabled}
+        isPreviewHitFxEnabled={isPreviewHitFxEnabled}
         isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
         isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
@@ -8582,6 +8849,7 @@ export default function Editor({
         setTapSoundVolume={setTapSoundVolume}
         setFlickSoundVolume={setFlickSoundVolume}
         setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
+        setIsPreviewHitFxEnabled={setIsPreviewHitFxEnabled}
         setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
         setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}

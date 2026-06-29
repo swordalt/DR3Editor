@@ -273,6 +273,8 @@ export const en = {
     previewChart: 'Chart',
     previewSprites: 'Note Sprites',
     togglePreviewSprites: 'Toggle preview sprites',
+    previewHitFx: 'HitFX',
+    togglePreviewHitFx: 'Toggle preview hit effects',
     chartSpeedChanges: 'SC',
     togglePreviewChartSpeedChanges: 'Toggle preview chart speed changes',
     cameraTilt: 'Camera Tilt',

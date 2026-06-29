@@ -63,12 +63,14 @@ export default function EditorPreviewSidebar({
   isLeftPanelContentVisible,
   toggleLeftPanelCompact,
   isPreviewSpritesEnabled,
+  isPreviewHitFxEnabled,
   isPreviewChartSpeedChangesEnabled,
   isPreviewCameraTiltEnabled,
   isPreviewCameraMovementEnabled,
   isPreviewNoteSpeedChangesEnabled,
   isPreviewNoteAppearModeEnabled,
   setIsPreviewSpritesEnabled,
+  setIsPreviewHitFxEnabled,
   setIsPreviewChartSpeedChangesEnabled,
   setIsPreviewCameraTiltEnabled,
   setIsPreviewCameraMovementEnabled,
@@ -79,12 +81,14 @@ export default function EditorPreviewSidebar({
   isLeftPanelContentVisible: boolean;
   toggleLeftPanelCompact: () => void;
   isPreviewSpritesEnabled: boolean;
+  isPreviewHitFxEnabled: boolean;
   isPreviewChartSpeedChangesEnabled: boolean;
   isPreviewCameraTiltEnabled: boolean;
   isPreviewCameraMovementEnabled: boolean;
   isPreviewNoteSpeedChangesEnabled: boolean;
   isPreviewNoteAppearModeEnabled: boolean;
   setIsPreviewSpritesEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsPreviewHitFxEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewChartSpeedChangesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraTiltEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewCameraMovementEnabled: Dispatch<SetStateAction<boolean>>;
@@ -119,6 +123,12 @@ export default function EditorPreviewSidebar({
             isEnabled={isPreviewSpritesEnabled}
             ariaLabel={text.sidebar.togglePreviewSprites}
             onToggle={() => setIsPreviewSpritesEnabled((current) => !current)}
+          />
+          <PreviewSettingToggle
+            label={text.sidebar.previewHitFx}
+            isEnabled={isPreviewHitFxEnabled}
+            ariaLabel={text.sidebar.togglePreviewHitFx}
+            onToggle={() => setIsPreviewHitFxEnabled((current) => !current)}
           />
         </PreviewSettingSection>
         <PreviewSettingSection title={text.sidebar.previewCamera}>

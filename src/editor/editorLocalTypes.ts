@@ -122,6 +122,18 @@ export interface PreviewHoldConnectorSegment {
 export interface PreviewJudgementNoteEntry {
   id: number;
   time: number;
+  type: number;
+  lane: number;
+  width: number;
+}
+
+export interface PreviewHitFxEvent {
+  id: string;
+  noteId: number;
+  time: number;
+  type: number;
+  lane: number;
+  width: number;
 }
 
 export interface PreviewCameraMovementSegment {

@@ -34,6 +34,7 @@ export interface EditorSettings {
   isPreviewPrecomputeEnabled: boolean;
   pixelsPerBeat: number;
   isPreviewSpritesEnabled: boolean;
+  isPreviewHitFxEnabled: boolean;
   isPreviewHoldSpritesEnabled: boolean;
   isPreviewChartSpeedChangesEnabled: boolean;
   isPreviewCameraTiltEnabled: boolean;
@@ -65,6 +66,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   isPreviewPrecomputeEnabled: true,
   pixelsPerBeat: DEFAULT_PIXELS_PER_BEAT,
   isPreviewSpritesEnabled: true,
+  isPreviewHitFxEnabled: false,
   isPreviewHoldSpritesEnabled: false,
   isPreviewChartSpeedChangesEnabled: true,
   isPreviewCameraTiltEnabled: true,
@@ -197,6 +199,9 @@ export const loadEditorSettings = (): EditorSettings => {
       isPreviewSpritesEnabled: typeof parsedSettings.isPreviewSpritesEnabled === 'boolean'
         ? parsedSettings.isPreviewSpritesEnabled
         : DEFAULT_EDITOR_SETTINGS.isPreviewSpritesEnabled,
+      isPreviewHitFxEnabled: typeof parsedSettings.isPreviewHitFxEnabled === 'boolean'
+        ? parsedSettings.isPreviewHitFxEnabled
+        : DEFAULT_EDITOR_SETTINGS.isPreviewHitFxEnabled,
       isPreviewHoldSpritesEnabled: typeof parsedSettings.isPreviewHoldSpritesEnabled === 'boolean'
         ? parsedSettings.isPreviewHoldSpritesEnabled
         : DEFAULT_EDITOR_SETTINGS.isPreviewHoldSpritesEnabled,
