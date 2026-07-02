@@ -1,5 +1,5 @@
 import type { Note, SpeedChange } from '../types/editorTypes';
-import { APPEAR_MODE_ENTRY_DISTANCE, APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT, APPEAR_MODE_H_FLY_DOWN_PIXELS, APPEAR_MODE_H_START_SCALE, APPEAR_MODE_SIDE_ENTRY_MULTIPLIER, PREVIEW_CONNECTOR_TILT_DIVISOR, SNAP_EPSILON, X_POSITION_COUNT } from './editorViewConstants';
+import { APPEAR_MODE_ENTRY_DISTANCE, APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT, APPEAR_MODE_H_FLY_DOWN_PIXELS, APPEAR_MODE_H_START_SCALE, APPEAR_MODE_SIDE_ENTRY_MULTIPLIER, SNAP_EPSILON } from './editorViewConstants';
 import type { PreviewCameraMovementInterval, PreviewCameraMovementSegment, PreviewCameraTiltInterval, PreviewCameraTiltSegment, PreviewHoldConnectorSegment, PreviewJudgementNoteEntry, PreviewNotePosition, PreviewNoteRenderEntry, PreviewNoteSpeed, PreviewNoteSpeedKeyframe, SpeedDistancePoint } from './editorLocalTypes';
 
 export const buildSpeedDistanceIndex = (speedChanges: SpeedChange[]) => {
@@ -323,56 +323,72 @@ export const getPreviewComboAtTime = (comboTimes: number[], time: number) => {
 };
 
 export const buildPreviewCameraTiltIntervals = (segments: PreviewCameraTiltSegment[]) => {
-  const events: Array<{ timepos: number; countDelta: number; tiltDelta: number }> = [];
+  const events: Array<{ time: number; segment: PreviewCameraTiltSegment; isStart: boolean }> = [];
 
   segments.forEach((segment) => {
-    if (segment.endTimepos - segment.startTimepos <= SNAP_EPSILON) {
+    if (segment.endTime - segment.startTime <= SNAP_EPSILON) {
       return;
     }
 
-    const tiltDegrees = (
-      (segment.connectorCenterXPosition - X_POSITION_COUNT / 2)
-      / PREVIEW_CONNECTOR_TILT_DIVISOR
-    );
-
     events.push(
-      { timepos: segment.startTimepos, countDelta: 1, tiltDelta: tiltDegrees },
-      { timepos: segment.endTimepos, countDelta: -1, tiltDelta: -tiltDegrees },
+      { time: segment.startTime, segment, isStart: true },
+      { time: segment.endTime, segment, isStart: false },
     );
   });
 
-  events.sort((a, b) => a.timepos - b.timepos);
+  events.sort((a, b) => a.time - b.time);
 
   const intervals: PreviewCameraTiltInterval[] = [];
-  let activeCount = 0;
-  let activeTiltTotal = 0;
+  const activeSegments = new Set<PreviewCameraTiltSegment>();
   let eventIndex = 0;
 
   while (eventIndex < events.length) {
-    const timepos = events[eventIndex].timepos;
+    const time = events[eventIndex].time;
 
     while (
       eventIndex < events.length
-      && Math.abs(events[eventIndex].timepos - timepos) <= SNAP_EPSILON
+      && Math.abs(events[eventIndex].time - time) <= SNAP_EPSILON
     ) {
-      activeCount += events[eventIndex].countDelta;
-      activeTiltTotal += events[eventIndex].tiltDelta;
+      if (events[eventIndex].isStart) {
+        activeSegments.add(events[eventIndex].segment);
+      } else {
+        activeSegments.delete(events[eventIndex].segment);
+      }
       eventIndex += 1;
     }
 
-    const nextTimepos = events[eventIndex]?.timepos;
+    const nextTime = events[eventIndex]?.time;
     if (
-      nextTimepos !== undefined
-      && nextTimepos - timepos > SNAP_EPSILON
-      && activeCount > 0
+      nextTime !== undefined
+      && nextTime - time > SNAP_EPSILON
+      && activeSegments.size > 0
     ) {
-      const tiltDegrees = activeTiltTotal / activeCount;
+      let slopeTotal = 0;
+      let interceptTotal = 0;
+      let startTimepos = Number.POSITIVE_INFINITY;
+      let endTimepos = Number.NEGATIVE_INFINITY;
+
+      activeSegments.forEach((segment) => {
+        const duration = segment.endTime - segment.startTime;
+        const slope = (segment.noteTiltDegrees - segment.parentTiltDegrees) / duration;
+        const intercept = segment.parentTiltDegrees - slope * segment.startTime;
+
+        slopeTotal += slope;
+        interceptTotal += intercept;
+        startTimepos = Math.min(startTimepos, segment.startTimepos);
+        endTimepos = Math.max(endTimepos, segment.endTimepos);
+      });
+
+      const slopeDegreesPerSecond = slopeTotal / activeSegments.size;
+      const tiltAtStartDegrees = slopeDegreesPerSecond * time + interceptTotal / activeSegments.size;
 
       intervals.push({
-        startTimepos: timepos,
-        endTimepos: nextTimepos,
-        tiltDegrees,
-        rotationRadians: (tiltDegrees * Math.PI) / 180,
+        startTime: time,
+        endTime: nextTime,
+        startTimepos,
+        endTimepos,
+        tiltAtStartDegrees,
+        slopeDegreesPerSecond,
       });
     }
   }
@@ -380,17 +396,17 @@ export const buildPreviewCameraTiltIntervals = (segments: PreviewCameraTiltSegme
   return intervals;
 };
 
-export const getPreviewCameraTiltDegrees = (
+export const getPreviewCameraTiltState = (
   intervals: PreviewCameraTiltInterval[],
-  currentTimepos: number,
+  currentTime: number,
 ) => {
   let low = 0;
   let high = intervals.length;
-  const searchTimepos = currentTimepos + SNAP_EPSILON;
+  const searchTime = currentTime + SNAP_EPSILON;
 
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
-    if (intervals[mid].startTimepos <= searchTimepos) {
+    if (intervals[mid].startTime <= searchTime) {
       low = mid + 1;
     } else {
       high = mid;
@@ -398,33 +414,33 @@ export const getPreviewCameraTiltDegrees = (
   }
 
   const interval = intervals[low - 1];
-  return interval && currentTimepos < interval.endTimepos - SNAP_EPSILON
-    ? interval.tiltDegrees
-    : 0;
+  if (interval && currentTime < interval.endTime - SNAP_EPSILON) {
+    const tiltDegrees = interval.tiltAtStartDegrees + interval.slopeDegreesPerSecond * (currentTime - interval.startTime);
+    return {
+      hasActiveTails: true,
+      tiltDegrees,
+      rotationRadians: (tiltDegrees * Math.PI) / 180,
+    };
+  }
+
+  return {
+    hasActiveTails: false,
+    tiltDegrees: 0,
+    rotationRadians: 0,
+  };
+};
+
+export const getPreviewCameraTiltDegrees = (
+  intervals: PreviewCameraTiltInterval[],
+  currentTime: number,
+) => {
+  return getPreviewCameraTiltState(intervals, currentTime).tiltDegrees;
 };
 
 export const getPreviewCameraRotationRadians = (
   intervals: PreviewCameraTiltInterval[],
-  currentTimepos: number,
-) => {
-  let low = 0;
-  let high = intervals.length;
-  const searchTimepos = currentTimepos + SNAP_EPSILON;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (intervals[mid].startTimepos <= searchTimepos) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  const interval = intervals[low - 1];
-  return interval && currentTimepos < interval.endTimepos - SNAP_EPSILON
-    ? interval.rotationRadians
-    : 0;
-};
+  currentTime: number,
+) => getPreviewCameraTiltState(intervals, currentTime).rotationRadians;
 
 export const buildPreviewCameraMovementIntervals = (
   segments: PreviewCameraMovementSegment[],

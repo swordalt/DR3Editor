@@ -3,6 +3,7 @@ import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTi
 import EditorLayout from './components/EditorLayout';
 import EditorFilePreviewModal from './components/EditorFilePreviewModal';
 import type { NoteMultiEditCondition, NoteMultiEditRequest, NoteMultiEditResult } from './components/EditorNoteMultiEditModal';
+import type { CameraRotationToolEasing, CameraRotationToolKeyframe, CameraRotationToolRequest, CameraRotationToolResult } from './components/EditorCameraRotationToolModal';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import type { ExportFormat } from './types/exportTypes';
@@ -69,7 +70,9 @@ import {
   PERFORMANCE_STATS_UPDATE_INTERVAL_MS,
   PINK_HOLD_CENTER_TYPE,
   PINK_HOLD_END_TYPE,
-  PREVIEW_CONNECTOR_TILT_EASING_MS,
+  PREVIEW_CONNECTOR_TILT_ACTIVE_EASE_SPEED,
+  PREVIEW_CONNECTOR_TILT_DIVISOR,
+  PREVIEW_CONNECTOR_TILT_RETURN_EASE_SPEED,
   SIDE_PANEL_TRANSITION_MS,
   SNAP_EPSILON,
   X_POSITION_COUNT,
@@ -103,7 +106,7 @@ import {
   buildSpeedDistanceIndex,
   comparePreviewNoteRenderEntries,
   findFirstPreviewJudgementNoteIndex,
-  getPreviewCameraRotationRadians,
+  getPreviewCameraTiltState,
   getPreviewCameraXPositionOffset,
   getPreviewComboAtTime,
   getPreviewConnectorSegmentsInDistanceRange,
@@ -436,6 +439,11 @@ PREVIEW_NOTE_TEXTURE_OMITTED_TYPES.delete(17);
 const PREVIEW_CONSTANT_SPEED_CHANGES: SpeedChange[] = [{ timepos: 0, speedChange: 1 }];
 const PREVIEW_DAMAGE_NOTE_TYPES = new Set([10, 17, 18]);
 const PREVIEW_PINK_HOLD_CONNECTOR_TYPES = new Set([23, 24]);
+const CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE = 17;
+const CAMERA_ROTATION_TOOL_NOTE_WIDTH = 1;
+const CAMERA_ROTATION_TOOL_TARGET_EPSILON = 0.0005;
+const CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE = 240;
+const CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS = 24;
 const NATIVE_HOLD_CONNECTOR_SPRITE_COLORS: Record<number, { body: string; outline: string }> = {
   3: { body: '#623700', outline: '#fe8f00' },
   4: { body: '#623700', outline: '#fe8f00' },
@@ -621,6 +629,8 @@ export default function Editor({
   const [activeLeftPanel, setActiveLeftPanel] = useState<ActiveLeftPanel>('main');
   const [isNscToolOpen, setIsNscToolOpen] = useState(false);
   const [isNoteMultiEditOpen, setIsNoteMultiEditOpen] = useState(false);
+  const [isCameraRotationToolOpen, setIsCameraRotationToolOpen] = useState(false);
+  const [cameraRotationToolGeneratedNoteIds, setCameraRotationToolGeneratedNoteIds] = useState<number[]>([]);
   const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewCanvasLoadPhase, setPreviewCanvasLoadPhase] = useState<PreviewCanvasLoadPhase>('idle');
@@ -1914,6 +1924,59 @@ export default function Editor({
     () => buildNoteRenderIndex(notes, timedBpmChanges),
     [notes, timedBpmChanges],
   );
+  const hasPinkHoldCameraToolNotes = useMemo(
+    () => notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
+    [notes],
+  );
+  const cameraRotationToolGeneratedNoteIdSet = useMemo(
+    () => new Set(cameraRotationToolGeneratedNoteIds),
+    [cameraRotationToolGeneratedNoteIds],
+  );
+  const cameraRotationToolBaseNotes = useMemo(
+    () => notes.filter(note => !cameraRotationToolGeneratedNoteIdSet.has(note.id)),
+    [cameraRotationToolGeneratedNoteIdSet, notes],
+  );
+  const cameraRotationToolBaseTiltSegments = useMemo(() => {
+    const baseNoteRenderIndex = buildNoteRenderIndex(cameraRotationToolBaseNotes, timedBpmChanges);
+
+    return baseNoteRenderIndex.holdConnectorSegments
+      .map((segment) => {
+        const noteCenterXPosition = segment.note.lane + segment.note.width / 2;
+        const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
+
+        return {
+          startTime: segment.parentNote.time,
+          endTime: segment.note.time,
+          startTimepos: getTimeposFromTime(segment.parentNote.time),
+          endTimepos: getTimeposFromTime(segment.note.time),
+          parentTiltDegrees: (parentCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
+          noteTiltDegrees: (noteCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
+        };
+      })
+      .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
+      .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
+  }, [cameraRotationToolBaseNotes, getTimeposFromTime, timedBpmChanges]);
+  const getCameraRotationToolNativeTiltState = useCallback((timepos: number) => {
+    const time = getTimeFromTimepos(timepos);
+    const activeSegments = cameraRotationToolBaseTiltSegments.filter(segment => (
+      segment.startTime <= time + SNAP_EPSILON
+      && time < segment.endTime - SNAP_EPSILON
+    ));
+    const tiltTotal = activeSegments.reduce((total, segment) => {
+      const progress = (time - segment.startTime) / (segment.endTime - segment.startTime);
+      return total + segment.parentTiltDegrees + (segment.noteTiltDegrees - segment.parentTiltDegrees) * progress;
+    }, 0);
+
+    return {
+      count: activeSegments.length,
+      tiltTotal,
+      tiltDegrees: activeSegments.length > 0 ? tiltTotal / activeSegments.length : 0,
+    };
+  }, [cameraRotationToolBaseTiltSegments, getTimeFromTimepos]);
+  const getCameraRotationToolNativeAngleAtTimepos = useCallback(
+    (timepos: number) => getCameraRotationToolNativeTiltState(timepos).tiltDegrees,
+    [getCameraRotationToolNativeTiltState],
+  );
   const previewNoteBeatEntriesSource = useMemo(() => {
     if (!isPreviewMode) {
       return [];
@@ -2240,13 +2303,16 @@ export default function Editor({
         const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
 
         return {
-          startTimepos: Math.min(segment.parentTimepos, segment.noteTimepos),
-          endTimepos: Math.max(segment.parentTimepos, segment.noteTimepos),
-          connectorCenterXPosition: (noteCenterXPosition + parentCenterXPosition) / 2,
+          startTime: segment.parentPlaybackTime,
+          endTime: segment.notePlaybackTime,
+          startTimepos: segment.parentTimepos,
+          endTimepos: segment.noteTimepos,
+          parentTiltDegrees: (parentCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
+          noteTiltDegrees: (noteCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
         };
       })
-        .filter(segment => segment.endTimepos - segment.startTimepos > SNAP_EPSILON)
-        .sort((a, b) => (a.startTimepos - b.startTimepos) || (a.endTimepos - b.endTimepos));
+        .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
+        .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
     },
     [isPreviewMode, previewHoldConnectorSegments],
   );
@@ -4800,14 +4866,15 @@ export default function Editor({
             : previewCameraTiltIntervals
         )
       : [];
-    const targetPreviewRotationRadians = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
-      ? getPreviewCameraRotationRadians(activePreviewCameraTiltIntervals, currentPreviewTimepos)
-      : 0;
+    const previewCameraTiltState = isPreviewPlaybackCanvas && isPreviewCameraTiltEnabled
+      ? getPreviewCameraTiltState(activePreviewCameraTiltIntervals, time)
+      : { hasActiveTails: false, rotationRadians: 0, tiltDegrees: 0 };
+    const targetPreviewRotationRadians = previewCameraTiltState.rotationRadians;
     const tiltNow = performance.now();
     const previousTiltTimestamp = previewTiltTimestampRef.current || tiltNow;
     const tiltElapsedMs = Math.max(0, tiltNow - previousTiltTimestamp);
     const previewTiltEase = isPreviewPlaybackCanvas
-      ? 1 - Math.exp(-tiltElapsedMs / PREVIEW_CONNECTOR_TILT_EASING_MS)
+      ? (previewCameraTiltState.hasActiveTails ? PREVIEW_CONNECTOR_TILT_ACTIVE_EASE_SPEED : PREVIEW_CONNECTOR_TILT_RETURN_EASE_SPEED) * (tiltElapsedMs / 1000)
       : 1;
     previewCameraRotationRadiansRef.current += (
       targetPreviewRotationRadians - previewCameraRotationRadiansRef.current
@@ -8216,6 +8283,224 @@ export default function Editor({
       }),
     };
   };
+  const formatCameraRotationToolNumber = (value: number) => {
+    const roundedValue = Number(value.toFixed(4));
+    return Object.is(roundedValue, -0) ? '0' : roundedValue.toString();
+  };
+
+  const getCameraRotationToolTiltFromLane = (lane: number) => (
+    (lane + CAMERA_ROTATION_TOOL_NOTE_WIDTH / 2 - X_POSITION_COUNT / 2)
+    / PREVIEW_CONNECTOR_TILT_DIVISOR
+  );
+
+  const getFarCameraRotationToolTiltPair = (averageTiltDegrees: number): [number, number] => {
+    const averageLane = getCameraRotationToolLaneFromTilt(averageTiltDegrees);
+    const minimumDistance = CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE + Math.abs(averageLane);
+    const firstLane = Math.max(
+      CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE,
+      averageLane + minimumDistance,
+    );
+    const secondLane = 2 * averageLane - firstLane;
+
+    return [
+      getCameraRotationToolTiltFromLane(firstLane),
+      getCameraRotationToolTiltFromLane(secondLane),
+    ];
+  };
+
+  const isCameraRotationToolTiltFarOutOfBounds = (tiltDegrees: number) => {
+    const lane = getCameraRotationToolLaneFromTilt(tiltDegrees);
+    return lane <= -CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE || lane >= CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE;
+  };
+
+  const getCameraRotationToolLaneFromTilt = (tiltDegrees: number) => (
+    X_POSITION_COUNT / 2
+    + tiltDegrees * PREVIEW_CONNECTOR_TILT_DIVISOR
+    - CAMERA_ROTATION_TOOL_NOTE_WIDTH / 2
+  );
+
+  const easeCameraRotationToolProgress = (progress: number, easing: CameraRotationToolEasing) => {
+    const clampedProgress = Math.max(0, Math.min(1, progress));
+    if (easing === 'in') {
+      return clampedProgress * clampedProgress;
+    }
+
+    if (easing === 'out') {
+      return 1 - ((1 - clampedProgress) * (1 - clampedProgress));
+    }
+
+    if (easing === 'inOut') {
+      return clampedProgress < 0.5
+        ? 2 * clampedProgress * clampedProgress
+        : 1 - Math.pow(-2 * clampedProgress + 2, 2) / 2;
+    }
+
+    return clampedProgress;
+  };
+
+  const applyCameraRotationTool = (request: CameraRotationToolRequest): CameraRotationToolResult => {
+    if (!hasPinkHoldCameraToolNotes) {
+      return {
+        generatedNoteCount: 0,
+        intervalCount: 0,
+        message: text.cameraRotationTool.noPinkHold,
+      };
+    }
+
+    const sortedKeyframes = [...request.keyframes]
+      .filter(keyframe => Number.isFinite(keyframe.location) && (keyframe.angle === 'native' || Number.isFinite(keyframe.angle)))
+      .sort((a, b) => a.location - b.location);
+
+    if (sortedKeyframes.length < 2) {
+      return {
+        generatedNoteCount: 0,
+        intervalCount: 0,
+        message: text.cameraRotationTool.needTwoKeyframes,
+      };
+    }
+
+    const generatedNotes: Note[] = [];
+    let nextGeneratedId = Math.max(
+      nextNoteIdRef.current,
+      stateRef.current.notes.reduce((maxId, note) => Math.max(maxId, note.id), 0) + 1,
+    );
+    let generatedIntervalCount = 0;
+
+    const addGeneratedConnector = (startTimepos: number, endTimepos: number, tiltDegrees: number) => {
+      const startTime = getTimeFromTimepos(startTimepos);
+      const endTime = getTimeFromTimepos(endTimepos);
+      if (endTime - startTime <= SNAP_EPSILON) {
+        return;
+      }
+
+      const lane = Number(getCameraRotationToolLaneFromTilt(tiltDegrees).toFixed(4));
+      const parentId = nextGeneratedId++;
+      const childId = nextGeneratedId++;
+      generatedNotes.push(
+        {
+          id: parentId,
+          time: startTime,
+          lane,
+          type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
+          width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
+          parentId,
+        },
+        {
+          id: childId,
+          time: endTime,
+          lane,
+          type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
+          width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
+          parentId,
+        },
+      );
+    };
+
+    for (let keyframeIndex = 0; keyframeIndex < sortedKeyframes.length - 1; keyframeIndex += 1) {
+      const currentKeyframe = sortedKeyframes[keyframeIndex];
+      const nextKeyframe = sortedKeyframes[keyframeIndex + 1];
+      const intervalStart = Math.max(0, currentKeyframe.location);
+      const intervalEnd = Math.max(intervalStart, nextKeyframe.location);
+      if (intervalEnd - intervalStart <= SNAP_EPSILON || currentKeyframe.angle === 'native') {
+        continue;
+      }
+
+      const splitPoints = new Set<number>([intervalStart, intervalEnd]);
+      if (nextKeyframe.angle !== 'native') {
+        for (let subdivisionIndex = 1; subdivisionIndex < CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS; subdivisionIndex += 1) {
+          splitPoints.add(intervalStart + (intervalEnd - intervalStart) * (subdivisionIndex / CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS));
+        }
+      }
+
+      cameraRotationToolBaseTiltSegments.forEach((segment) => {
+        if (segment.startTimepos > intervalStart + SNAP_EPSILON && segment.startTimepos < intervalEnd - SNAP_EPSILON) {
+          splitPoints.add(segment.startTimepos);
+        }
+
+        if (segment.endTimepos > intervalStart + SNAP_EPSILON && segment.endTimepos < intervalEnd - SNAP_EPSILON) {
+          splitPoints.add(segment.endTimepos);
+        }
+      });
+
+      const sortedSplitPoints = Array.from(splitPoints).sort((a, b) => a - b);
+      for (let splitIndex = 0; splitIndex < sortedSplitPoints.length - 1; splitIndex += 1) {
+        const startTimepos = sortedSplitPoints[splitIndex];
+        const endTimepos = sortedSplitPoints[splitIndex + 1];
+        if (endTimepos - startTimepos <= SNAP_EPSILON) {
+          continue;
+        }
+
+        const midpoint = startTimepos + (endTimepos - startTimepos) / 2;
+        const nativeTiltState = getCameraRotationToolNativeTiltState(midpoint);
+        const targetAngle = nextKeyframe.angle === 'native'
+          ? currentKeyframe.angle
+          : currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * easeCameraRotationToolProgress(
+            (midpoint - intervalStart) / (intervalEnd - intervalStart),
+            request.easing,
+          );
+        if (Math.abs(nativeTiltState.tiltDegrees - targetAngle) <= CAMERA_ROTATION_TOOL_TARGET_EPSILON) {
+          continue;
+        }
+
+        const singleGeneratedTilt = (
+          targetAngle * (nativeTiltState.count + 1)
+          - nativeTiltState.tiltTotal
+        );
+
+        if (isCameraRotationToolTiltFarOutOfBounds(singleGeneratedTilt)) {
+          addGeneratedConnector(startTimepos, endTimepos, singleGeneratedTilt);
+        } else {
+          const generatedAverageTilt = (
+            targetAngle * (nativeTiltState.count + 2)
+            - nativeTiltState.tiltTotal
+          ) / 2;
+          const [firstTilt, secondTilt] = getFarCameraRotationToolTiltPair(generatedAverageTilt);
+
+          addGeneratedConnector(startTimepos, endTimepos, firstTilt);
+          addGeneratedConnector(startTimepos, endTimepos, secondTilt);
+        }
+        generatedIntervalCount += 1;
+      }
+    }
+
+    if (generatedNotes.length === 0) {
+      return {
+        generatedNoteCount: 0,
+        intervalCount: 0,
+        message: text.cameraRotationTool.noGeneratedNotes,
+      };
+    }
+
+    const previousGeneratedNoteIdSet = new Set(cameraRotationToolGeneratedNoteIds);
+    const baseNotes = stateRef.current.notes.filter(note => !previousGeneratedNoteIdSet.has(note.id));
+    const generatedNoteIds = generatedNotes.map(note => note.id);
+    const keyframeDetail = sortedKeyframes
+      .map((keyframe: CameraRotationToolKeyframe) => `${formatCameraRotationToolNumber(keyframe.location)}:${keyframe.angle === 'native' ? 'native' : formatCameraRotationToolNumber(keyframe.angle)}`)
+      .join(';');
+
+    nextNoteIdRef.current = nextGeneratedId;
+    recordOperation({
+      category: 'note',
+      title: text.cameraRotationTool.historyTitle,
+      detail: formatTranslation(text.cameraRotationTool.historyDetail, {
+        notes: generatedNotes.length,
+        intervals: generatedIntervalCount,
+        keyframes: `${keyframeDetail}, ${request.easing}`,
+      }),
+    });
+    setNotes([...baseNotes, ...generatedNotes]);
+    setCameraRotationToolGeneratedNoteIds(generatedNoteIds);
+    clearActiveNoteInteraction();
+
+    return {
+      generatedNoteCount: generatedNotes.length,
+      intervalCount: generatedIntervalCount,
+      message: formatTranslation(text.cameraRotationTool.applied, {
+        notes: generatedNotes.length,
+        intervals: generatedIntervalCount,
+      }),
+    };
+  };
   const updateBpmChange = (index: number, updates: Partial<BpmChange>) => {
     const previousChange = bpmChanges[index];
     if (!previousChange) return;
@@ -8618,6 +8903,12 @@ export default function Editor({
     setActiveLeftPanel,
     openNscTool: () => setIsNscToolOpen(true),
     openNoteMultiEdit: () => setIsNoteMultiEditOpen(true),
+    openCameraRotationTool: () => {
+      if (hasPinkHoldCameraToolNotes) {
+        setIsCameraRotationToolOpen(true);
+      }
+    },
+    canOpenCameraRotationTool: hasPinkHoldCameraToolNotes,
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -8800,6 +9091,15 @@ export default function Editor({
     isAnimationDisabled,
     onApply: applyNoteMultiEdit,
   };
+  const cameraRotationToolProps = {
+    isOpen: isCameraRotationToolOpen,
+    onClose: () => setIsCameraRotationToolOpen(false),
+    chartDurationTimepos: Math.max(1, totalTimelineMeasures),
+    isBackdropBlurDisabled,
+    isAnimationDisabled,
+    getNativeAngleAtTimepos: getCameraRotationToolNativeAngleAtTimepos,
+    onApply: applyCameraRotationTool,
+  };
 
   return (
     <>
@@ -8942,6 +9242,7 @@ export default function Editor({
         rightSidebarProps={rightSidebarProps}
         nscToolProps={nscToolProps}
         noteMultiEditProps={noteMultiEditProps}
+        cameraRotationToolProps={cameraRotationToolProps}
         tutorialSession={tutorialSession}
         setTutorialSession={setTutorialSession}
         exitTutorial={onBack}

@@ -21,6 +21,8 @@ export const APPEAR_MODE_H_ENTRY_PROGRESS_EXPONENT = 1.25;
 export const APPEAR_MODE_P_RENDER_DISTANCE = 0.5;
 export const PREVIEW_CONNECTOR_TILT_DIVISOR = 4;
 export const PREVIEW_CONNECTOR_TILT_EASING_MS = 120;
+export const PREVIEW_CONNECTOR_TILT_ACTIVE_EASE_SPEED = 10;
+export const PREVIEW_CONNECTOR_TILT_RETURN_EASE_SPEED = 20;
 export const SELECTION_TYPE_LABELS: Record<SelectionType, string> = {
   window: translations.options.selectionTypes.window,
   crossing: translations.options.selectionTypes.crossing,

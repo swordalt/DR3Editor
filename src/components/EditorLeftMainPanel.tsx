@@ -23,6 +23,8 @@ export default function EditorLeftMainPanel(props: any) {
     setActiveLeftPanel,
     openNscTool,
     openNoteMultiEdit,
+    openCameraRotationTool,
+    canOpenCameraRotationTool,
     handleEditInfo,
     handleClearCopiedNotes,
     copiedNotesCount,
@@ -150,6 +152,14 @@ export default function EditorLeftMainPanel(props: any) {
                 </button>
                 <button onClick={openNoteMultiEdit} className="w-full text-left px-3 py-2 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
                   {text.sidebar.noteMultiEdit}
+                </button>
+                <button
+                  onClick={openCameraRotationTool}
+                  disabled={!canOpenCameraRotationTool}
+                  title={!canOpenCameraRotationTool ? text.sidebar.cameraRotationToolDisabled : undefined}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-600 disabled:hover:bg-transparent"
+                >
+                  {text.sidebar.cameraRotationTool}
                 </button>
               </div>
             </div>

@@ -9,6 +9,7 @@ import EditorCanvasStage from './EditorCanvasStage';
 import EditorRightSidebar from './EditorRightSidebar';
 import EditorNscToolModal from './EditorNscToolModal';
 import EditorNoteMultiEditModal from './EditorNoteMultiEditModal';
+import EditorCameraRotationToolModal from './EditorCameraRotationToolModal';
 import EditorTutorialOverlay from './EditorTutorialOverlay';
 import { translations } from '../lang';
 import { getActiveTutorialStep, isTutorialRegionFocused } from '../editor/tutorial';
@@ -147,6 +148,7 @@ export default function EditorLayout(props: any) {
     rightSidebarProps,
     nscToolProps,
     noteMultiEditProps,
+    cameraRotationToolProps,
     tutorialSession,
     setTutorialSession,
     exitTutorial,
@@ -287,6 +289,7 @@ export default function EditorLayout(props: any) {
 
       <EditorNscToolModal {...nscToolProps} />
       <EditorNoteMultiEditModal {...noteMultiEditProps} />
+      <EditorCameraRotationToolModal {...cameraRotationToolProps} />
 
       <EditorOverlays
         isExitWarningOpen={isExitWarningOpen}

@@ -150,16 +150,21 @@ export interface PreviewCameraMovementInterval {
 }
 
 export interface PreviewCameraTiltSegment {
+  startTime: number;
+  endTime: number;
   startTimepos: number;
   endTimepos: number;
-  connectorCenterXPosition: number;
+  parentTiltDegrees: number;
+  noteTiltDegrees: number;
 }
 
 export interface PreviewCameraTiltInterval {
+  startTime: number;
+  endTime: number;
   startTimepos: number;
   endTimepos: number;
-  tiltDegrees: number;
-  rotationRadians: number;
+  tiltAtStartDegrees: number;
+  slopeDegreesPerSecond: number;
 }
 
 export interface HitSoundEvent {
