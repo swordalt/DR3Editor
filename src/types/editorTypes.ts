@@ -57,6 +57,7 @@ export interface ProjectData extends EditorFormData {
   chartFormat: ChartFormat;
   bpm: number;
   audioUrl: string;
+  audioDuration?: number;
   audioConvertedToOgg?: boolean;
 }
 

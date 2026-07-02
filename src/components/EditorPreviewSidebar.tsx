@@ -99,7 +99,7 @@ export default function EditorPreviewSidebar({
 
   return (
     <aside
-      className={`${isLeftPanelCompact ? 'w-12 cursor-pointer hover:bg-neutral-800/30' : 'w-64'} shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}
+      className={`${isLeftPanelCompact ? 'w-12 cursor-pointer hover:bg-neutral-800/30' : 'w-64'} h-full shrink-0 border-r border-neutral-800 bg-neutral-900/30 flex flex-col transition-all duration-300 overflow-hidden`}
       onClick={isLeftPanelCompact ? toggleLeftPanelCompact : undefined}
     >
       <div className="border-b border-neutral-800">

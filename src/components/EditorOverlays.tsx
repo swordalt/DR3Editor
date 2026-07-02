@@ -499,7 +499,7 @@ export default function EditorOverlays({
               </button>
               {isSelectionTypeMenuOpen && (
                 <div
-                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
+                  className={`relative z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {SELECTION_TYPE_OPTIONS.map((nextSelectionType) => (
@@ -675,7 +675,7 @@ export default function EditorOverlays({
               </button>
               {isStatisticsRefreshRateMenuOpen && (
                 <div
-                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
+                  className={`relative z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (

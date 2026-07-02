@@ -116,9 +116,33 @@ const createSilentWavBlob = (duration: number, sampleCountMode: 'ceil' | 'floor'
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-const createSilentImportAudioUrl = (notes: Note[]) => (
-  URL.createObjectURL(createSilentWavBlob(getSilentImportAudioDuration(notes)))
+const getValidAudioDuration = (duration: number) => (
+  Number.isFinite(duration) && duration > 0 ? duration : 0
 );
+
+const readAudioFileDuration = (file: File) => new Promise<number>((resolve) => {
+  const audio = new Audio();
+  const url = URL.createObjectURL(file);
+  let isSettled = false;
+
+  function settle(duration: number) {
+    if (isSettled) return;
+
+    isSettled = true;
+    window.clearTimeout(timeoutId);
+    audio.removeAttribute('src');
+    audio.load();
+    URL.revokeObjectURL(url);
+    resolve(getValidAudioDuration(duration));
+  }
+
+  const timeoutId = window.setTimeout(() => settle(0), 10000);
+
+  audio.preload = 'metadata';
+  audio.onloadedmetadata = () => settle(audio.duration);
+  audio.onerror = () => settle(0);
+  audio.src = url;
+});
 
 const createTutorialProjectData = (): ProjectData => {
   const tutorialBpm = DEFAULT_BPM_CHANGES[0].bpm;
@@ -138,6 +162,7 @@ const createTutorialProjectData = (): ProjectData => {
     songIllustration: null,
     bpm: tutorialBpm,
     audioUrl: URL.createObjectURL(audioBlob),
+    audioDuration: tutorialDurationSeconds,
   };
 };
 
@@ -201,6 +226,7 @@ const createAudioLessImportProjectData = ({
     : sanitizeSongId(chartMetadata?.songId || sourceBaseName);
   const bpm = getManifestNumber(manifest?.bpm) ?? firstBpm;
   const inferredDifficulty = getManifestDifficulty(manifest ?? null) || difficulty || chartMetadata?.difficulty || '0';
+  const audioDuration = getSilentImportAudioDuration(notes);
 
   return {
     chartFormat: 'Official',
@@ -212,7 +238,8 @@ const createAudioLessImportProjectData = ({
     songFile: null,
     songIllustration: null,
     bpm,
-    audioUrl: createSilentImportAudioUrl(notes),
+    audioUrl: URL.createObjectURL(createSilentWavBlob(audioDuration)),
+    audioDuration,
   };
 };
 
@@ -567,6 +594,7 @@ export default function App() {
           throw new Error(text.editor.audioConversionFailedAlert);
         }
       }
+      const audioDuration = await readAudioFileDuration(audioFile);
       const imageFile = resolvedImageFile ?? (imageFileEntry && imageBlob
         ? new File(
             [imageBlob],
@@ -598,6 +626,7 @@ export default function App() {
         songIllustration: imageFile,
         bpm,
         audioUrl: URL.createObjectURL(audioFile),
+        audioDuration,
         audioConvertedToOgg: wasAudioConvertedToOgg,
       });
     } else {

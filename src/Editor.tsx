@@ -173,6 +173,16 @@ const getOffsetInSeconds = (offset: string | number) => {
   return Number.isFinite(parsedOffset) ? parsedOffset / 1000 : 0;
 };
 
+const getValidAudioDuration = (duration: number) => (
+  Number.isFinite(duration) && duration > 0 ? duration : 0
+);
+
+const clampNoteLaneToBounds = (lane: number, width: number) => {
+  const normalizedWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const maximumLane = Math.max(0, X_POSITION_COUNT - normalizedWidth);
+  return Math.max(0, Math.min(maximumLane, lane));
+};
+
 const getPreviewNoteSpeedSource = (
   note: Note,
   isOfficialChartFormat: boolean,
@@ -801,7 +811,7 @@ export default function Editor({
   const [currentTime, setCurrentTime] = useState(0);
   const [liveStatsTime, setLiveStatsTime] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() => getValidAudioDuration(initialProjectData?.audioDuration ?? 0));
   const [audioTimingCorrection, setAudioTimingCorrection] = useState<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
   const [playbackAudioUrl, setPlaybackAudioUrl] = useState(initialProjectData?.audioUrl ?? '');
   const [fps, setFps] = useState(0);
@@ -811,7 +821,7 @@ export default function Editor({
   const [previewNoteSpriteLoadVersion, setPreviewNoteSpriteLoadVersion] = useState(0);
   const effectiveGridZoom = isPreviewMode ? 0 : gridZoom;
   const offsetInSeconds = getOffsetInSeconds(offset);
-  const audioTimelineDuration = duration > 0 ? Math.max(0, duration + offsetInSeconds) : 0;
+  const audioTimelineDuration = duration > 0 ? Math.max(duration, duration + offsetInSeconds) : 0;
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioTimingCorrectionRef = useRef<AudioTimingCorrection>(DEFAULT_AUDIO_TIMING_CORRECTION);
@@ -1154,15 +1164,15 @@ export default function Editor({
   useEffect(() => {
     audioTimingCorrectionRef.current = DEFAULT_AUDIO_TIMING_CORRECTION;
     setAudioTimingCorrection(DEFAULT_AUDIO_TIMING_CORRECTION);
-    setDuration(0);
-  }, [playbackAudioUrl]);
+    setDuration(getValidAudioDuration(projectData?.audioDuration ?? 0));
+  }, [playbackAudioUrl, projectData?.audioDuration]);
 
   useEffect(() => {
     setPlaybackAudioUrl(projectData?.audioUrl ?? '');
   }, [projectData?.audioUrl]);
 
   const handleAudioLoadedMetadata = useCallback((audio: HTMLAudioElement) => {
-    const mediaDuration = audio.duration;
+    const mediaDuration = getValidAudioDuration(audio.duration);
     const audioFile = projectData?.songFile ?? null;
     const initialCorrection = getInitialAudioTimingCorrection(audioFile);
     audioTimingCorrectionRef.current = initialCorrection;
@@ -1178,7 +1188,7 @@ export default function Editor({
 
         audioTimingCorrectionRef.current = correction;
         setAudioTimingCorrection(correction);
-        setDuration(getCorrectedAudioDuration(mediaDuration, correction));
+        setDuration(getValidAudioDuration(getCorrectedAudioDuration(mediaDuration, correction)));
 
         const now = performance.now();
         const playbackTime = stateRef.current.isPlaying
@@ -2482,6 +2492,9 @@ export default function Editor({
     const parsedBpm = parseFloat(nextFormData.songBpm);
     const fallbackBpm = projectData?.bpm || bpmChanges[0]?.bpm || 120;
     const nextBpm = Number.isFinite(parsedBpm) ? parsedBpm : fallbackBpm;
+    const nextAudioDuration = nextSongFile === projectData?.songFile
+      ? projectData.audioDuration
+      : undefined;
     const sanitizedFormData = {
       ...nextFormData,
       songFile: nextSongFile,
@@ -2501,6 +2514,7 @@ export default function Editor({
       chartFormat: projectData?.chartFormat ?? 'Official',
       bpm: nextBpm,
       audioUrl,
+      audioDuration: nextAudioDuration,
       audioConvertedToOgg: wasAudioConvertedToOgg || projectData?.audioConvertedToOgg,
     });
     setFormData(committedFormData);
@@ -6627,25 +6641,35 @@ export default function Editor({
     gridStartX: number,
     laneWidth: number,
     laneCount: number,
+    placementNoteWidth: number | null = null,
     allowOutOfBounds = false,
     snapToLaneGrid = false,
   ) => {
     const xPositionWidth = laneWidth / 2;
     const rawLane = (canvasX - gridStartX) / xPositionWidth;
     const xPositionCount = laneCount * 2;
+    const clampLane = (lane: number) => (
+      allowOutOfBounds
+        ? lane
+        : placementNoteWidth === null
+          ? Math.max(0, Math.min(xPositionCount, lane))
+          : clampNoteLaneToBounds(lane, placementNoteWidth)
+    );
 
     if (snapToLaneGrid) {
       const snappedLane = Math.round(rawLane / 2) * 2;
-      return allowOutOfBounds ? snappedLane : Math.max(0, Math.min(xPositionCount, snappedLane));
+      return clampLane(snappedLane);
     }
 
     if (isXPositionGridEnabled) {
       const snappedLane = Math.round(rawLane);
-      return allowOutOfBounds ? snappedLane : Math.max(0, Math.min(xPositionCount - 1, snappedLane));
+      return allowOutOfBounds || placementNoteWidth !== null
+        ? clampLane(snappedLane)
+        : Math.max(0, Math.min(xPositionCount - 1, snappedLane));
     }
 
     const lane = allowOutOfBounds ? rawLane : Math.max(0, Math.min(xPositionCount, rawLane));
-    return Number(lane.toFixed(3));
+    return Number(clampLane(lane).toFixed(3));
   };
 
   const getSelectionPointFromClient = useCallback((clientX: number, clientY: number) => {
@@ -6806,7 +6830,7 @@ export default function Editor({
 
     if (canPlaceAtX) {
       pasteTargetRef.current = {
-        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled),
+        lane: getLaneFromCanvasX(clickX, startX, laneWidth, lanes, null, isOutOfBoundsPlacementEnabled),
         time: snappedTime,
       };
     }
@@ -6837,7 +6861,7 @@ export default function Editor({
       }
 
       if (canPlaceAtX) {
-        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
+        const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, noteWidth, isOutOfBoundsPlacementEnabled);
         const newId = nextNoteIdRef.current++;
         const isHoldConnector = HOLD_CONNECTOR_TYPES.includes(selectedNoteType);
         const isHoldStart = HOLD_START_TYPES.includes(selectedNoteType);
@@ -6960,7 +6984,7 @@ export default function Editor({
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
 
     if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, null, isOutOfBoundsPlacementEnabled);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
 
@@ -6972,7 +6996,7 @@ export default function Editor({
     }
 
     if (draggingNoteId) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, true);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, null, true);
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
@@ -6996,7 +7020,7 @@ export default function Editor({
         setHoverPreview(null);
       }
     } else if (canPlaceAtX) {
-      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, isOutOfBoundsPlacementEnabled);
+      const lane = getLaneFromCanvasX(clickX, startX, laneWidth, lanes, noteWidth, isOutOfBoundsPlacementEnabled);
 
       const clickBeat = currentBeat + (hitLineY - clickY) / pixelsPerBeat;
       const snappedBeat = snapBeatToMeasureDivision(clickBeat, gridZoom, sortedChanges);
