@@ -3,7 +3,7 @@ import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTi
 import EditorLayout from './components/EditorLayout';
 import EditorFilePreviewModal from './components/EditorFilePreviewModal';
 import type { NoteMultiEditCondition, NoteMultiEditRequest, NoteMultiEditResult } from './components/EditorNoteMultiEditModal';
-import type { CameraRotationToolEasing, CameraRotationToolKeyframe, CameraRotationToolRequest, CameraRotationToolResult } from './components/EditorCameraRotationToolModal';
+import type { CameraRotationToolKeyframe, CameraRotationToolRequest, CameraRotationToolResult } from './components/EditorCameraRotationToolModal';
 import { NOTE_TYPES, AVAILABLE_NOTE_TYPES, HOLD_CONNECTOR_TYPES, HOLD_CENTER_TYPES, HOLD_END_TYPES, HOLD_START_TYPES, UNKNOWN_NOTE_TYPE, canTypeHaveParent, getConnectorFill, isOfficialNoteSpeedLockedType, shouldOmitParentForType } from './constants/editorConstants';
 import type { BpmChange, EditorFormData, EditorMode, Note, ProjectData, SelectionBox, SpeedChange, TimedBpmChange } from './types/editorTypes';
 import type { ExportFormat } from './types/exportTypes';
@@ -443,7 +443,45 @@ const CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE = 17;
 const CAMERA_ROTATION_TOOL_NOTE_WIDTH = 1;
 const CAMERA_ROTATION_TOOL_TARGET_EPSILON = 0.0005;
 const CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE = 240;
-const CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS = 24;
+const CAMERA_ROTATION_TOOL_MAX_CORRECTION_LANE_MAGNITUDE = 1200;
+const CAMERA_ROTATION_TOOL_MAX_CORRECTION_CONNECTORS = 24;
+const CAMERA_ROTATION_TOOL_CHART_PRECISION = 3;
+const CAMERA_ROTATION_TOOL_CHAIN_LANE_EPSILON = 10 ** -CAMERA_ROTATION_TOOL_CHART_PRECISION * 2;
+const CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES = 180;
+const CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES = 0.01;
+const roundCameraRotationToolChartValue = (value: number) => {
+  const roundedValue = Number(value.toFixed(CAMERA_ROTATION_TOOL_CHART_PRECISION));
+  return Object.is(roundedValue, -0) ? 0 : roundedValue;
+};
+const getCameraRotationToolSignedAngle = (angle: number) => {
+  const signedAngle = ((((angle + CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES) % 360) + 360) % 360)
+    - CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES;
+  return Object.is(signedAngle, -0) ? 0 : signedAngle;
+};
+const isCameraRotationToolHalfTurnAngle = (angle: number) => (
+  Math.abs(Math.abs(getCameraRotationToolSignedAngle(angle)) - CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES)
+  <= CAMERA_ROTATION_TOOL_TARGET_EPSILON
+);
+const doesCameraRotationToolAnglePreferNegativeHalfTurn = (angle: number) => {
+  if (isCameraRotationToolHalfTurnAngle(angle)) {
+    return angle < 0;
+  }
+
+  return getCameraRotationToolSignedAngle(angle) < 0;
+};
+const stabilizeCameraRotationToolTargetAngle = (angle: number, preferNegativeHalfTurn = false) => {
+  const signedAngle = getCameraRotationToolSignedAngle(angle);
+  if (!isCameraRotationToolHalfTurnAngle(angle)) {
+    return signedAngle;
+  }
+
+  // The player smooths against Unity Euler Z, where exactly 180 degrees can flip between
+  // the positive and negative representations. Emit a visually identical helper target just
+  // inside whichever side keeps nearby >180 or <-180 sections in the same signed-angle branch.
+  return preferNegativeHalfTurn
+    ? -CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES + CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES
+    : CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES - CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES;
+};
 const NATIVE_HOLD_CONNECTOR_SPRITE_COLORS: Record<number, { body: string; outline: string }> = {
   3: { body: '#623700', outline: '#fe8f00' },
   4: { body: '#623700', outline: '#fe8f00' },
@@ -1941,21 +1979,29 @@ export default function Editor({
 
     return baseNoteRenderIndex.holdConnectorSegments
       .map((segment) => {
-        const noteCenterXPosition = segment.note.lane + segment.note.width / 2;
-        const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
+        const parentTimepos = roundCameraRotationToolChartValue(getTimeposFromTime(segment.parentNote.time));
+        const noteTimepos = roundCameraRotationToolChartValue(getTimeposFromTime(segment.note.time));
+        const parentLane = roundCameraRotationToolChartValue(segment.parentNote.lane);
+        const noteLane = roundCameraRotationToolChartValue(segment.note.lane);
+        const parentWidth = roundCameraRotationToolChartValue(segment.parentNote.width);
+        const noteWidth = roundCameraRotationToolChartValue(segment.note.width);
+        const parentTime = getTimeFromTimepos(parentTimepos);
+        const noteTime = getTimeFromTimepos(noteTimepos);
+        const noteCenterXPosition = noteLane + noteWidth / 2;
+        const parentCenterXPosition = parentLane + parentWidth / 2;
 
         return {
-          startTime: segment.parentNote.time,
-          endTime: segment.note.time,
-          startTimepos: getTimeposFromTime(segment.parentNote.time),
-          endTimepos: getTimeposFromTime(segment.note.time),
+          startTime: parentTime,
+          endTime: noteTime,
+          startTimepos: parentTimepos,
+          endTimepos: noteTimepos,
           parentTiltDegrees: (parentCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
           noteTiltDegrees: (noteCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
         };
       })
       .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
       .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
-  }, [cameraRotationToolBaseNotes, getTimeposFromTime, timedBpmChanges]);
+  }, [cameraRotationToolBaseNotes, getTimeFromTimepos, getTimeposFromTime, timedBpmChanges]);
   const getCameraRotationToolNativeTiltState = useCallback((timepos: number) => {
     const time = getTimeFromTimepos(timepos);
     const activeSegments = cameraRotationToolBaseTiltSegments.filter(segment => (
@@ -2299,14 +2345,22 @@ export default function Editor({
       }
 
       return previewHoldConnectorSegments.map((segment) => {
-        const noteCenterXPosition = segment.note.lane + segment.note.width / 2;
-        const parentCenterXPosition = segment.parentNote.lane + segment.parentNote.width / 2;
+        const parentTimepos = roundCameraRotationToolChartValue(segment.parentTimepos);
+        const noteTimepos = roundCameraRotationToolChartValue(segment.noteTimepos);
+        const parentLane = roundCameraRotationToolChartValue(segment.parentNote.lane);
+        const noteLane = roundCameraRotationToolChartValue(segment.note.lane);
+        const parentWidth = roundCameraRotationToolChartValue(segment.parentNote.width);
+        const noteWidth = roundCameraRotationToolChartValue(segment.note.width);
+        const parentTime = getTimeFromTimepos(parentTimepos);
+        const noteTime = getTimeFromTimepos(noteTimepos);
+        const noteCenterXPosition = noteLane + noteWidth / 2;
+        const parentCenterXPosition = parentLane + parentWidth / 2;
 
         return {
-          startTime: segment.parentPlaybackTime,
-          endTime: segment.notePlaybackTime,
-          startTimepos: segment.parentTimepos,
-          endTimepos: segment.noteTimepos,
+          startTime: parentTime,
+          endTime: noteTime,
+          startTimepos: parentTimepos,
+          endTimepos: noteTimepos,
           parentTiltDegrees: (parentCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
           noteTiltDegrees: (noteCenterXPosition - X_POSITION_COUNT / 2) / PREVIEW_CONNECTOR_TILT_DIVISOR,
         };
@@ -2314,7 +2368,7 @@ export default function Editor({
         .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
         .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
     },
-    [isPreviewMode, previewHoldConnectorSegments],
+    [getTimeFromTimepos, isPreviewMode, previewHoldConnectorSegments],
   );
   previewCameraTiltSegmentsRef.current = previewCameraTiltSegments;
   const previewCameraTiltIntervals = useMemo(
@@ -8313,29 +8367,151 @@ export default function Editor({
     return lane <= -CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE || lane >= CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE;
   };
 
+  const isCameraRotationToolTiltWithinCorrectionBounds = (tiltDegrees: number) => {
+    const lane = getCameraRotationToolLaneFromTilt(tiltDegrees);
+    return Math.abs(lane) <= CAMERA_ROTATION_TOOL_MAX_CORRECTION_LANE_MAGNITUDE;
+  };
+
   const getCameraRotationToolLaneFromTilt = (tiltDegrees: number) => (
     X_POSITION_COUNT / 2
     + tiltDegrees * PREVIEW_CONNECTOR_TILT_DIVISOR
     - CAMERA_ROTATION_TOOL_NOTE_WIDTH / 2
   );
 
-  const easeCameraRotationToolProgress = (progress: number, easing: CameraRotationToolEasing) => {
-    const clampedProgress = Math.max(0, Math.min(1, progress));
-    if (easing === 'in') {
-      return clampedProgress * clampedProgress;
+  const getCameraRotationToolCorrectionTiltsForCount = (
+    startNativeCount: number,
+    startNativeTiltTotal: number,
+    startTargetAngle: number,
+    endNativeCount: number,
+    endNativeTiltTotal: number,
+    endTargetAngle: number,
+    connectorCount: number,
+  ) => {
+    const startCorrectionTilt = (
+      startTargetAngle * (startNativeCount + connectorCount)
+      - startNativeTiltTotal
+    ) / connectorCount;
+    const endCorrectionTilt = (
+      endTargetAngle * (endNativeCount + connectorCount)
+      - endNativeTiltTotal
+    ) / connectorCount;
+
+    if (
+      !isCameraRotationToolTiltFarOutOfBounds(startCorrectionTilt)
+      || !isCameraRotationToolTiltFarOutOfBounds(endCorrectionTilt)
+      || !isCameraRotationToolTiltWithinCorrectionBounds(startCorrectionTilt)
+      || !isCameraRotationToolTiltWithinCorrectionBounds(endCorrectionTilt)
+    ) {
+      return null;
     }
 
-    if (easing === 'out') {
-      return 1 - ((1 - clampedProgress) * (1 - clampedProgress));
+    return Array.from({ length: connectorCount }, () => ({
+      startTiltDegrees: startCorrectionTilt,
+      endTiltDegrees: endCorrectionTilt,
+    }));
+  };
+
+  const getCameraRotationToolFallbackCorrectionTilts = (
+    startNativeCount: number,
+    startNativeTiltTotal: number,
+    startTargetAngle: number,
+    endNativeCount: number,
+    endNativeTiltTotal: number,
+    endTargetAngle: number,
+  ) => {
+    const startGeneratedAverageTilt = (
+      startTargetAngle * (startNativeCount + 2)
+      - startNativeTiltTotal
+    ) / 2;
+    const endGeneratedAverageTilt = (
+      endTargetAngle * (endNativeCount + 2)
+      - endNativeTiltTotal
+    ) / 2;
+    const [firstStartTilt, secondStartTilt] = getFarCameraRotationToolTiltPair(startGeneratedAverageTilt);
+    const [firstEndTilt, secondEndTilt] = getFarCameraRotationToolTiltPair(endGeneratedAverageTilt);
+    return [
+      { startTiltDegrees: firstStartTilt, endTiltDegrees: firstEndTilt },
+      { startTiltDegrees: secondStartTilt, endTiltDegrees: secondEndTilt },
+    ];
+  };
+
+  const findCameraRotationToolCorrectionConnectorCount = (
+    startNativeCount: number,
+    startNativeTiltTotal: number,
+    startTargetAngle: number,
+    endNativeCount: number,
+    endNativeTiltTotal: number,
+    endTargetAngle: number,
+  ) => {
+    for (let connectorCount = 1; connectorCount <= CAMERA_ROTATION_TOOL_MAX_CORRECTION_CONNECTORS; connectorCount += 1) {
+      if (getCameraRotationToolCorrectionTiltsForCount(
+        startNativeCount,
+        startNativeTiltTotal,
+        startTargetAngle,
+        endNativeCount,
+        endNativeTiltTotal,
+        endTargetAngle,
+        connectorCount,
+      )) {
+        return connectorCount;
+      }
     }
 
-    if (easing === 'inOut') {
-      return clampedProgress < 0.5
-        ? 2 * clampedProgress * clampedProgress
-        : 1 - Math.pow(-2 * clampedProgress + 2, 2) / 2;
+    return null;
+  };
+
+  const getCameraRotationToolCorrectionTilts = (
+    startNativeCount: number,
+    startNativeTiltTotal: number,
+    startTargetAngle: number,
+    endNativeCount: number,
+    endNativeTiltTotal: number,
+    endTargetAngle: number,
+    preferredConnectorCount?: number | null,
+  ) => {
+    if (preferredConnectorCount !== undefined && preferredConnectorCount !== null) {
+      const preferredCorrectionTilts = getCameraRotationToolCorrectionTiltsForCount(
+        startNativeCount,
+        startNativeTiltTotal,
+        startTargetAngle,
+        endNativeCount,
+        endNativeTiltTotal,
+        endTargetAngle,
+        preferredConnectorCount,
+      );
+
+      if (preferredCorrectionTilts) {
+        return preferredCorrectionTilts;
+      }
     }
 
-    return clampedProgress;
+    const connectorCount = findCameraRotationToolCorrectionConnectorCount(
+      startNativeCount,
+      startNativeTiltTotal,
+      startTargetAngle,
+      endNativeCount,
+      endNativeTiltTotal,
+      endTargetAngle,
+    );
+
+    return connectorCount !== null
+      ? getCameraRotationToolCorrectionTiltsForCount(
+        startNativeCount,
+        startNativeTiltTotal,
+        startTargetAngle,
+        endNativeCount,
+        endNativeTiltTotal,
+        endTargetAngle,
+        connectorCount,
+      )!
+      : getCameraRotationToolFallbackCorrectionTilts(
+        startNativeCount,
+        startNativeTiltTotal,
+        startTargetAngle,
+        endNativeCount,
+        endNativeTiltTotal,
+        endTargetAngle,
+      );
   };
 
   const applyCameraRotationTool = (request: CameraRotationToolRequest): CameraRotationToolResult => {
@@ -8347,9 +8523,30 @@ export default function Editor({
       };
     }
 
-    const sortedKeyframes = [...request.keyframes]
+    const sortedRequestKeyframes = [...request.keyframes]
       .filter(keyframe => Number.isFinite(keyframe.location) && (keyframe.angle === 'native' || Number.isFinite(keyframe.angle)))
       .sort((a, b) => a.location - b.location);
+    const sortedKeyframes = sortedRequestKeyframes.map((keyframe, keyframeIndex) => {
+      if (keyframe.angle === 'native') {
+        return keyframe;
+      }
+
+      const neighboringKeyframes = [
+        sortedRequestKeyframes[keyframeIndex - 1],
+        sortedRequestKeyframes[keyframeIndex + 1],
+      ];
+      const preferNegativeHalfTurn = isCameraRotationToolHalfTurnAngle(keyframe.angle)
+        && neighboringKeyframes.some(neighboringKeyframe => (
+          neighboringKeyframe
+          && neighboringKeyframe.angle !== 'native'
+          && doesCameraRotationToolAnglePreferNegativeHalfTurn(neighboringKeyframe.angle)
+        ));
+
+      return {
+        ...keyframe,
+        angle: stabilizeCameraRotationToolTargetAngle(keyframe.angle, preferNegativeHalfTurn),
+      };
+    });
 
     if (sortedKeyframes.length < 2) {
       return {
@@ -8365,64 +8562,131 @@ export default function Editor({
       stateRef.current.notes.reduce((maxId, note) => Math.max(maxId, note.id), 0) + 1,
     );
     let generatedIntervalCount = 0;
+    const activeGeneratedChains: Array<{
+      correctionCount: number;
+      lastLane: number;
+      lastNoteId: number;
+      lastTimepos: number;
+    } | null> = [];
 
-    const addGeneratedConnector = (startTimepos: number, endTimepos: number, tiltDegrees: number) => {
-      const startTime = getTimeFromTimepos(startTimepos);
-      const endTime = getTimeFromTimepos(endTimepos);
+    const resetGeneratedChains = () => {
+      activeGeneratedChains.length = 0;
+    };
+
+    const addGeneratedChainSegment = (
+      startTimepos: number,
+      endTimepos: number,
+      startTiltDegrees: number,
+      endTiltDegrees: number,
+      chainIndex: number,
+      correctionCount: number,
+    ) => {
+      const roundedStartTimepos = roundCameraRotationToolChartValue(startTimepos);
+      const roundedEndTimepos = roundCameraRotationToolChartValue(endTimepos);
+      const startTime = getTimeFromTimepos(roundedStartTimepos);
+      const endTime = getTimeFromTimepos(roundedEndTimepos);
       if (endTime - startTime <= SNAP_EPSILON) {
-        return;
+        return false;
       }
 
-      const lane = Number(getCameraRotationToolLaneFromTilt(tiltDegrees).toFixed(4));
-      const parentId = nextGeneratedId++;
-      const childId = nextGeneratedId++;
-      generatedNotes.push(
-        {
-          id: parentId,
-          time: startTime,
-          lane,
-          type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
-          width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
-          parentId,
-        },
-        {
+      const startLane = roundCameraRotationToolChartValue(getCameraRotationToolLaneFromTilt(startTiltDegrees));
+      const endLane = roundCameraRotationToolChartValue(getCameraRotationToolLaneFromTilt(endTiltDegrees));
+      const activeChain = activeGeneratedChains[chainIndex] ?? null;
+      const canContinueChain = Boolean(
+        activeChain
+        && activeChain.correctionCount === correctionCount
+        && Math.abs(activeChain.lastTimepos - roundedStartTimepos) <= SNAP_EPSILON
+        && Math.abs(activeChain.lastLane - startLane) <= CAMERA_ROTATION_TOOL_CHAIN_LANE_EPSILON
+      );
+
+      if (canContinueChain && activeChain) {
+        const childId = nextGeneratedId++;
+        generatedNotes.push({
           id: childId,
           time: endTime,
-          lane,
+          lane: endLane,
           type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
           width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
-          parentId,
-        },
-      );
+          parentId: activeChain.lastNoteId,
+        });
+        activeGeneratedChains[chainIndex] = {
+          correctionCount,
+          lastLane: endLane,
+          lastNoteId: childId,
+          lastTimepos: roundedEndTimepos,
+        };
+        return true;
+      }
+
+      const parentId = nextGeneratedId++;
+      const childId = nextGeneratedId++;
+      generatedNotes.push({
+        id: parentId,
+        time: startTime,
+        lane: startLane,
+        type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
+        width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
+        parentId,
+      }, {
+        id: childId,
+        time: endTime,
+        lane: endLane,
+        type: CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE,
+        width: CAMERA_ROTATION_TOOL_NOTE_WIDTH,
+        parentId,
+      });
+      activeGeneratedChains[chainIndex] = {
+        correctionCount,
+        lastLane: endLane,
+        lastNoteId: childId,
+        lastTimepos: roundedEndTimepos,
+      };
+      return true;
     };
 
     for (let keyframeIndex = 0; keyframeIndex < sortedKeyframes.length - 1; keyframeIndex += 1) {
       const currentKeyframe = sortedKeyframes[keyframeIndex];
       const nextKeyframe = sortedKeyframes[keyframeIndex + 1];
-      const intervalStart = Math.max(0, currentKeyframe.location);
-      const intervalEnd = Math.max(intervalStart, nextKeyframe.location);
+      const intervalStart = roundCameraRotationToolChartValue(Math.max(0, currentKeyframe.location));
+      const intervalEnd = roundCameraRotationToolChartValue(Math.max(intervalStart, nextKeyframe.location));
       if (intervalEnd - intervalStart <= SNAP_EPSILON || currentKeyframe.angle === 'native') {
+        resetGeneratedChains();
         continue;
       }
 
       const splitPoints = new Set<number>([intervalStart, intervalEnd]);
-      if (nextKeyframe.angle !== 'native') {
-        for (let subdivisionIndex = 1; subdivisionIndex < CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS; subdivisionIndex += 1) {
-          splitPoints.add(intervalStart + (intervalEnd - intervalStart) * (subdivisionIndex / CAMERA_ROTATION_TOOL_EASING_SUBDIVISIONS));
-        }
-      }
-
       cameraRotationToolBaseTiltSegments.forEach((segment) => {
         if (segment.startTimepos > intervalStart + SNAP_EPSILON && segment.startTimepos < intervalEnd - SNAP_EPSILON) {
-          splitPoints.add(segment.startTimepos);
+          splitPoints.add(roundCameraRotationToolChartValue(segment.startTimepos));
         }
 
         if (segment.endTimepos > intervalStart + SNAP_EPSILON && segment.endTimepos < intervalEnd - SNAP_EPSILON) {
-          splitPoints.add(segment.endTimepos);
+          splitPoints.add(roundCameraRotationToolChartValue(segment.endTimepos));
         }
       });
 
       const sortedSplitPoints = Array.from(splitPoints).sort((a, b) => a - b);
+      const getIntervalTargetAngle = (timepos: number) => {
+        if (nextKeyframe.angle === 'native') {
+          return currentKeyframe.angle;
+        }
+
+        const progress = (timepos - intervalStart) / (intervalEnd - intervalStart);
+        const clampedProgress = Math.max(0, Math.min(1, progress));
+        return currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * clampedProgress;
+      };
+
+      const correctionSpans: Array<{
+        startTimepos: number;
+        endTimepos: number;
+        startNativeCount: number;
+        startNativeTiltTotal: number;
+        startTargetAngle: number;
+        endNativeCount: number;
+        endNativeTiltTotal: number;
+        endTargetAngle: number;
+      }> = [];
+
       for (let splitIndex = 0; splitIndex < sortedSplitPoints.length - 1; splitIndex += 1) {
         const startTimepos = sortedSplitPoints[splitIndex];
         const endTimepos = sortedSplitPoints[splitIndex + 1];
@@ -8430,37 +8694,81 @@ export default function Editor({
           continue;
         }
 
-        const midpoint = startTimepos + (endTimepos - startTimepos) / 2;
-        const nativeTiltState = getCameraRotationToolNativeTiltState(midpoint);
-        const targetAngle = nextKeyframe.angle === 'native'
-          ? currentKeyframe.angle
-          : currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * easeCameraRotationToolProgress(
-            (midpoint - intervalStart) / (intervalEnd - intervalStart),
-            request.easing,
-          );
-        if (Math.abs(nativeTiltState.tiltDegrees - targetAngle) <= CAMERA_ROTATION_TOOL_TARGET_EPSILON) {
+        const endSampleTimepos = Math.max(
+          startTimepos,
+          endTimepos - (10 ** -CAMERA_ROTATION_TOOL_CHART_PRECISION) / 2,
+        );
+        const startNativeTiltState = getCameraRotationToolNativeTiltState(startTimepos);
+        const endNativeTiltState = getCameraRotationToolNativeTiltState(endSampleTimepos);
+        const startTargetAngle = getIntervalTargetAngle(startTimepos);
+        const endTargetAngle = getIntervalTargetAngle(endTimepos);
+        if (
+          Math.abs(startNativeTiltState.tiltDegrees - startTargetAngle) <= CAMERA_ROTATION_TOOL_TARGET_EPSILON
+          && Math.abs(endNativeTiltState.tiltDegrees - endTargetAngle) <= CAMERA_ROTATION_TOOL_TARGET_EPSILON
+        ) {
           continue;
         }
 
-        const singleGeneratedTilt = (
-          targetAngle * (nativeTiltState.count + 1)
-          - nativeTiltState.tiltTotal
-        );
-
-        if (isCameraRotationToolTiltFarOutOfBounds(singleGeneratedTilt)) {
-          addGeneratedConnector(startTimepos, endTimepos, singleGeneratedTilt);
-        } else {
-          const generatedAverageTilt = (
-            targetAngle * (nativeTiltState.count + 2)
-            - nativeTiltState.tiltTotal
-          ) / 2;
-          const [firstTilt, secondTilt] = getFarCameraRotationToolTiltPair(generatedAverageTilt);
-
-          addGeneratedConnector(startTimepos, endTimepos, firstTilt);
-          addGeneratedConnector(startTimepos, endTimepos, secondTilt);
-        }
-        generatedIntervalCount += 1;
+        correctionSpans.push({
+          startTimepos,
+          endTimepos,
+          startNativeCount: startNativeTiltState.count,
+          startNativeTiltTotal: startNativeTiltState.tiltTotal,
+          startTargetAngle,
+          endNativeCount: endNativeTiltState.count,
+          endNativeTiltTotal: endNativeTiltState.tiltTotal,
+          endTargetAngle,
+        });
       }
+
+      let stableCorrectionConnectorCount: number | null = null;
+      for (let connectorCount = 1; connectorCount <= CAMERA_ROTATION_TOOL_MAX_CORRECTION_CONNECTORS; connectorCount += 1) {
+        if (correctionSpans.every(span => getCameraRotationToolCorrectionTiltsForCount(
+          span.startNativeCount,
+          span.startNativeTiltTotal,
+          span.startTargetAngle,
+          span.endNativeCount,
+          span.endNativeTiltTotal,
+          span.endTargetAngle,
+          connectorCount,
+        ))) {
+          stableCorrectionConnectorCount = connectorCount;
+          break;
+        }
+      }
+
+      let previousCorrectionSpanEndTimepos: number | null = null;
+      correctionSpans.forEach((span) => {
+        if (
+          previousCorrectionSpanEndTimepos !== null
+          && span.startTimepos - previousCorrectionSpanEndTimepos > SNAP_EPSILON
+        ) {
+          resetGeneratedChains();
+        }
+
+        const correctionTilts = getCameraRotationToolCorrectionTilts(
+          span.startNativeCount,
+          span.startNativeTiltTotal,
+          span.startTargetAngle,
+          span.endNativeCount,
+          span.endNativeTiltTotal,
+          span.endTargetAngle,
+          stableCorrectionConnectorCount,
+        );
+        correctionTilts.forEach(({ startTiltDegrees, endTiltDegrees }, correctionIndex) => {
+          addGeneratedChainSegment(
+            span.startTimepos,
+            span.endTimepos,
+            startTiltDegrees,
+            endTiltDegrees,
+            correctionIndex,
+            correctionTilts.length,
+          );
+        });
+        activeGeneratedChains.length = correctionTilts.length;
+        generatedIntervalCount += 1;
+        previousCorrectionSpanEndTimepos = span.endTimepos;
+      });
     }
 
     if (generatedNotes.length === 0) {
@@ -8485,7 +8793,7 @@ export default function Editor({
       detail: formatTranslation(text.cameraRotationTool.historyDetail, {
         notes: generatedNotes.length,
         intervals: generatedIntervalCount,
-        keyframes: `${keyframeDetail}, ${request.easing}`,
+        keyframes: keyframeDetail,
       }),
     });
     setNotes([...baseNotes, ...generatedNotes]);

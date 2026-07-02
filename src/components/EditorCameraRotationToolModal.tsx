@@ -16,11 +16,8 @@ export interface CameraRotationToolKeyframe {
   angle: number | 'native';
 }
 
-export type CameraRotationToolEasing = 'linear' | 'in' | 'out' | 'inOut';
-
 export interface CameraRotationToolRequest {
   keyframes: CameraRotationToolKeyframe[];
-  easing: CameraRotationToolEasing;
 }
 
 export interface CameraRotationToolResult {
@@ -110,27 +107,6 @@ const parseKeyframes = (
   return { keyframes: sortedKeyframes as CameraRotationToolKeyframe[], error: '' };
 };
 
-const cameraRotationEasingOptions: CameraRotationToolEasing[] = ['linear', 'in', 'out', 'inOut'];
-
-const easeCameraRotationProgress = (progress: number, easing: CameraRotationToolEasing) => {
-  const clampedProgress = Math.max(0, Math.min(1, progress));
-  if (easing === 'in') {
-    return clampedProgress * clampedProgress;
-  }
-
-  if (easing === 'out') {
-    return 1 - ((1 - clampedProgress) * (1 - clampedProgress));
-  }
-
-  if (easing === 'inOut') {
-    return clampedProgress < 0.5
-      ? 2 * clampedProgress * clampedProgress
-      : 1 - Math.pow(-2 * clampedProgress + 2, 2) / 2;
-  }
-
-  return clampedProgress;
-};
-
 export default function EditorCameraRotationToolModal({
   isOpen,
   onClose,
@@ -148,7 +124,6 @@ export default function EditorCameraRotationToolModal({
   ]);
   const [xZoom, setXZoom] = useState(1);
   const [yZoom, setYZoom] = useState(1);
-  const [easing, setEasing] = useState<CameraRotationToolEasing>('linear');
   const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
@@ -196,8 +171,8 @@ export default function EditorCameraRotationToolModal({
 
     if (nextKeyframe.angle !== 'native') {
       const span = Math.max(0.000001, nextKeyframe.location - currentKeyframe.location);
-      const progress = (timepos - currentKeyframe.location) / span;
-      return currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * easeCameraRotationProgress(progress, easing);
+      const progress = Math.max(0, Math.min(1, (timepos - currentKeyframe.location) / span));
+      return currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * progress;
     }
 
     return currentKeyframe.angle;
@@ -227,7 +202,7 @@ export default function EditorCameraRotationToolModal({
     }
 
     return points;
-  }, [easing, getNativeAngleAtTimepos, parsedPreview.keyframes]);
+  }, [getNativeAngleAtTimepos, parsedPreview.keyframes]);
   const graphAngles = previewPoints.length > 0
     ? previewPoints.map(point => point.angle)
     : [0];
@@ -315,7 +290,7 @@ export default function EditorCameraRotationToolModal({
       return;
     }
 
-    const result = onApply({ keyframes: parsed.keyframes, easing });
+    const result = onApply({ keyframes: parsed.keyframes });
     setStatusMessage(result.message);
   };
 
@@ -407,27 +382,6 @@ export default function EditorCameraRotationToolModal({
                   <Maximize2 className="h-4 w-4" />
                 </button>
               </div>
-            </div>
-
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <div className="mr-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">{text.easing}</div>
-              {cameraRotationEasingOptions.map(option => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => {
-                    setEasing(option);
-                    setStatusMessage('');
-                  }}
-                  className={`rounded border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    easing === option
-                      ? 'border-indigo-400 bg-indigo-500/20 text-indigo-100'
-                      : 'border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
-                  }`}
-                >
-                  {text.easingOptions[option]}
-                </button>
-              ))}
             </div>
 
             <div className="max-h-72 overflow-auto rounded border border-neutral-800 bg-neutral-900/50">
