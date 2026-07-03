@@ -122,7 +122,7 @@ import { getMirroredNoteLane } from './editor/editorNoteTransforms';
 import { buildChartProjectFiles, type ChartProjectFileDetails, type ChartProjectFileEntry } from './editor/chartProjectFiles';
 import { calculateChartProjectFileDetailsInWorker } from './utils/chartProjectFilesWorkerClient';
 import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
-import { PREVIEW_HOLD_TEXTURE_URLS, PREVIEW_NOTE_ARROW_URLS, PREVIEW_NOTE_TEXTURE_URLS } from './editor/previewNoteSprites';
+import { PREVIEW_NOTE_ARROW_URLS, PREVIEW_NOTE_TEXTURE_URLS } from './editor/previewNoteSprites';
 import {
   METADATA_REQUIRED_FIELDS,
   getInvalidMetadataFields,
@@ -179,6 +179,15 @@ const getOffsetInSeconds = (offset: string | number) => {
 const getValidAudioDuration = (duration: number) => (
   Number.isFinite(duration) && duration > 0 ? duration : 0
 );
+
+const getFrameRateStableEase = (speedPerSecond: number, elapsedMs: number) => {
+  const elapsedSeconds = Math.max(0, elapsedMs) / 1000;
+  if (elapsedSeconds <= 0 || speedPerSecond <= 0) {
+    return 0;
+  }
+
+  return Math.min(1, 1 - Math.exp(-speedPerSecond * elapsedSeconds));
+};
 
 const clampNoteLaneToBounds = (lane: number, width: number) => {
   const normalizedWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
@@ -245,131 +254,6 @@ const getRequiredMetadataTouchedFields = () => Object.fromEntries(
   METADATA_REQUIRED_FIELDS.map(field => [field, true]),
 ) as MetadataTouchedFields;
 
-const PREVIEW_CONNECTOR_GROUP_EPSILON = 0.000001;
-
-const arePreviewConnectorValuesEqual = (a: number, b: number) => (
-  Math.abs(a - b) <= PREVIEW_CONNECTOR_GROUP_EPSILON
-);
-
-const getPreviewConnectorGroupKey = (segment: PreviewHoldConnectorSegment) => [
-  getConnectorFill(segment.note.type),
-  segment.parentTimepos.toFixed(6),
-  segment.noteTimepos.toFixed(6),
-  segment.parentPlaybackTime.toFixed(6),
-  segment.notePlaybackTime.toFixed(6),
-  segment.parentDistance.toFixed(6),
-  segment.noteDistance.toFixed(6),
-].join('|');
-
-const buildGroupedPreviewHoldConnectorSegments = (
-  segments: PreviewHoldConnectorSegment[],
-): PreviewHoldConnectorSegment[] => {
-  const segmentsByGroupKey = new Map<string, PreviewHoldConnectorSegment[]>();
-
-  segments.forEach((segment) => {
-    const groupKey = getPreviewConnectorGroupKey(segment);
-    const matchingSegments = segmentsByGroupKey.get(groupKey);
-    if (matchingSegments) {
-      matchingSegments.push(segment);
-    } else {
-      segmentsByGroupKey.set(groupKey, [segment]);
-    }
-  });
-
-  const groupedSegments: PreviewHoldConnectorSegment[] = [];
-
-  segmentsByGroupKey.forEach((matchingSegments) => {
-    const sortedSegments = [...matchingSegments].sort((a, b) => (
-      (a.parentNote.lane - b.parentNote.lane)
-      || (a.note.lane - b.note.lane)
-      || (a.note.id - b.note.id)
-    ));
-    let activeGroup: PreviewHoldConnectorSegment[] = [];
-    let activeParentRight = 0;
-    let activeNoteRight = 0;
-    let activeParentLane = 0;
-    let activeNoteLane = 0;
-    let activeMinDistance = 0;
-    let activeMaxDistance = 0;
-
-    const startActiveGroup = (segment: PreviewHoldConnectorSegment) => {
-      activeGroup = [segment];
-      activeParentLane = segment.parentNote.lane;
-      activeNoteLane = segment.note.lane;
-      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
-      activeNoteRight = segment.note.lane + segment.note.width;
-      activeMinDistance = segment.minDistance;
-      activeMaxDistance = segment.maxDistance;
-    };
-
-    const appendActiveGroup = (segment: PreviewHoldConnectorSegment) => {
-      activeGroup.push(segment);
-      activeParentRight = segment.parentNote.lane + segment.parentNote.width;
-      activeNoteRight = segment.note.lane + segment.note.width;
-      activeMinDistance = Math.min(activeMinDistance, segment.minDistance);
-      activeMaxDistance = Math.max(activeMaxDistance, segment.maxDistance);
-    };
-
-    const flushActiveGroup = () => {
-      if (activeGroup.length < 2) {
-        groupedSegments.push(...activeGroup);
-      } else {
-        const firstSegment = activeGroup[0];
-
-        groupedSegments.push({
-          ...firstSegment,
-          parentNote: {
-            ...firstSegment.parentNote,
-            lane: activeParentLane,
-            width: activeParentRight - activeParentLane,
-          },
-          note: {
-            ...firstSegment.note,
-            lane: activeNoteLane,
-            width: activeNoteRight - activeNoteLane,
-          },
-          minDistance: activeMinDistance,
-          maxDistance: activeMaxDistance,
-          groupedSegments: activeGroup,
-        });
-      }
-
-      activeGroup = [];
-      activeParentRight = 0;
-      activeNoteRight = 0;
-      activeParentLane = 0;
-      activeNoteLane = 0;
-      activeMinDistance = 0;
-      activeMaxDistance = 0;
-    };
-
-    sortedSegments.forEach((segment) => {
-      if (activeGroup.length === 0) {
-        startActiveGroup(segment);
-        return;
-      }
-
-      const isParentContiguous = arePreviewConnectorValuesEqual(segment.parentNote.lane, activeParentRight);
-      const isNoteContiguous = arePreviewConnectorValuesEqual(segment.note.lane, activeNoteRight);
-
-      if (!isParentContiguous || !isNoteContiguous) {
-        flushActiveGroup();
-        startActiveGroup(segment);
-      } else {
-        appendActiveGroup(segment);
-      }
-    });
-
-    flushActiveGroup();
-  });
-
-  return groupedSegments.sort((a, b) => (
-    (a.minDistance - b.minDistance)
-    || (a.maxDistance - b.maxDistance)
-    || (a.note.id - b.note.id)
-  ));
-};
-
 interface PreviewModePrecomputeCache {
   notes: Note[];
   speedChanges: SpeedChange[];
@@ -391,14 +275,6 @@ interface PreviewCachedNoteSprite {
   height: number;
 }
 
-interface PreviewCachedHoldTexture {
-  canvas: HTMLCanvasElement;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 interface PreviewCachedHitFxFrame {
   canvas: HTMLCanvasElement;
   width: number;
@@ -415,16 +291,6 @@ const PREVIEW_NOTE_TEXTURE_SECTION_OVERLAP = 1;
 const PREVIEW_NOTE_TEXTURE_WIDTH_BUCKET_SIZE = 1;
 const PREVIEW_NOTE_TEXTURE_CACHE_MAX_ENTRIES = 512;
 const PREVIEW_NOTE_ARROW_Y_OFFSET = -16;
-const PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH = 24;
-const PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE = 0.55;
-const PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP = 1;
-const PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE = 2;
-const PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES = 384;
-const PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE = 2;
-const PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP = 1;
-const PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT = 24;
-const PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT = 64;
-const PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD = 500;
 const HOLD_CONNECTOR_VERTICAL_OUTLINE_WIDTH = 5;
 const HOLD_CONNECTOR_VERTICAL_OUTLINE_ALPHA = 0.8;
 const NATIVE_HOLD_CONNECTOR_ALPHA = 0.36;
@@ -495,13 +361,6 @@ const NATIVE_HOLD_CONNECTOR_SPRITE_COLORS: Record<number, { body: string; outlin
   23: { body: '#ff8080', outline: '#ffc0c0' },
   24: { body: '#ff8080', outline: '#ffc0c0' },
 };
-const getPreviewHoldTextureAlpha = (connectorType: number) => (
-  PREVIEW_PINK_HOLD_CONNECTOR_TYPES.has(connectorType)
-    ? 1
-    : PREVIEW_DAMAGE_NOTE_TYPES.has(connectorType)
-      ? 0.62
-      : 0.42
-);
 const getNativeHoldConnectorSpriteColors = (connectorType: number) => (
   NATIVE_HOLD_CONNECTOR_SPRITE_COLORS[connectorType]
   || { body: '#636363', outline: '#ffffff' }
@@ -651,7 +510,6 @@ export default function Editor({
   const [pixelsPerBeat, setPixelsPerBeat] = useState(initialEditorSettings.pixelsPerBeat);
   const [isPreviewSpritesEnabled, setIsPreviewSpritesEnabled] = useState(initialEditorSettings.isPreviewSpritesEnabled);
   const [isPreviewHitFxEnabled, setIsPreviewHitFxEnabled] = useState(initialEditorSettings.isPreviewHitFxEnabled);
-  const [isPreviewHoldSpritesEnabled, setIsPreviewHoldSpritesEnabled] = useState(initialEditorSettings.isPreviewHoldSpritesEnabled);
   const [isPreviewChartSpeedChangesEnabled, setIsPreviewChartSpeedChangesEnabled] = useState(initialEditorSettings.isPreviewChartSpeedChangesEnabled);
   const [isPreviewCameraTiltEnabled, setIsPreviewCameraTiltEnabled] = useState(initialEditorSettings.isPreviewCameraTiltEnabled);
   const [isPreviewCameraMovementEnabled, setIsPreviewCameraMovementEnabled] = useState(initialEditorSettings.isPreviewCameraMovementEnabled);
@@ -798,7 +656,6 @@ export default function Editor({
       pixelsPerBeat,
       isPreviewSpritesEnabled,
       isPreviewHitFxEnabled,
-      isPreviewHoldSpritesEnabled,
       isPreviewChartSpeedChangesEnabled,
       isPreviewCameraTiltEnabled,
       isPreviewCameraMovementEnabled,
@@ -828,7 +685,6 @@ export default function Editor({
     pixelsPerBeat,
     isPreviewSpritesEnabled,
     isPreviewHitFxEnabled,
-    isPreviewHoldSpritesEnabled,
     isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -960,11 +816,9 @@ export default function Editor({
   const preview3DCameraTimestampRef = useRef(0);
   const previewNoteTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewNoteArrowsRef = useRef<Map<number, HTMLImageElement>>(new Map());
-  const previewHoldTexturesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const previewSpriteBitmapsRef = useRef<WeakMap<HTMLImageElement, ImageBitmap>>(new WeakMap());
   const decodedPreviewSpritesRef = useRef<WeakSet<HTMLImageElement>>(new WeakSet());
   const previewNoteSpriteCanvasCacheRef = useRef<Map<string, PreviewCachedNoteSprite>>(new Map());
-  const previewHoldTextureCanvasCacheRef = useRef<Map<string, PreviewCachedHoldTexture>>(new Map());
   const previewHitFxCanvasCacheRef = useRef<Map<string, PreviewCachedHitFxFrame>>(new Map());
   const shouldShowChartStatistics = isRightPanelContentVisible && selectedNoteIds.length === 0;
 
@@ -994,7 +848,6 @@ export default function Editor({
 
         isSettled = true;
         previewNoteSpriteCanvasCacheRef.current.clear();
-        previewHoldTextureCanvasCacheRef.current.clear();
         setPreviewNoteSpriteLoadVersion(version => version + 1);
       };
       const handleDecoded = async () => {
@@ -1041,11 +894,9 @@ export default function Editor({
 
     previewNoteTexturesRef.current.clear();
     previewNoteArrowsRef.current.clear();
-    previewHoldTexturesRef.current.clear();
     previewSpriteBitmapsRef.current = new WeakMap();
     decodedPreviewSpritesRef.current = new WeakSet();
     previewNoteSpriteCanvasCacheRef.current.clear();
-    previewHoldTextureCanvasCacheRef.current.clear();
 
     Object.entries(PREVIEW_NOTE_TEXTURE_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteTexturesRef.current, Number(type), url);
@@ -1053,21 +904,16 @@ export default function Editor({
     Object.entries(PREVIEW_NOTE_ARROW_URLS).forEach(([type, url]) => {
       loadSprite(previewNoteArrowsRef.current, Number(type), url);
     });
-    Object.entries(PREVIEW_HOLD_TEXTURE_URLS).forEach(([type, url]) => {
-      loadSprite(previewHoldTexturesRef.current, Number(type), url);
-    });
 
     return () => {
       isDisposed = true;
       disposers.forEach(dispose => dispose());
       previewNoteTexturesRef.current.clear();
       previewNoteArrowsRef.current.clear();
-      previewHoldTexturesRef.current.clear();
       loadedBitmaps.forEach(bitmap => bitmap.close());
       previewSpriteBitmapsRef.current = new WeakMap();
       decodedPreviewSpritesRef.current = new WeakSet();
       previewNoteSpriteCanvasCacheRef.current.clear();
-      previewHoldTextureCanvasCacheRef.current.clear();
       previewHitFxCanvasCacheRef.current.clear();
     };
   }, []);
@@ -2230,7 +2076,7 @@ export default function Editor({
     ],
   );
   const previewHoldConnectorDrawSegments = useMemo(
-    () => buildGroupedPreviewHoldConnectorSegments(previewHoldConnectorSegments),
+    () => previewHoldConnectorSegments,
     [previewHoldConnectorSegments],
   );
   const previewJudgementNoteEntries = useMemo(
@@ -4403,483 +4249,6 @@ export default function Editor({
         ctx.fill();
       }
     };
-    const drawPreviewHoldTextureConnector = (
-      connectorType: number,
-      fromNote: Note,
-      fromY: number,
-      toNote: Note,
-      toY: number,
-    ) => {
-      const holdTexture = previewHoldTexturesRef.current.get(connectorType);
-      if (!isLoadedPreviewSprite(holdTexture)) {
-        return false;
-      }
-
-      const minY = Math.min(fromY, toY);
-      const maxY = Math.max(fromY, toY);
-      const connectorHeight = maxY - minY;
-      if (connectorHeight <= SNAP_EPSILON) {
-        return false;
-      }
-
-      const topNote = fromY <= toY ? fromNote : toNote;
-      const bottomNote = fromY <= toY ? toNote : fromNote;
-      const topEdges = getProjectedNoteEdges(topNote, minY);
-      const bottomEdges = getProjectedNoteEdges(bottomNote, maxY);
-      const topWidth = topEdges.right - topEdges.left;
-      const bottomWidth = bottomEdges.right - bottomEdges.left;
-      const widthDelta = Math.abs(bottomWidth - topWidth);
-      const textureAlpha = getPreviewHoldTextureAlpha(connectorType);
-      const sourceCapWidth = Math.min(
-        PREVIEW_HOLD_TEXTURE_EDGE_CAP_WIDTH,
-        holdTexture.naturalWidth / 2,
-      );
-      const holdTextureSource = getPreviewSpriteSource(holdTexture);
-      const sourceCenterWidth = holdTexture.naturalWidth - sourceCapWidth * 2;
-      const baseDestinationCapWidth = sourceCapWidth * PREVIEW_HOLD_TEXTURE_EDGE_CAP_SCALE;
-      const drawAffineSection = (
-        sourceX: number,
-        sourceWidth: number,
-        destinationTopLeft: number,
-        destinationBottomLeft: number,
-        destinationWidth: number,
-      ) => {
-        if (sourceWidth <= SNAP_EPSILON || destinationWidth <= SNAP_EPSILON) {
-          return;
-        }
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(destinationTopLeft, minY);
-        ctx.lineTo(destinationTopLeft + destinationWidth, minY);
-        ctx.lineTo(destinationBottomLeft + destinationWidth, maxY);
-        ctx.lineTo(destinationBottomLeft, maxY);
-        ctx.closePath();
-        ctx.clip();
-        ctx.transform(
-          destinationWidth / sourceWidth,
-          0,
-          (destinationBottomLeft - destinationTopLeft) / holdTexture.naturalHeight,
-          connectorHeight / holdTexture.naturalHeight,
-          destinationTopLeft,
-          minY,
-        );
-        ctx.drawImage(
-          holdTextureSource,
-          sourceX,
-          0,
-          sourceWidth,
-          holdTexture.naturalHeight,
-          0,
-          0,
-          sourceWidth,
-          holdTexture.naturalHeight,
-        );
-        ctx.restore();
-      };
-      const drawSliceSection = (
-        sourceX: number,
-        sourceWidth: number,
-        sourceY: number,
-        sourceHeight: number,
-        left1: number,
-        right1: number,
-        left2: number,
-        right2: number,
-        y1: number,
-        y2: number,
-      ) => {
-        const destinationX = Math.min(left1, right1, left2, right2);
-        const destinationRight = Math.max(left1, right1, left2, right2);
-        const destinationWidth = destinationRight - destinationX;
-        const destinationHeight = y2 - y1;
-
-        if (
-          sourceWidth <= SNAP_EPSILON
-          || sourceHeight <= SNAP_EPSILON
-          || destinationWidth <= SNAP_EPSILON
-          || destinationHeight <= SNAP_EPSILON
-        ) {
-          return;
-        }
-
-        const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
-        const bucketValue = (value: number) => (
-          Math.round(value / PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE) * PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE
-        );
-        const bucketedDestinationWidth = Math.max(1, bucketValue(destinationWidth));
-        const bucketedDestinationHeight = Math.max(1, bucketValue(destinationHeight));
-        const localLeft1 = bucketValue(left1 - destinationX);
-        const localRight1 = bucketValue(right1 - destinationX);
-        const localLeft2 = bucketValue(left2 - destinationX);
-        const localRight2 = bucketValue(right2 - destinationX);
-        const cacheKey = [
-          'slice',
-          connectorType,
-          bucketValue(sourceX),
-          bucketValue(sourceWidth),
-          bucketValue(sourceY),
-          bucketValue(sourceHeight),
-          bucketedDestinationWidth,
-          bucketedDestinationHeight,
-          localLeft1,
-          localRight1,
-          localLeft2,
-          localRight2,
-          dprBucket,
-        ].join(':');
-        let cachedTexture = previewHoldTextureCanvasCacheRef.current.get(cacheKey);
-
-        if (!cachedTexture) {
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.ceil(bucketedDestinationWidth * dprBucket));
-          canvas.height = Math.max(1, Math.ceil(bucketedDestinationHeight * dprBucket));
-          const textureCtx = canvas.getContext('2d');
-
-          if (textureCtx) {
-            textureCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
-            textureCtx.clearRect(0, 0, bucketedDestinationWidth, bucketedDestinationHeight);
-            textureCtx.save();
-            textureCtx.beginPath();
-            textureCtx.moveTo(localLeft1, 0);
-            textureCtx.lineTo(localRight1, 0);
-            textureCtx.lineTo(localRight2, bucketedDestinationHeight);
-            textureCtx.lineTo(localLeft2, bucketedDestinationHeight);
-            textureCtx.closePath();
-            textureCtx.clip();
-            textureCtx.drawImage(
-              holdTextureSource,
-              sourceX,
-              sourceY,
-              sourceWidth,
-              sourceHeight,
-              0,
-              0,
-              bucketedDestinationWidth,
-              bucketedDestinationHeight,
-            );
-            textureCtx.restore();
-
-            cachedTexture = {
-              canvas,
-              x: 0,
-              y: 0,
-              width: bucketedDestinationWidth,
-              height: bucketedDestinationHeight,
-            };
-
-            const cache = previewHoldTextureCanvasCacheRef.current;
-            if (cache.size >= PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES) {
-              const oldestKey = cache.keys().next().value;
-              if (oldestKey !== undefined) {
-                cache.delete(oldestKey);
-              }
-            }
-            cache.set(cacheKey, cachedTexture);
-          }
-        }
-
-        if (cachedTexture) {
-          ctx.drawImage(
-            cachedTexture.canvas,
-            destinationX,
-            y1,
-            cachedTexture.width,
-            cachedTexture.height,
-          );
-          return;
-        }
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(left1, y1);
-        ctx.lineTo(right1, y1);
-        ctx.lineTo(right2, y2);
-        ctx.lineTo(left2, y2);
-        ctx.closePath();
-        ctx.clip();
-        ctx.drawImage(
-          holdTextureSource,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight,
-          destinationX,
-          y1,
-          destinationWidth,
-          destinationHeight,
-        );
-        ctx.restore();
-      };
-      const drawSlice = (
-        startProgress: number,
-        endProgress: number,
-      ) => {
-        const progressOverlap = PREVIEW_HOLD_TEXTURE_SLICE_OVERLAP / connectorHeight;
-        const drawStartProgress = Math.max(0, startProgress - progressOverlap);
-        const drawEndProgress = Math.min(1, endProgress + progressOverlap);
-        const sourceY = drawStartProgress * holdTexture.naturalHeight;
-        const sourceHeight = (drawEndProgress - drawStartProgress) * holdTexture.naturalHeight;
-        const y1 = minY + connectorHeight * drawStartProgress;
-        const y2 = minY + connectorHeight * drawEndProgress;
-        const left1 = topEdges.left + (bottomEdges.left - topEdges.left) * drawStartProgress;
-        const right1 = topEdges.right + (bottomEdges.right - topEdges.right) * drawStartProgress;
-        const left2 = topEdges.left + (bottomEdges.left - topEdges.left) * drawEndProgress;
-        const right2 = topEdges.right + (bottomEdges.right - topEdges.right) * drawEndProgress;
-        const topSliceWidth = right1 - left1;
-        const bottomSliceWidth = right2 - left2;
-        const destinationHeight = y2 - y1;
-        const destinationCapWidth = Math.min(
-          baseDestinationCapWidth,
-          topSliceWidth / 2,
-          bottomSliceWidth / 2,
-        );
-        const sourceSectionOverlap = Math.max(0, Math.min(
-          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-          sourceCapWidth,
-          sourceCenterWidth / 2,
-        ));
-        const destinationSectionOverlap = Math.max(0, Math.min(
-          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-          destinationCapWidth,
-          (topSliceWidth - destinationCapWidth * 2) / 2,
-          (bottomSliceWidth - destinationCapWidth * 2) / 2,
-        ));
-
-        if (topSliceWidth <= SNAP_EPSILON || bottomSliceWidth <= SNAP_EPSILON || destinationHeight <= SNAP_EPSILON) {
-          return;
-        }
-
-        if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
-          drawSliceSection(0, holdTexture.naturalWidth, sourceY, sourceHeight, left1, right1, left2, right2, y1, y2);
-          return;
-        }
-
-        drawSliceSection(
-          0,
-          sourceCapWidth,
-          sourceY,
-          sourceHeight,
-          left1,
-          left1 + destinationCapWidth,
-          left2,
-          left2 + destinationCapWidth,
-          y1,
-          y2,
-        );
-        drawSliceSection(
-          sourceCapWidth - sourceSectionOverlap,
-          sourceCenterWidth + sourceSectionOverlap * 2,
-          sourceY,
-          sourceHeight,
-          left1 + destinationCapWidth - destinationSectionOverlap,
-          right1 - destinationCapWidth + destinationSectionOverlap,
-          left2 + destinationCapWidth - destinationSectionOverlap,
-          right2 - destinationCapWidth + destinationSectionOverlap,
-          y1,
-          y2,
-        );
-        drawSliceSection(
-          holdTexture.naturalWidth - sourceCapWidth,
-          sourceCapWidth,
-          sourceY,
-          sourceHeight,
-          right1 - destinationCapWidth,
-          right1,
-          right2 - destinationCapWidth,
-          right2,
-          y1,
-          y2,
-        );
-      };
-
-      if (widthDelta <= SNAP_EPSILON) {
-        const dprBucket = Math.max(1, Math.round(dpr * 100) / 100);
-        const bucketValue = (value: number) => (
-          Math.round(value / PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE) * PREVIEW_HOLD_TEXTURE_CACHE_BUCKET_SIZE
-        );
-        const bucketedWidth = Math.max(1, bucketValue(topWidth));
-        const bucketedHeight = Math.max(1, bucketValue(connectorHeight));
-        const bucketedLeftDelta = bucketValue(bottomEdges.left - topEdges.left);
-        const localLeft = Math.min(0, bucketedLeftDelta);
-        const localTopLeft = -localLeft;
-        const localBottomLeft = bucketedLeftDelta - localLeft;
-        const localWidth = Math.max(bucketedWidth, localBottomLeft + bucketedWidth) - localLeft;
-        const cacheKey = `${connectorType}:${bucketedWidth}:${bucketedHeight}:${bucketedLeftDelta}:${dprBucket}`;
-        let cachedTexture = previewHoldTextureCanvasCacheRef.current.get(cacheKey);
-
-        if (!cachedTexture) {
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.ceil(localWidth * dprBucket));
-          canvas.height = Math.max(1, Math.ceil(bucketedHeight * dprBucket));
-          const textureCtx = canvas.getContext('2d');
-
-          if (textureCtx) {
-            const drawCachedAffineSection = (
-              sourceX: number,
-              sourceWidth: number,
-              destinationTopLeft: number,
-              destinationBottomLeft: number,
-              destinationWidth: number,
-            ) => {
-              if (sourceWidth <= SNAP_EPSILON || destinationWidth <= SNAP_EPSILON) {
-                return;
-              }
-
-              textureCtx.save();
-              textureCtx.beginPath();
-              textureCtx.moveTo(destinationTopLeft, 0);
-              textureCtx.lineTo(destinationTopLeft + destinationWidth, 0);
-              textureCtx.lineTo(destinationBottomLeft + destinationWidth, bucketedHeight);
-              textureCtx.lineTo(destinationBottomLeft, bucketedHeight);
-              textureCtx.closePath();
-              textureCtx.clip();
-              textureCtx.transform(
-                destinationWidth / sourceWidth,
-                0,
-                (destinationBottomLeft - destinationTopLeft) / holdTexture.naturalHeight,
-                bucketedHeight / holdTexture.naturalHeight,
-                destinationTopLeft,
-                0,
-              );
-              textureCtx.drawImage(
-                holdTextureSource,
-                sourceX,
-                0,
-                sourceWidth,
-                holdTexture.naturalHeight,
-                0,
-                0,
-                sourceWidth,
-                holdTexture.naturalHeight,
-              );
-              textureCtx.restore();
-            };
-            const destinationCapWidth = Math.min(baseDestinationCapWidth, bucketedWidth / 2);
-            const sourceSectionOverlap = Math.max(0, Math.min(
-              PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-              sourceCapWidth,
-              sourceCenterWidth / 2,
-            ));
-            const destinationSectionOverlap = Math.max(0, Math.min(
-              PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-              destinationCapWidth,
-              (bucketedWidth - destinationCapWidth * 2) / 2,
-            ));
-
-            textureCtx.setTransform(dprBucket, 0, 0, dprBucket, 0, 0);
-            textureCtx.clearRect(0, 0, localWidth, bucketedHeight);
-            textureCtx.globalAlpha = textureAlpha;
-
-            if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
-              drawCachedAffineSection(0, holdTexture.naturalWidth, localTopLeft, localBottomLeft, bucketedWidth);
-            } else {
-              drawCachedAffineSection(0, sourceCapWidth, localTopLeft, localBottomLeft, destinationCapWidth);
-              drawCachedAffineSection(
-                sourceCapWidth - sourceSectionOverlap,
-                sourceCenterWidth + sourceSectionOverlap * 2,
-                localTopLeft + destinationCapWidth - destinationSectionOverlap,
-                localBottomLeft + destinationCapWidth - destinationSectionOverlap,
-                bucketedWidth - destinationCapWidth * 2 + destinationSectionOverlap * 2,
-              );
-              drawCachedAffineSection(
-                holdTexture.naturalWidth - sourceCapWidth,
-                sourceCapWidth,
-                localTopLeft + bucketedWidth - destinationCapWidth,
-                localBottomLeft + bucketedWidth - destinationCapWidth,
-                destinationCapWidth,
-              );
-            }
-
-            cachedTexture = {
-              canvas,
-              x: 0,
-              y: 0,
-              width: localWidth,
-              height: bucketedHeight,
-            };
-
-            const cache = previewHoldTextureCanvasCacheRef.current;
-            if (cache.size >= PREVIEW_HOLD_TEXTURE_CACHE_MAX_ENTRIES) {
-              const oldestKey = cache.keys().next().value;
-              if (oldestKey !== undefined) {
-                cache.delete(oldestKey);
-              }
-            }
-            cache.set(cacheKey, cachedTexture);
-          }
-        }
-
-        if (cachedTexture) {
-          ctx.drawImage(
-            cachedTexture.canvas,
-            topEdges.left + localLeft,
-            minY,
-            cachedTexture.width,
-            cachedTexture.height,
-          );
-          return true;
-        }
-
-        ctx.save();
-        ctx.globalAlpha *= textureAlpha;
-        const destinationCapWidth = Math.min(baseDestinationCapWidth, topWidth / 2);
-        const sourceSectionOverlap = Math.max(0, Math.min(
-          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-          sourceCapWidth,
-          sourceCenterWidth / 2,
-        ));
-        const destinationSectionOverlap = Math.max(0, Math.min(
-          PREVIEW_HOLD_TEXTURE_SECTION_OVERLAP,
-          destinationCapWidth,
-          (topWidth - destinationCapWidth * 2) / 2,
-        ));
-        if (sourceCenterWidth <= SNAP_EPSILON || destinationCapWidth <= SNAP_EPSILON) {
-          drawAffineSection(0, holdTexture.naturalWidth, topEdges.left, bottomEdges.left, topWidth);
-        } else {
-          drawAffineSection(0, sourceCapWidth, topEdges.left, bottomEdges.left, destinationCapWidth);
-          drawAffineSection(
-            sourceCapWidth - sourceSectionOverlap,
-            sourceCenterWidth + sourceSectionOverlap * 2,
-            topEdges.left + destinationCapWidth - destinationSectionOverlap,
-            bottomEdges.left + destinationCapWidth - destinationSectionOverlap,
-            topWidth - destinationCapWidth * 2 + destinationSectionOverlap * 2,
-          );
-          drawAffineSection(
-            holdTexture.naturalWidth - sourceCapWidth,
-            sourceCapWidth,
-            topEdges.right - destinationCapWidth,
-            bottomEdges.right - destinationCapWidth,
-            destinationCapWidth,
-          );
-        }
-        ctx.restore();
-        return true;
-      }
-
-      const widthSliceCount = Math.max(
-        1,
-        Math.ceil(widthDelta / PREVIEW_HOLD_TEXTURE_WIDTH_DELTA_PER_SLICE),
-      );
-      const heightSliceCap = Math.max(
-        1,
-        Math.ceil(connectorHeight / PREVIEW_HOLD_TEXTURE_MIN_SLICE_HEIGHT),
-      );
-      const sliceCount = Math.min(
-        PREVIEW_HOLD_TEXTURE_MAX_SLICE_COUNT,
-        heightSliceCap,
-        widthSliceCount,
-      );
-
-      ctx.save();
-      ctx.globalAlpha *= textureAlpha;
-      for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex += 1) {
-        drawSlice(sliceIndex / sliceCount, (sliceIndex + 1) / sliceCount);
-      }
-      ctx.restore();
-
-      return true;
-    };
     const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
       : null;
@@ -4890,21 +4259,6 @@ export default function Editor({
           previewVisibleMaxDistance,
         )
       : [];
-    const previewVisibleTexturedHoldConnectorDrawCount = shouldUsePreviewSprites && isPreviewHoldSpritesEnabled
-      ? previewVisibleHoldConnectorSegments.reduce((count, segment) => {
-          const previewSegment = segment as PreviewHoldConnectorSegment;
-          if (!PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type]) {
-            return count;
-          }
-
-          return count + (previewSegment.groupedSegments?.length ?? 1);
-        }, 0)
-      : 0;
-    const shouldUsePreviewHoldTextures = (
-      shouldUsePreviewSprites
-      && isPreviewHoldSpritesEnabled
-      && previewVisibleTexturedHoldConnectorDrawCount <= PREVIEW_HOLD_TEXTURE_LOD_CONNECTOR_THRESHOLD
-    );
     const activePreviewCameraTiltIntervals = isPreviewPlaybackCanvas
       ? (
           isPreviewPrecomputeEnabled
@@ -4923,8 +4277,11 @@ export default function Editor({
     const tiltNow = performance.now();
     const previousTiltTimestamp = previewTiltTimestampRef.current || tiltNow;
     const tiltElapsedMs = Math.max(0, tiltNow - previousTiltTimestamp);
+    const previewTiltEaseSpeed = previewCameraTiltState.hasActiveTails
+      ? PREVIEW_CONNECTOR_TILT_ACTIVE_EASE_SPEED
+      : PREVIEW_CONNECTOR_TILT_RETURN_EASE_SPEED;
     const previewTiltEase = isPreviewPlaybackCanvas
-      ? (previewCameraTiltState.hasActiveTails ? PREVIEW_CONNECTOR_TILT_ACTIVE_EASE_SPEED : PREVIEW_CONNECTOR_TILT_RETURN_EASE_SPEED) * (tiltElapsedMs / 1000)
+      ? getFrameRateStableEase(previewTiltEaseSpeed, tiltElapsedMs)
       : 1;
     previewCameraRotationRadiansRef.current += (
       targetPreviewRotationRadians - previewCameraRotationRadiansRef.current
@@ -5443,137 +4800,25 @@ export default function Editor({
         ctx.clip();
       }
 
-      const didDrawPreviewHoldTexture = shouldUsePreviewHoldTextures
-        ? drawPreviewHoldTextureConnector(
-            note.type,
-            clippedConnector.fromNote,
-            clippedConnector.fromY,
-            clippedConnector.toNote,
-            clippedConnector.toY,
-          )
-        : false;
-      if (!didDrawPreviewHoldTexture) {
-        ctx.fillStyle = getNativeHoldConnectorSpriteColors(note.type).body;
-        const previousAlpha = ctx.globalAlpha;
-        ctx.globalAlpha *= NATIVE_HOLD_CONNECTOR_ALPHA;
-        drawProjectedConnectorQuad(
-          note.type,
-          clippedConnector.fromNote,
-          clippedConnector.fromY,
-          clippedConnector.toNote,
-          clippedConnector.toY,
-        );
-        ctx.globalAlpha = previousAlpha;
-      }
+      ctx.fillStyle = getNativeHoldConnectorSpriteColors(note.type).body;
+      const previousAlpha = ctx.globalAlpha;
+      ctx.globalAlpha *= NATIVE_HOLD_CONNECTOR_ALPHA;
+      drawProjectedConnectorQuad(
+        note.type,
+        clippedConnector.fromNote,
+        clippedConnector.fromY,
+        clippedConnector.toNote,
+        clippedConnector.toY,
+      );
+      ctx.globalAlpha = previousAlpha;
       if (shouldClipPreviewConnectorAtJudgementLine) {
         ctx.restore();
       }
       countRenderedObject();
     };
-    const canDrawGroupedHoldConnectorSegments = (groupedSegments: PreviewHoldConnectorSegment[]) => {
-      let groupParentY: number | null = null;
-      let groupNoteY: number | null = null;
-      let isGroupBeingJudged: boolean | null = null;
-      let shouldGroupClipAtJudgementLine: boolean | null = null;
-
-      for (const groupedSegment of groupedSegments) {
-        if (hiddenPreviewNoteIds?.has(groupedSegment.note.id)) {
-          return false;
-        }
-
-        if (groupedSegment.noteSpeed.kind === 'curve') {
-          const animationStartTimepos = groupedSegment.noteSpeed.keyframes[0]?.time;
-          if (
-            currentPreviewTimepos >= groupedSegment.noteTimepos - SNAP_EPSILON
-            || (
-              animationStartTimepos !== undefined
-              && currentPreviewTimepos < animationStartTimepos - SNAP_EPSILON
-            )
-          ) {
-            return false;
-          }
-        }
-
-        const noteY = getPreviewYFromNoteDistance(
-          groupedSegment.noteDistance,
-          groupedSegment.noteTimepos,
-          groupedSegment.notePlaybackTime,
-          groupedSegment.noteSpeed,
-        );
-        const parentY = getPreviewYFromNoteDistance(
-          groupedSegment.parentDistance,
-          groupedSegment.parentTimepos,
-          groupedSegment.parentPlaybackTime,
-          groupedSegment.parentSpeed,
-        );
-
-        if (Math.min(noteY, parentY) > height + 40 || Math.max(noteY, parentY) < -40) {
-          return false;
-        }
-
-        const isConnectorBeingJudged = (
-          isPreviewPlaybackCanvas
-          && currentPreviewTimepos >= Math.min(groupedSegment.parentTimepos, groupedSegment.noteTimepos) - SNAP_EPSILON
-          && currentPreviewTimepos <= Math.max(groupedSegment.parentTimepos, groupedSegment.noteTimepos) + SNAP_EPSILON
-        );
-        if (shouldClipPreviewHoldConnectors && isConnectorBeingJudged && Math.min(noteY, parentY) >= hitLineY) {
-          return false;
-        }
-
-        const shouldClipAtJudgementLine = shouldClipPreviewHoldConnectors
-          && isConnectorBeingJudged
-          && Math.max(noteY, parentY) > hitLineY;
-
-        if (
-          groupParentY === null
-          || groupNoteY === null
-          || isGroupBeingJudged === null
-          || shouldGroupClipAtJudgementLine === null
-        ) {
-          groupParentY = parentY;
-          groupNoteY = noteY;
-          isGroupBeingJudged = isConnectorBeingJudged;
-          shouldGroupClipAtJudgementLine = shouldClipAtJudgementLine;
-          continue;
-        }
-
-        if (
-          !arePreviewConnectorValuesEqual(parentY, groupParentY)
-          || !arePreviewConnectorValuesEqual(noteY, groupNoteY)
-          || isConnectorBeingJudged !== isGroupBeingJudged
-          || shouldClipAtJudgementLine !== shouldGroupClipAtJudgementLine
-        ) {
-          return false;
-        }
-      }
-
-      return true;
-    };
-
     // Draw hold connections before note bodies so linked notes render on top.
     for (const segment of visibleHoldConnectorSegments) {
-      const previewSegment = segment as PreviewHoldConnectorSegment;
-      const groupedSegments = isPreviewPlaybackCanvas ? previewSegment.groupedSegments : undefined;
-      const shouldDrawTexturedSegmentsIndividually = Boolean(
-        shouldUsePreviewHoldTextures
-        && groupedSegments
-        && PREVIEW_HOLD_TEXTURE_URLS[previewSegment.note.type],
-      );
-      const shouldDrawEditorStyleSegmentsIndividually = Boolean(
-        groupedSegments
-        && !shouldDrawTexturedSegmentsIndividually,
-      );
-      const shouldFallbackToIndividualSegments = groupedSegments
-        ? shouldDrawTexturedSegmentsIndividually
-          || shouldDrawEditorStyleSegmentsIndividually
-          || !canDrawGroupedHoldConnectorSegments(groupedSegments)
-        : false;
-
-      if (shouldFallbackToIndividualSegments) {
-        groupedSegments!.forEach(drawHoldConnectorSegment);
-      } else {
-        drawHoldConnectorSegment(segment);
-      }
+      drawHoldConnectorSegment(segment);
     }
 
     if (curvePreviewNotes.length > 0 && canTypeHaveParent(curveNoteType) && previewStartNote) {
@@ -6519,7 +5764,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewHoldSpritesEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -9562,7 +8807,6 @@ export default function Editor({
         flickSoundVolume={flickSoundVolume}
         isPreviewSpritesEnabled={isPreviewSpritesEnabled}
         isPreviewHitFxEnabled={isPreviewHitFxEnabled}
-        isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isPreviewChartSpeedChangesEnabled={isPreviewChartSpeedChangesEnabled}
         isPreviewCameraTiltEnabled={isPreviewCameraTiltEnabled}
         isPreviewCameraMovementEnabled={isPreviewCameraMovementEnabled}
@@ -9590,7 +8834,6 @@ export default function Editor({
         setFlickSoundVolume={setFlickSoundVolume}
         setIsPreviewSpritesEnabled={setIsPreviewSpritesEnabled}
         setIsPreviewHitFxEnabled={setIsPreviewHitFxEnabled}
-        setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsPreviewChartSpeedChangesEnabled={setIsPreviewChartSpeedChangesEnabled}
         setIsPreviewCameraTiltEnabled={setIsPreviewCameraTiltEnabled}
         setIsPreviewCameraMovementEnabled={setIsPreviewCameraMovementEnabled}

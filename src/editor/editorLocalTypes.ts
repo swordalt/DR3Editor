@@ -116,7 +116,6 @@ export interface PreviewHoldConnectorSegment {
   parentSpeed: PreviewNoteSpeed;
   minDistance: number;
   maxDistance: number;
-  groupedSegments?: PreviewHoldConnectorSegment[];
 }
 
 export interface PreviewJudgementNoteEntry {

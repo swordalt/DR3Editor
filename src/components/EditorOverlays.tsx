@@ -43,7 +43,6 @@ interface EditorOverlaysProps {
   isVSyncEnabled: boolean;
   isDr3FpPreviewEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
-  isPreviewHoldSpritesEnabled: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
   selectionType: SelectionType;
@@ -64,7 +63,6 @@ interface EditorOverlaysProps {
   setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
   setIsDr3FpPreviewEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
-  setIsPreviewHoldSpritesEnabled: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
   setSelectionType: Dispatch<SetStateAction<SelectionType>>;
@@ -99,6 +97,7 @@ interface VirtualizedListProps<T> {
   getItemClassName?: (item: T, index: number) => string;
   renderItem: (item: T, index: number) => ReactNode;
   className?: string;
+  itemGap?: number;
   overscan?: number;
 }
 
@@ -139,7 +138,7 @@ function VirtualizedListItem<T>({
   return (
     <div
       ref={itemRef}
-      className={`absolute left-0 right-0 pb-5 ${className}`}
+      className={`absolute left-0 right-0 ${className}`}
       style={{ transform: `translateY(${offset}px)` }}
     >
       {renderItem(item, index)}
@@ -154,6 +153,7 @@ function VirtualizedList<T>({
   getItemClassName,
   renderItem,
   className = '',
+  itemGap = 20,
   overscan = 2,
 }: VirtualizedListProps<T>) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -209,11 +209,12 @@ function VirtualizedList<T>({
     nextOffsets[0] = 0;
 
     for (let index = 0; index < items.length; index += 1) {
-      nextOffsets[index + 1] = nextOffsets[index] + (itemSizes.get(index) ?? estimateSize);
+      const gapAfterItem = index < items.length - 1 ? itemGap : 0;
+      nextOffsets[index + 1] = nextOffsets[index] + (itemSizes.get(index) ?? estimateSize) + gapAfterItem;
     }
 
     return nextOffsets;
-  }, [estimateSize, itemSizes, items.length]);
+  }, [estimateSize, itemGap, itemSizes, items.length]);
 
   const totalHeight = offsets[items.length] ?? 0;
   let lowIndex = 0;
@@ -328,7 +329,6 @@ export default function EditorOverlays({
   isVSyncEnabled,
   isDr3FpPreviewEnabled,
   isPreviewPrecomputeEnabled,
-  isPreviewHoldSpritesEnabled,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
   selectionType,
@@ -349,7 +349,6 @@ export default function EditorOverlays({
   setIsVSyncEnabled,
   setIsDr3FpPreviewEnabled,
   setIsPreviewPrecomputeEnabled,
-  setIsPreviewHoldSpritesEnabled,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
   setSelectionType,
@@ -714,22 +713,12 @@ export default function EditorOverlays({
         </div>
 
         <SettingsToggle
-          label={text.overlays.useHoldSprites}
-          description={text.overlays.useHoldSpritesDescription}
-          isEnabled={isPreviewHoldSpritesEnabled}
-          ariaLabel={text.overlays.toggleUseHoldSprites}
-          onToggle={() => setIsPreviewHoldSpritesEnabled((current) => !current)}
+          label={text.overlays.dr3FpPreview}
+          description={text.overlays.dr3FpPreviewDescription}
+          isEnabled={isDr3FpPreviewEnabled}
+          ariaLabel={text.overlays.toggleDr3FpPreview}
+          onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
         />
-
-        <div className="mt-4">
-          <SettingsToggle
-            label={text.overlays.dr3FpPreview}
-            description={text.overlays.dr3FpPreviewDescription}
-            isEnabled={isDr3FpPreviewEnabled}
-            ariaLabel={text.overlays.toggleDr3FpPreview}
-            onToggle={() => setIsDr3FpPreviewEnabled((current) => !current)}
-          />
-        </div>
 
       </section>
     );
@@ -986,19 +975,23 @@ export default function EditorOverlays({
               <h2 id="settings-title" className="mt-2 text-2xl font-semibold text-white">{text.editor.settings}</h2>
             </div>
 
-            <VirtualizedList
-              items={settingsSections}
-              estimateSize={360}
-              getKey={(section) => section}
-              getItemClassName={(section) => (
-                (section === 'editing' && isSelectionTypeMenuOpen)
-                  || (section === 'performance' && isStatisticsRefreshRateMenuOpen)
-                  ? 'z-20'
-                  : 'z-0'
-              )}
-              renderItem={(section) => renderSettingsSection(section)}
-              className="px-6 py-6"
-            />
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div className="flex flex-col gap-4">
+                {settingsSections.map((section) => (
+                  <div
+                    key={section}
+                    className={
+                      (section === 'editing' && isSelectionTypeMenuOpen)
+                        || (section === 'performance' && isStatisticsRefreshRateMenuOpen)
+                        ? 'relative z-20'
+                        : 'relative z-0'
+                    }
+                  >
+                    {renderSettingsSection(section)}
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className={dialogFooterClassName}>
               <button
                 onClick={closeSettings}

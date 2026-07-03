@@ -1,10 +1,72 @@
-import { AlignCenterHorizontal, ChevronLeft, ChevronRight, FlipHorizontal, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlignCenterHorizontal, ChevronDown, ChevronLeft, ChevronRight, FlipHorizontal, X } from 'lucide-react';
 import CommitInput from './CommitInput';
 import { AVAILABLE_NOTE_TYPES, NOTE_TYPES, UNKNOWN_NOTE_TYPE, isOfficialNoteSpeedLockedType } from '../constants/editorConstants';
 import { APPEAR_MODE_OPTIONS } from '../editor/editorViewConstants';
 import { formatHistoryNumber } from '../editor/editorHistory';
 import { formatTranslation, translations } from '../lang';
 import type { Note } from '../types/editorTypes';
+import { menuItemClassName, menuSurfaceClassName } from './editorDesign';
+
+interface PropertySelectOption<TValue extends string> {
+  id: TValue;
+  label: string;
+}
+
+interface PropertySelectProps<TValue extends string> {
+  id: string;
+  value: TValue;
+  options: Array<PropertySelectOption<TValue>>;
+  openMenuId: string | null;
+  setOpenMenuId: (id: string | null) => void;
+  onChange: (value: TValue) => void;
+}
+
+function PropertySelect<TValue extends string>({
+  id,
+  value,
+  options,
+  openMenuId,
+  setOpenMenuId,
+  onChange,
+}: PropertySelectProps<TValue>) {
+  const selectedOption = options.find(option => option.id === value) ?? options[0];
+  const isOpen = openMenuId === id;
+
+  return (
+    <div className={`relative ${isOpen ? 'z-30' : 'z-0'}`}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setOpenMenuId(isOpen ? null : id)}
+        className="flex min-h-9 w-full items-center justify-between gap-2 rounded border border-neutral-700 bg-neutral-800 px-2.5 py-2 text-left text-sm text-neutral-100 outline-none transition-colors hover:border-neutral-600 hover:bg-neutral-700 focus:border-indigo-500"
+      >
+        <span className="min-w-0 truncate">{selectedOption?.label ?? value}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && (
+        <div role="listbox" className={`absolute left-0 right-0 top-full z-50 mt-2 max-h-64 overflow-y-auto ${menuSurfaceClassName}`}>
+          {options.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              role="option"
+              aria-selected={option.id === value}
+              onClick={() => {
+                onChange(option.id);
+                setOpenMenuId(null);
+              }}
+              className={`${menuItemClassName} ${option.id === value ? 'bg-indigo-500/15 text-indigo-100' : ''}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EditorRightSidebar(props: any) {
   const {
@@ -38,6 +100,19 @@ export default function EditorRightSidebar(props: any) {
     tutorialFocusTargets = [],
   } = props;
   const text = translations;
+  const [openPropertyMenuId, setOpenPropertyMenuId] = useState<string | null>(null);
+  const noteTypeOptions = useMemo<Array<PropertySelectOption<string>>>(() => (
+    AVAILABLE_NOTE_TYPES.map(type => ({
+      id: String(type),
+      label: `${type} - ${NOTE_TYPES[type]?.name || UNKNOWN_NOTE_TYPE.name}`,
+    }))
+  ), []);
+  const appearModeOptions = useMemo<Array<PropertySelectOption<string>>>(() => (
+    APPEAR_MODE_OPTIONS.map(appearMode => ({
+      id: appearMode,
+      label: appearMode,
+    }))
+  ), []);
   const isOnlySelectedNoteTypeIndicatorFocused = tutorialFocusTargets.includes('selectedNoteTypeIndicator')
     && !tutorialFocusTargets.includes('rightSidebar');
   const tutorialMutedClassName = isOnlySelectedNoteTypeIndicatorFocused
@@ -62,10 +137,10 @@ export default function EditorRightSidebar(props: any) {
                 event.stopPropagation();
                 toggleRightPanelCompact();
               }}
-              className={`flex w-full items-center gap-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white ${isRightPanelContentVisible ? 'justify-start px-4 py-3 text-xs font-medium' : 'justify-center p-3'}`}
+              className={`flex w-full items-center gap-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white ${isRightPanelContentVisible ? 'justify-end px-4 py-3 text-xs font-medium' : 'justify-center p-3'}`}
             >
-              {isRightPanelCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               {isRightPanelContentVisible && <span>{text.sidebar.collapseWindow}</span>}
+              {isRightPanelCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           </div>
           {isRightPanelContentVisible && (
@@ -122,17 +197,14 @@ export default function EditorRightSidebar(props: any) {
 
                   <label className="block">
                     <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.type}</span>
-                    <select
-                      value={selectedSingleNote.type}
-                      className={notePropertyInputClass}
-                      onChange={(e) => updateSelectedNote({ type: Number(e.target.value) })}
-                    >
-                      {AVAILABLE_NOTE_TYPES.map(type => (
-                        <option key={type} value={type}>
-                          {type} - {NOTE_TYPES[type]?.name || UNKNOWN_NOTE_TYPE.name}
-                        </option>
-                      ))}
-                    </select>
+                    <PropertySelect
+                      id="note-type"
+                      value={String(selectedSingleNote.type)}
+                      options={noteTypeOptions}
+                      openMenuId={openPropertyMenuId}
+                      setOpenMenuId={setOpenPropertyMenuId}
+                      onChange={(value) => updateSelectedNote({ type: Number(value) })}
+                    />
                   </label>
 
                   <label className="block">
@@ -229,24 +301,20 @@ export default function EditorRightSidebar(props: any) {
 
                   <label className="block">
                     <span className="mb-1 block text-xs text-neutral-400">{text.sidebar.appearMode}</span>
-                    <select
+                    <PropertySelect
+                      id="appear-mode"
                       value={selectedSingleNote.appearMode ?? 'none'}
-                      className={notePropertyInputClass}
-                      onChange={(e) => {
-                        const nextAppearMode = e.target.value;
+                      options={appearModeOptions}
+                      openMenuId={openPropertyMenuId}
+                      setOpenMenuId={setOpenPropertyMenuId}
+                      onChange={(nextAppearMode) => {
                         updateSelectedNote({
                           appearMode: nextAppearMode === 'none'
                             ? undefined
                             : nextAppearMode as Note['appearMode'],
                         });
                       }}
-                    >
-                      {APPEAR_MODE_OPTIONS.map((appearMode) => (
-                        <option key={appearMode} value={appearMode}>
-                          {appearMode}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </label>
                 </div>
               ) : (

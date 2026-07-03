@@ -1,5 +1,5 @@
-const HIT_SOUND_URL = new URL('../../hit.ogg', import.meta.url).href;
-const FLICK_SOUND_URL = new URL('../../flick.ogg', import.meta.url).href;
+const HIT_SOUND_URL = new URL('../assets/hit.ogg', import.meta.url).href;
+const FLICK_SOUND_URL = new URL('../assets/flick.ogg', import.meta.url).href;
 
 export const SOUND_URLS: Record<string, string> = {
   'hit.ogg': HIT_SOUND_URL,

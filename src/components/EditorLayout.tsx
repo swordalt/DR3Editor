@@ -66,7 +66,6 @@ export default function EditorLayout(props: any) {
     flickSoundVolume,
     isPreviewSpritesEnabled,
     isPreviewHitFxEnabled,
-    isPreviewHoldSpritesEnabled,
     isPreviewChartSpeedChangesEnabled,
     isPreviewCameraTiltEnabled,
     isPreviewCameraMovementEnabled,
@@ -94,7 +93,6 @@ export default function EditorLayout(props: any) {
     setFlickSoundVolume,
     setIsPreviewSpritesEnabled,
     setIsPreviewHitFxEnabled,
-    setIsPreviewHoldSpritesEnabled,
     setIsPreviewChartSpeedChangesEnabled,
     setIsPreviewCameraTiltEnabled,
     setIsPreviewCameraMovementEnabled,
@@ -310,7 +308,6 @@ export default function EditorLayout(props: any) {
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
-        isPreviewHoldSpritesEnabled={isPreviewHoldSpritesEnabled}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
         selectionType={selectionType}
@@ -331,7 +328,6 @@ export default function EditorLayout(props: any) {
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
-        setIsPreviewHoldSpritesEnabled={setIsPreviewHoldSpritesEnabled}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
         setSelectionType={setSelectionType}

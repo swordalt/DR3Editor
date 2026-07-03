@@ -224,10 +224,12 @@ export const findChartIssues = (
       id: nextIssueId++,
       severity: 'warning',
       category: 'hold',
-      title: translations.chartIssues.holdChildBeforeParentTitle,
-      detail: formatTranslation(translations.chartIssues.holdChildBeforeParentDetail, {
+      title: translations.chartIssues.holdParentAfterChildTitle,
+      detail: formatTranslation(translations.chartIssues.holdParentAfterChildDetail, {
         noteId: note.id,
         parentId: parentNote.id,
+        childTimepos: formatIssueTimepos(timepos),
+        parentTimepos: formatIssueTimepos(timeposByNoteId.get(parentNote.id) ?? null),
       }),
       noteIds: [parentNote.id, note.id],
       timepos,
