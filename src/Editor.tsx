@@ -1414,9 +1414,10 @@ export default function Editor({
   );
   const hasRequiredExportMetadata = Boolean(
     hasValidProjectSongId &&
-    projectData && isValidDifficulty(projectData.difficulty) &&
-    projectData?.songFile,
+    projectData && isValidDifficulty(projectData.difficulty),
   );
+  const hasExportAudioFile = Boolean(projectData?.songFile);
+  const hasUnsupportedFormattedExportNoteTypes = notes.some(note => note.type === 25 || note.type === 26 || note.type === 27);
   const isExportDisabled = !hasRequiredExportMetadata;
   const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds]);
   const invalidMetadataFields = useMemo(() => getInvalidMetadataFields(formData), [formData]);
@@ -7317,7 +7318,14 @@ export default function Editor({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const getExportFileHandle = async (suggestedName: string, errorLabel: string) => {
+  const getExportFileHandle = async (
+    suggestedName: string,
+    errorLabel: string,
+    fileType = {
+      description: text.editor.zipArchive,
+      accept: { 'application/zip': ['.zip'] },
+    },
+  ) => {
     if (!('showSaveFilePicker' in window)) {
       return null;
     }
@@ -7325,10 +7333,7 @@ export default function Editor({
     try {
       return await (window as any).showSaveFilePicker({
         suggestedName,
-        types: [{
-          description: text.editor.zipArchive,
-          accept: { 'application/zip': ['.zip'] },
-        }],
+        types: [fileType],
       });
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
@@ -7364,6 +7369,46 @@ export default function Editor({
     }
 
     downloadZipData(zipBuffer, suggestedName);
+  };
+
+  const downloadTextData = (content: string, suggestedName: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+
+    anchor.href = url;
+    anchor.download = suggestedName;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const saveTextData = async (
+    content: string,
+    suggestedName: string,
+    fileHandle: FileSystemFileHandle | null | undefined,
+    errorLabel: string,
+  ) => {
+    if (fileHandle === undefined) {
+      return;
+    }
+
+    if (fileHandle) {
+      try {
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const writable = await fileHandle.createWritable({ keepExistingData: true });
+        await writable.write({ type: 'write', position: 0, data: blob });
+        await writable.truncate(blob.size);
+        await writable.close();
+        return;
+      } catch (err) {
+        console.error(`${errorLabel} file save failed`, err);
+      }
+    }
+
+    downloadTextData(content, suggestedName);
   };
 
   const waitForDr3FpPreviewReceiver = async (sessionId: string) => {
@@ -7441,7 +7486,7 @@ export default function Editor({
   };
 
   const previewDr3Fp = async () => {
-    if (!isDr3FpPreviewEnabled || !projectData || isExportDisabled || hasExportIncompatibleTimeSignature) return;
+    if (!isDr3FpPreviewEnabled || !projectData || isExportDisabled || !hasExportAudioFile || hasExportIncompatibleTimeSignature) return;
 
     if (stateRef.current.isPlaying) {
       await togglePlay();
@@ -7606,11 +7651,11 @@ export default function Editor({
   };
 
   const exportZip = async (
-    format: Exclude<ExportFormat, 'dr3-fp-preview'>,
+    format: Exclude<ExportFormat, 'dr3-fp-preview' | 'chart-data'>,
     defaultFileName: string,
     errorLabel: string,
   ): Promise<ExportRunResult> => {
-    if (!projectData || isExportDisabled) return 'failed';
+    if (!projectData || isExportDisabled || !projectData.songFile) return 'failed';
     if (format !== 'raw' && hasExportIncompatibleTimeSignature) return 'failed';
 
     const fileHandle = await getExportFileHandle(defaultFileName, errorLabel);
@@ -7660,6 +7705,36 @@ export default function Editor({
     const songId = projectData?.songId || 'level';
     const difficulty = projectData?.difficulty || '0';
     return exportZip('dr3-fp', `${songId}_tier${difficulty}.zip`, 'DR3FV');
+  };
+
+  const exportChartData = async (): Promise<ExportRunResult> => {
+    if (!projectData || isExportDisabled) return 'failed';
+
+    const songId = projectData.songId || 'level';
+    const difficulty = projectData.difficulty || '0';
+    const suggestedName = initialChartFileName || `${songId}_tier${difficulty}.txt`;
+    const fileHandle = await getExportFileHandle(suggestedName, 'Chart Data', {
+      description: text.editor.chartDataFile,
+      accept: { 'text/plain': ['.txt'] },
+    });
+    if (fileHandle === undefined) return 'cancelled';
+
+    try {
+      const organized = organizeChartForExport();
+      const chartText = buildLevelText({
+        projectData,
+        notes: organized.notes,
+        bpmChanges: organized.bpmChanges,
+        speedChanges: organized.speedChanges,
+        offset,
+      });
+
+      await saveTextData(chartText, suggestedName, fileHandle, 'Chart Data');
+      return 'complete';
+    } catch (err) {
+      console.error('Chart Data export failed', err);
+      return 'failed';
+    }
   };
 
   const handleOrganizeNotes = () => {
@@ -9530,7 +9605,9 @@ export default function Editor({
         isExportMenuOpen={isExportMenuOpen}
         isPreviewMenuOpen={isPreviewMenuOpen}
         isExportDisabled={isExportDisabled}
+        hasExportAudioFile={hasExportAudioFile}
         hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
+        hasUnsupportedFormattedExportNoteTypes={hasUnsupportedFormattedExportNoteTypes}
         duration={timelineDuration}
         currentTime={currentTime}
         timelinePositionLabel={formatTimelineMeasureProgress(currentTime)}
@@ -9559,6 +9636,7 @@ export default function Editor({
         exportRaw={runAsyncTutorialOperation('export', exportRaw, 'cancelled')}
         exportDr3Viewer={runAsyncTutorialOperation('export', exportDr3Viewer, 'cancelled')}
         exportDr3Fp={runAsyncTutorialOperation('export', exportDr3Fp, 'cancelled')}
+        exportChartData={runAsyncTutorialOperation('export', exportChartData, 'cancelled')}
         fps={fps}
         renderedObjects={renderedObjects}
         onPerformanceStatsMouseEnter={() => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Download, Grid2x2, Grid2x2X, HelpCircle, LoaderCircle, MoveHorizontal, Pause, Play, Settings, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,7 +20,7 @@ import {
 } from './editorDesign';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
-type UserExportFormat = Extract<ExportFormat, 'raw' | 'dr3-viewer' | 'dr3-fp'>;
+type UserExportFormat = Extract<ExportFormat, 'raw' | 'dr3-viewer' | 'dr3-fp' | 'chart-data'>;
 type ExportDialogStatus = 'idle' | 'exporting' | 'complete' | 'cancelled' | 'failed';
 
 interface EditorTopBarProps {
@@ -43,7 +43,9 @@ interface EditorTopBarProps {
   isExportMenuOpen: boolean;
   isPreviewMenuOpen: boolean;
   isExportDisabled: boolean;
+  hasExportAudioFile: boolean;
   hasExportIncompatibleTimeSignature: boolean;
+  hasUnsupportedFormattedExportNoteTypes: boolean;
   duration: number;
   currentTime: number;
   timelinePositionLabel: string;
@@ -72,6 +74,7 @@ interface EditorTopBarProps {
   exportRaw: () => Promise<ExportRunResult>;
   exportDr3Viewer: () => Promise<ExportRunResult>;
   exportDr3Fp: () => Promise<ExportRunResult>;
+  exportChartData: () => Promise<ExportRunResult>;
 }
 
 export default function EditorTopBar({
@@ -90,7 +93,9 @@ export default function EditorTopBar({
   isExportMenuOpen,
   isPreviewMenuOpen,
   isExportDisabled,
+  hasExportAudioFile,
   hasExportIncompatibleTimeSignature,
+  hasUnsupportedFormattedExportNoteTypes,
   duration,
   currentTime,
   timelinePositionLabel,
@@ -119,6 +124,7 @@ export default function EditorTopBar({
   exportRaw,
   exportDr3Viewer,
   exportDr3Fp,
+  exportChartData,
 }: EditorTopBarProps) {
   const text = translations;
   const [customPlaybackSpeedInput, setCustomPlaybackSpeedInput] = useState(() => `${playbackSpeed}`);
@@ -141,28 +147,49 @@ export default function EditorTopBar({
     format: UserExportFormat;
     label: string;
     description: string;
-  }> = [
-    {
-      format: 'raw',
-      label: text.editor.rawFormat,
-      description: text.editor.rawFormatDescription,
-    },
-    {
-      format: 'dr3-viewer',
-      label: text.editor.dr3ViewerFormat,
-      description: text.editor.dr3ViewerFormatDescription,
-    },
-    {
-      format: 'dr3-fp',
-      label: text.editor.dr3FpFormat,
-      description: text.editor.dr3FpFormatDescription,
-    },
-  ];
+  }> = hasExportAudioFile
+    ? [
+      {
+        format: 'raw',
+        label: text.editor.rawFormat,
+        description: text.editor.rawFormatDescription,
+      },
+      {
+        format: 'dr3-viewer',
+        label: text.editor.dr3ViewerFormat,
+        description: text.editor.dr3ViewerFormatDescription,
+      },
+      {
+        format: 'dr3-fp',
+        label: text.editor.dr3FpFormat,
+        description: text.editor.dr3FpFormatDescription,
+      },
+    ]
+    : [
+      {
+        format: 'chart-data',
+        label: text.editor.chartDataFormat,
+        description: text.editor.chartDataFormatDescription,
+      },
+    ];
   const isExportRunning = exportDialogStatus === 'exporting';
   const hasExportStarted = exportDialogStatus !== 'idle';
   const isSelectedExportFormatDisabled = isExportDisabled
-    || (selectedExportFormat !== 'raw' && hasExportIncompatibleTimeSignature);
-  const isFormattedExportDisabled = isExportDisabled || hasExportIncompatibleTimeSignature;
+    || (selectedExportFormat !== 'raw' && selectedExportFormat !== 'chart-data' && hasExportIncompatibleTimeSignature)
+    || (selectedExportFormat !== 'chart-data' && !hasExportAudioFile);
+  const isFormattedExportDisabled = isExportDisabled || !hasExportAudioFile || hasExportIncompatibleTimeSignature;
+
+  useEffect(() => {
+    if (!hasExportAudioFile && selectedExportFormat !== 'chart-data') {
+      setSelectedExportFormat('chart-data');
+      return;
+    }
+
+    if (hasExportAudioFile && selectedExportFormat === 'chart-data') {
+      setSelectedExportFormat('raw');
+    }
+  }, [hasExportAudioFile, selectedExportFormat]);
+
   const runSelectedExport = async () => {
     if (isSelectedExportFormatDisabled || isExportRunning) return;
 
@@ -173,6 +200,7 @@ export default function EditorTopBar({
       raw: exportRaw,
       'dr3-viewer': exportDr3Viewer,
       'dr3-fp': exportDr3Fp,
+      'chart-data': exportChartData,
     };
 
     const result = await exportByFormat[selectedExportFormat]();
@@ -537,13 +565,18 @@ export default function EditorTopBar({
                     {text.editor.exportIncompatibleTimeSignature}
                   </p>
                 )}
+                {hasUnsupportedFormattedExportNoteTypes && (
+                  <p className="mx-5 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                    {text.editor.exportUnsupportedNoteTypes}
+                  </p>
+                )}
 
-                <div className={`space-y-2 px-5 ${hasExportIncompatibleTimeSignature ? 'pb-5 pt-3' : 'py-5'}`}>
+                <div className={`space-y-2 px-5 ${hasExportIncompatibleTimeSignature || hasUnsupportedFormattedExportNoteTypes ? 'pb-5 pt-3' : 'py-5'}`}>
                   {exportOptions.map(option => (
                     <button
                       key={option.format}
                       type="button"
-                      disabled={isExportRunning || (option.format !== 'raw' && hasExportIncompatibleTimeSignature)}
+                      disabled={isExportRunning || (option.format !== 'raw' && option.format !== 'chart-data' && hasExportIncompatibleTimeSignature)}
                       onClick={() => {
                         setSelectedExportFormat(option.format);
                         setExportDialogStatus('idle');

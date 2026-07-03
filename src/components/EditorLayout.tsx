@@ -109,7 +109,9 @@ export default function EditorLayout(props: any) {
     isExportMenuOpen,
     isPreviewMenuOpen,
     isExportDisabled,
+    hasExportAudioFile,
     hasExportIncompatibleTimeSignature,
+    hasUnsupportedFormattedExportNoteTypes,
     duration,
     currentTime,
     timelinePositionLabel,
@@ -139,6 +141,7 @@ export default function EditorLayout(props: any) {
     exportRaw,
     exportDr3Viewer,
     exportDr3Fp,
+    exportChartData,
     fps,
     renderedObjects,
     onPerformanceStatsMouseEnter,
@@ -357,7 +360,9 @@ export default function EditorLayout(props: any) {
           isExportMenuOpen={isExportMenuOpen}
           isPreviewMenuOpen={isPreviewMenuOpen}
           isExportDisabled={isExportDisabled}
+          hasExportAudioFile={hasExportAudioFile}
           hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
+          hasUnsupportedFormattedExportNoteTypes={hasUnsupportedFormattedExportNoteTypes}
           duration={duration}
           currentTime={currentTime}
           timelinePositionLabel={timelinePositionLabel}
@@ -387,6 +392,7 @@ export default function EditorLayout(props: any) {
           exportRaw={exportRaw}
           exportDr3Viewer={exportDr3Viewer}
           exportDr3Fp={exportDr3Fp}
+          exportChartData={exportChartData}
         />
       </div>
 

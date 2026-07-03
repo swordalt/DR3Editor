@@ -1,9 +1,10 @@
 import type { BpmChange, Note, ProjectData, SpeedChange } from './editorTypes';
 
-export type ExportFormat = 'raw' | 'dr3-viewer' | 'dr3-fp' | 'dr3-fp-preview';
+export type ExportFormat = 'raw' | 'dr3-viewer' | 'dr3-fp' | 'dr3-fp-preview' | 'chart-data';
+export type ExportWorkerFormat = Exclude<ExportFormat, 'chart-data'>;
 
 export interface ExportWorkerPayload {
-  format: ExportFormat;
+  format: ExportWorkerFormat;
   projectData: ProjectData;
   notes: Note[];
   bpmChanges: BpmChange[];
