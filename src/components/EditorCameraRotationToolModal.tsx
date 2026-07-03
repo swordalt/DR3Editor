@@ -155,6 +155,28 @@ export default function EditorCameraRotationToolModal({
   }, [isOpen]);
 
   const parsedPreview = useMemo(() => parseKeyframes(keyframes, normalizedDuration), [keyframes, normalizedDuration]);
+  const usesDr3FpOnlyAngles = useMemo(() => {
+    const numericKeyframes = parsedPreview.keyframes.filter((keyframe): keyframe is CameraRotationToolKeyframe & { angle: number } => (
+      keyframe.angle !== 'native'
+    ));
+    if (numericKeyframes.some(keyframe => Math.abs(keyframe.angle) > 180)) {
+      return true;
+    }
+
+    for (let index = 0; index < parsedPreview.keyframes.length - 1; index += 1) {
+      const currentKeyframe = parsedPreview.keyframes[index];
+      const nextKeyframe = parsedPreview.keyframes[index + 1];
+      if (
+        currentKeyframe.angle !== 'native'
+        && nextKeyframe.angle !== 'native'
+        && Math.abs(nextKeyframe.angle - currentKeyframe.angle) > 180
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [parsedPreview.keyframes]);
   const getDisplayAngle = (keyframe: CameraRotationToolKeyframe) => (
     keyframe.angle === 'native'
       ? getNativeAngleAtTimepos(keyframe.location)
@@ -437,6 +459,11 @@ export default function EditorCameraRotationToolModal({
               <div>
                 <div className="text-sm font-semibold text-neutral-100">{text.keyframes}</div>
                 <div className="mt-1 text-xs text-neutral-500">{text.keyframesDescription}</div>
+                {usesDr3FpOnlyAngles && (
+                  <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    {text.dr3FpOnlyAngleWarning}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button

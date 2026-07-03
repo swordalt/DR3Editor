@@ -442,6 +442,8 @@ const PREVIEW_PINK_HOLD_CONNECTOR_TYPES = new Set([23, 24]);
 const CAMERA_ROTATION_TOOL_DAMAGE_HOLD_TYPE = 17;
 const CAMERA_ROTATION_TOOL_NOTE_WIDTH = 1;
 const CAMERA_ROTATION_TOOL_TARGET_EPSILON = 0.0005;
+const CAMERA_ROTATION_TOOL_FORBIDDEN_LANE_MIN = -16;
+const CAMERA_ROTATION_TOOL_FORBIDDEN_LANE_MAX = 32;
 const CAMERA_ROTATION_TOOL_FAR_LANE_MAGNITUDE = 240;
 const CAMERA_ROTATION_TOOL_MAX_CORRECTION_LANE_MAGNITUDE = 1200;
 const CAMERA_ROTATION_TOOL_MAX_CORRECTION_CONNECTORS = 24;
@@ -453,34 +455,27 @@ const roundCameraRotationToolChartValue = (value: number) => {
   const roundedValue = Number(value.toFixed(CAMERA_ROTATION_TOOL_CHART_PRECISION));
   return Object.is(roundedValue, -0) ? 0 : roundedValue;
 };
-const getCameraRotationToolSignedAngle = (angle: number) => {
-  const signedAngle = ((((angle + CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES) % 360) + 360) % 360)
-    - CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES;
-  return Object.is(signedAngle, -0) ? 0 : signedAngle;
-};
-const isCameraRotationToolHalfTurnAngle = (angle: number) => (
-  Math.abs(Math.abs(getCameraRotationToolSignedAngle(angle)) - CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES)
-  <= CAMERA_ROTATION_TOOL_TARGET_EPSILON
+const getCameraRotationToolHalfTurnCenter = (angle: number) => (
+  CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES
+  + 360 * Math.round((angle - CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES) / 360)
 );
-const doesCameraRotationToolAnglePreferNegativeHalfTurn = (angle: number) => {
-  if (isCameraRotationToolHalfTurnAngle(angle)) {
-    return angle < 0;
-  }
-
-  return getCameraRotationToolSignedAngle(angle) < 0;
-};
-const stabilizeCameraRotationToolTargetAngle = (angle: number, preferNegativeHalfTurn = false) => {
-  const signedAngle = getCameraRotationToolSignedAngle(angle);
+const isCameraRotationToolHalfTurnAngle = (angle: number) => (
+  Math.abs(angle - getCameraRotationToolHalfTurnCenter(angle)) <= CAMERA_ROTATION_TOOL_TARGET_EPSILON
+);
+const doesCameraRotationToolAnglePreferUpperHalfTurnMargin = (angle: number, halfTurnCenter: number) => (
+  angle > halfTurnCenter
+);
+const stabilizeCameraRotationToolTargetAngle = (angle: number, preferUpperHalfTurnMargin = false) => {
   if (!isCameraRotationToolHalfTurnAngle(angle)) {
-    return signedAngle;
+    return angle;
   }
 
-  // The player smooths against Unity Euler Z, where exactly 180 degrees can flip between
-  // the positive and negative representations. Emit a visually identical helper target just
-  // inside whichever side keeps nearby >180 or <-180 sections in the same signed-angle branch.
-  return preferNegativeHalfTurn
-    ? -CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES + CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES
-    : CAMERA_ROTATION_TOOL_HALF_TURN_DEGREES - CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES;
+  // Exact odd half-turns are the only unstable points. Keep authored multi-turn values
+  // unwrapped, and nudge the target to the side implied by neighboring keyframes.
+  const halfTurnCenter = getCameraRotationToolHalfTurnCenter(angle);
+  return preferUpperHalfTurnMargin
+    ? halfTurnCenter + CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES
+    : halfTurnCenter - CAMERA_ROTATION_TOOL_HALF_TURN_MARGIN_DEGREES;
 };
 const NATIVE_HOLD_CONNECTOR_SPRITE_COLORS: Record<number, { body: string; outline: string }> = {
   3: { body: '#623700', outline: '#fe8f00' },
@@ -8378,6 +8373,28 @@ export default function Editor({
     - CAMERA_ROTATION_TOOL_NOTE_WIDTH / 2
   );
 
+  const getCameraRotationToolPlayfieldSide = (lane: number) => {
+    if (lane + CAMERA_ROTATION_TOOL_NOTE_WIDTH <= CAMERA_ROTATION_TOOL_FORBIDDEN_LANE_MIN) {
+      return -1;
+    }
+
+    if (lane >= CAMERA_ROTATION_TOOL_FORBIDDEN_LANE_MAX) {
+      return 1;
+    }
+
+    return 0;
+  };
+
+  const isCameraRotationToolLaneClearOfPlayfield = (lane: number) => (
+    getCameraRotationToolPlayfieldSide(lane) !== 0
+  );
+
+  const isCameraRotationToolLaneSegmentClearOfPlayfield = (startLane: number, endLane: number) => {
+    const startSide = getCameraRotationToolPlayfieldSide(startLane);
+    const endSide = getCameraRotationToolPlayfieldSide(endLane);
+    return startSide !== 0 && startSide === endSide;
+  };
+
   const getCameraRotationToolCorrectionTiltsForCount = (
     startNativeCount: number,
     startNativeTiltTotal: number,
@@ -8395,12 +8412,15 @@ export default function Editor({
       endTargetAngle * (endNativeCount + connectorCount)
       - endNativeTiltTotal
     ) / connectorCount;
+    const startCorrectionLane = getCameraRotationToolLaneFromTilt(startCorrectionTilt);
+    const endCorrectionLane = getCameraRotationToolLaneFromTilt(endCorrectionTilt);
 
     if (
       !isCameraRotationToolTiltFarOutOfBounds(startCorrectionTilt)
       || !isCameraRotationToolTiltFarOutOfBounds(endCorrectionTilt)
       || !isCameraRotationToolTiltWithinCorrectionBounds(startCorrectionTilt)
       || !isCameraRotationToolTiltWithinCorrectionBounds(endCorrectionTilt)
+      || !isCameraRotationToolLaneSegmentClearOfPlayfield(startCorrectionLane, endCorrectionLane)
     ) {
       return null;
     }
@@ -8531,20 +8551,21 @@ export default function Editor({
         return keyframe;
       }
 
+      const halfTurnCenter = getCameraRotationToolHalfTurnCenter(keyframe.angle);
       const neighboringKeyframes = [
         sortedRequestKeyframes[keyframeIndex - 1],
         sortedRequestKeyframes[keyframeIndex + 1],
       ];
-      const preferNegativeHalfTurn = isCameraRotationToolHalfTurnAngle(keyframe.angle)
+      const preferUpperHalfTurnMargin = isCameraRotationToolHalfTurnAngle(keyframe.angle)
         && neighboringKeyframes.some(neighboringKeyframe => (
           neighboringKeyframe
           && neighboringKeyframe.angle !== 'native'
-          && doesCameraRotationToolAnglePreferNegativeHalfTurn(neighboringKeyframe.angle)
+          && doesCameraRotationToolAnglePreferUpperHalfTurnMargin(neighboringKeyframe.angle, halfTurnCenter)
         ));
 
       return {
         ...keyframe,
-        angle: stabilizeCameraRotationToolTargetAngle(keyframe.angle, preferNegativeHalfTurn),
+        angle: stabilizeCameraRotationToolTargetAngle(keyframe.angle, preferUpperHalfTurnMargin),
       };
     });
 
@@ -8591,6 +8612,14 @@ export default function Editor({
 
       const startLane = roundCameraRotationToolChartValue(getCameraRotationToolLaneFromTilt(startTiltDegrees));
       const endLane = roundCameraRotationToolChartValue(getCameraRotationToolLaneFromTilt(endTiltDegrees));
+      if (
+        !isCameraRotationToolLaneClearOfPlayfield(startLane)
+        || !isCameraRotationToolLaneClearOfPlayfield(endLane)
+        || !isCameraRotationToolLaneSegmentClearOfPlayfield(startLane, endLane)
+      ) {
+        return false;
+      }
+
       const activeChain = activeGeneratedChains[chainIndex] ?? null;
       const canContinueChain = Boolean(
         activeChain
@@ -8755,7 +8784,7 @@ export default function Editor({
           span.endTargetAngle,
           stableCorrectionConnectorCount,
         );
-        correctionTilts.forEach(({ startTiltDegrees, endTiltDegrees }, correctionIndex) => {
+        const emittedCorrectionCount = correctionTilts.reduce((count, { startTiltDegrees, endTiltDegrees }, correctionIndex) => (
           addGeneratedChainSegment(
             span.startTimepos,
             span.endTimepos,
@@ -8763,10 +8792,14 @@ export default function Editor({
             endTiltDegrees,
             correctionIndex,
             correctionTilts.length,
-          );
-        });
+          )
+            ? count + 1
+            : count
+        ), 0);
         activeGeneratedChains.length = correctionTilts.length;
-        generatedIntervalCount += 1;
+        if (emittedCorrectionCount > 0) {
+          generatedIntervalCount += 1;
+        }
         previousCorrectionSpanEndTimepos = span.endTimepos;
       });
     }
