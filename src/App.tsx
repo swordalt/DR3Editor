@@ -27,15 +27,15 @@ const EXAMPLES = [
   {
     id: 'eviternity',
     label: "Eviternity - Tier21 [Official]",
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/eviternity.21.zip',
-    fileName: 'eviternity.21.zip',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/eviternity_tier21_raw.zip',
+    fileName: 'eviternity_tier21_raw.zip',
     difficulty: '21',
   },
   {
     id: 'raidboss',
     label: 'カタストロフィック・ラヴ - Tier17 [Official]',
-    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/raidboss.zip',
-    fileName: 'raidboss.zip',
+    projectUrl: 'https://raw.githubusercontent.com/swordalt/dancerail3-editor/refs/heads/assets/exampleCharts/raidboss_tier17_raw.zip',
+    fileName: 'raidboss_tier17_raw.zip',
     difficulty: '17',
   },
 ] as const;
