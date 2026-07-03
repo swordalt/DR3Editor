@@ -291,7 +291,7 @@ export default function LandingPage({
                             {text.landing.inspiration}
                           </div>
                           <p className="mt-2 text-sm leading-5 text-neutral-300">
-                            {text.landing.inspirationAttributionPrefix} <strong className="font-semibold text-neutral-100">DanceRail3Maker</strong> {text.landing.inspirationAttributionMiddle} <strong className="font-semibold text-neutral-100">PhiEdit</strong> {text.landing.inspirationAttributionSuffix}
+                            {text.landing.inspirationAttributionPrefix} <strong className="font-semibold text-neutral-100">DRMaker</strong> {text.landing.inspirationAttributionMiddle} <strong className="font-semibold text-neutral-100">PhiEdit</strong> {text.landing.inspirationAttributionSuffix}
                           </p>
                         </div>
                       </div>

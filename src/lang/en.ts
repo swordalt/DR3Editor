@@ -1,7 +1,7 @@
 export const en = {
   app: {
     name: 'DanceRail3 Editor',
-    description: 'A fan-made web-based chart maker & editor for the rhythm game DanceRail3, staying mostly true to the official DanceRailMaker editor. Supports the official chart format completely.',
+    description: 'A fan-made web-based chart maker and editor for the rhythm game DanceRail3. Uses the official chart format and stays mostly true to DRMaker.',
     loadingEditor: 'Initializing editor...',
   },
   landing: {
