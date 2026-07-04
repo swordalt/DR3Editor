@@ -57,8 +57,10 @@ export default function EditorLayout(props: any) {
     isVSyncEnabled,
     isDr3FpPreviewEnabled,
     isPreviewPrecomputeEnabled,
+    isLanguageMenuOpen,
     isSelectionTypeMenuOpen,
     isStatisticsRefreshRateMenuOpen,
+    language,
     selectionType,
     statisticsRefreshRate,
     musicVolume,
@@ -84,8 +86,10 @@ export default function EditorLayout(props: any) {
     setIsVSyncEnabled,
     setIsDr3FpPreviewEnabled,
     setIsPreviewPrecomputeEnabled,
+    setIsLanguageMenuOpen,
     setIsSelectionTypeMenuOpen,
     setIsStatisticsRefreshRateMenuOpen,
+    setLanguage,
     setSelectionType,
     setStatisticsRefreshRate,
     setMusicVolume,
@@ -308,8 +312,10 @@ export default function EditorLayout(props: any) {
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
+        isLanguageMenuOpen={isLanguageMenuOpen}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
+        language={language}
         selectionType={selectionType}
         statisticsRefreshRate={statisticsRefreshRate}
         musicVolume={musicVolume}
@@ -328,8 +334,10 @@ export default function EditorLayout(props: any) {
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
+        setIsLanguageMenuOpen={setIsLanguageMenuOpen}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
+        setLanguage={setLanguage}
         setSelectionType={setSelectionType}
         setStatisticsRefreshRate={setStatisticsRefreshRate}
         setMusicVolume={setMusicVolume}

@@ -1,3 +1,5 @@
+import { translations } from '../lang';
+
 export type TutorialRegion =
   | 'topBar'
   | 'leftSidebar'
@@ -68,12 +70,14 @@ export interface TutorialSessionState {
   currentStepIndex: number;
 }
 
+const tutorialStepText = translations.tutorial.steps;
+
 export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'edit-chart-metadata',
-    title: 'Edit Difficulty',
-    body: 'A great way to organize your projects is to use metadata. You can edit this information in the Info & Files tab of the left sidebar.',
-    objective: 'Set Difficulty to 15 and save by pressing Enter.',
+    title: tutorialStepText.editChartMetadata.title,
+    body: tutorialStepText.editChartMetadata.body,
+    objective: tutorialStepText.editChartMetadata.objective,
     objectiveId: 'metadataSaved',
     dialoguePosition: 'right',
     focusTargets: ['leftSidebar'],
@@ -81,9 +85,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'edit-offset',
-    title: 'Edit Offset',
-    body: 'Offset shifts the chart against the audio and is important in any rhythm game. You can edit offset in the BPM & Timing tab.',
-    objective: 'Set Offset to 50 and save by pressing Enter.',
+    title: tutorialStepText.editOffset.title,
+    body: tutorialStepText.editOffset.body,
+    objective: tutorialStepText.editOffset.objective,
     objectiveId: 'offsetEdited',
     dialoguePosition: 'right',
     focusTargets: ['leftSidebar'],
@@ -91,9 +95,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'scroll-around',
-    title: 'Scroll Around',
-    body: 'The canvas is where you will place notes and do the actual charting. Move around by scrolling up or down. (You can change the scroll direction in Settings.)',
-    objective: 'Scroll the timeline once.',
+    title: tutorialStepText.scrollAround.title,
+    body: tutorialStepText.scrollAround.body,
+    objective: tutorialStepText.scrollAround.objective,
     objectiveId: 'timelineScrolled',
     dialoguePosition: 'right',
     focusTargets: ['canvas'],
@@ -101,9 +105,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'place-notes',
-    title: 'Place Notes',
-    body: 'Left-click to place notes. You can see a glowing translucent preview while hovering above the canvas.',
-    objective: 'Place one note with left click.',
+    title: tutorialStepText.placeNotes.title,
+    body: tutorialStepText.placeNotes.body,
+    objective: tutorialStepText.placeNotes.objective,
     objectiveId: 'notePlaced',
     dialoguePosition: 'right',
     focusTargets: ['canvas'],
@@ -111,9 +115,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'delete-notes',
-    title: 'Delete Notes',
-    body: 'Right-click to easily remove notes. This is the simplest method of removing a note.',
-    objective: 'Delete one note with right click.',
+    title: tutorialStepText.deleteNotes.title,
+    body: tutorialStepText.deleteNotes.body,
+    objective: tutorialStepText.deleteNotes.objective,
     objectiveId: 'noteDeleted',
     dialoguePosition: 'right',
     focusTargets: ['canvas'],
@@ -121,9 +125,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'change-note-type',
-    title: 'Change Note Type',
-    body: 'DanceRail3 offers many note types. Use the A and D keys to cycle through note types, like a carousel.',
-    objective: 'Select the Blue Hold Start (5).',
+    title: tutorialStepText.changeNoteType.title,
+    body: tutorialStepText.changeNoteType.body,
+    objective: tutorialStepText.changeNoteType.objective,
     objectiveId: 'noteTypeSelected',
     dialoguePosition: 'topLeft',
     focusTargets: ['selectedNoteTypeIndicator'],
@@ -131,9 +135,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'place-hold-notes',
-    title: 'Place Hold Notes',
-    body: 'A complete hold is built from a start, center, and end. Place them in that order, advancing in time, to create a hold chain.',
-    objective: 'Place type 5, then type 6, then type 7 across time, one after another.',
+    title: tutorialStepText.placeHoldNotes.title,
+    body: tutorialStepText.placeHoldNotes.body,
+    objective: tutorialStepText.placeHoldNotes.objective,
     objectiveId: 'holdSequencePlaced',
     dialoguePosition: 'topLeft',
     focusTargets: ['canvas', 'selectedNoteTypeIndicator'],
@@ -141,9 +145,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'start-pause-playback',
-    title: 'Playback',
-    body: 'You have been teleported to the beginning of a chart. Use the space bar or P to begin playback.',
-    objective: 'Commence playback and let the chart finish.',
+    title: tutorialStepText.startPausePlayback.title,
+    body: tutorialStepText.startPausePlayback.body,
+    objective: tutorialStepText.startPausePlayback.objective,
     objectiveId: 'playbackMeasure2Completed',
     dialoguePosition: 'topLeft',
     focusTargets: ['canvas', 'topBar'],
@@ -151,9 +155,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'preview-mode',
-    title: 'Preview Mode',
-    body: 'Preview mode is a 2D recreation of DanceRail3. Use the I key to switch to Preview Mode.',
-    objective: 'Press I, then start playback (Space or P) and let the chart finish.',
+    title: tutorialStepText.previewMode.title,
+    body: tutorialStepText.previewMode.body,
+    objective: tutorialStepText.previewMode.objective,
     objectiveId: 'previewPlaybackMeasure2Completed',
     dialoguePosition: 'topLeft',
     focusTargets: ['canvas', 'topBar'],

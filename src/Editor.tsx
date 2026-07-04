@@ -163,7 +163,7 @@ import {
   type TutorialOperation,
   type TutorialObjective,
 } from './editor/tutorial';
-import { formatTranslation, translations } from './lang';
+import { formatTranslation, translations, type LanguageCode } from './lang';
 
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
 
@@ -475,6 +475,7 @@ export default function Editor({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isPlaybackSpeedMenuOpen, setIsPlaybackSpeedMenuOpen] = useState(false);
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const [isStatisticsRefreshRateMenuOpen, setIsStatisticsRefreshRateMenuOpen] = useState(false);
   const [isSelectionTypeMenuOpen, setIsSelectionTypeMenuOpen] = useState(false);
   const [isExitWarningOpen, setIsExitWarningOpen] = useState(false);
@@ -486,6 +487,7 @@ export default function Editor({
   const [isEditorJudgementGlowEnabled, setIsEditorJudgementGlowEnabled] = useState(initialEditorSettings.isEditorJudgementGlowEnabled);
   const [isVSyncEnabled, setIsVSyncEnabled] = useState(initialEditorSettings.isVSyncEnabled);
   const [isDr3FpPreviewEnabled, setIsDr3FpPreviewEnabled] = useState(initialEditorSettings.isDr3FpPreviewEnabled);
+  const [language, setLanguage] = useState<LanguageCode>(initialEditorSettings.language);
   const [selectionType, setSelectionType] = useState<SelectionType>(initialEditorSettings.selectionType);
   const [statisticsRefreshRate, setStatisticsRefreshRate] = useState<StatisticsRefreshRate>(initialEditorSettings.statisticsRefreshRate);
   const [musicVolume, setMusicVolume] = useState(initialEditorSettings.musicVolume);
@@ -635,6 +637,7 @@ export default function Editor({
 
   useEffect(() => {
     saveEditorSettings({
+      language,
       isExitWarningEnabled,
       isBackdropBlurDisabled,
       isAnimationDisabled,
@@ -665,6 +668,7 @@ export default function Editor({
       preview3DTiltDegrees,
     });
   }, [
+    language,
     isExitWarningEnabled,
     isBackdropBlurDisabled,
     isAnimationDisabled,
@@ -8798,8 +8802,10 @@ export default function Editor({
         isVSyncEnabled={isVSyncEnabled}
         isDr3FpPreviewEnabled={isDr3FpPreviewEnabled}
         isPreviewPrecomputeEnabled={isPreviewPrecomputeEnabled}
+        isLanguageMenuOpen={isLanguageMenuOpen}
         isSelectionTypeMenuOpen={isSelectionTypeMenuOpen}
         isStatisticsRefreshRateMenuOpen={isStatisticsRefreshRateMenuOpen}
+        language={language}
         selectionType={selectionType}
         statisticsRefreshRate={statisticsRefreshRate}
         musicVolume={musicVolume}
@@ -8825,8 +8831,10 @@ export default function Editor({
         setIsVSyncEnabled={setIsVSyncEnabled}
         setIsDr3FpPreviewEnabled={setIsDr3FpPreviewEnabled}
         setIsPreviewPrecomputeEnabled={setIsPreviewPrecomputeEnabled}
+        setIsLanguageMenuOpen={setIsLanguageMenuOpen}
         setIsSelectionTypeMenuOpen={setIsSelectionTypeMenuOpen}
         setIsStatisticsRefreshRateMenuOpen={setIsStatisticsRefreshRateMenuOpen}
+        setLanguage={setLanguage}
         setSelectionType={setSelectionType}
         setStatisticsRefreshRate={setStatisticsRefreshRate}
         setMusicVolume={setMusicVolume}

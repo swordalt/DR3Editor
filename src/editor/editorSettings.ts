@@ -1,3 +1,5 @@
+import { LANGUAGE_OPTIONS, type LanguageCode } from '../lang';
+
 export const DEFAULT_PIXELS_PER_BEAT = 150;
 export const MIN_PIXELS_PER_BEAT = 20;
 export const MAX_PIXELS_PER_BEAT = 500;
@@ -14,6 +16,7 @@ export type SelectionType = typeof SELECTION_TYPE_OPTIONS[number];
 export type PreviewDisplayMode = typeof PREVIEW_DISPLAY_MODE_OPTIONS[number];
 
 export interface EditorSettings {
+  language: LanguageCode;
   isExitWarningEnabled: boolean;
   isBackdropBlurDisabled: boolean;
   isAnimationDisabled: boolean;
@@ -45,6 +48,7 @@ export interface EditorSettings {
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  language: 'en',
   isExitWarningEnabled: true,
   isBackdropBlurDisabled: false,
   isAnimationDisabled: false,
@@ -118,6 +122,11 @@ const isValidPreview3DTiltDegrees = (value: unknown): value is number => (
   value <= MAX_PREVIEW_3D_TILT_DEGREES
 );
 
+const isValidLanguageCode = (value: unknown): value is LanguageCode => (
+  typeof value === 'string' &&
+  LANGUAGE_OPTIONS.some(option => option.id === value)
+);
+
 export const getStatisticsRefreshIntervalMs = (refreshRate: StatisticsRefreshRate) => {
   if (refreshRate === 'max') {
     return 0;
@@ -137,6 +146,9 @@ export const loadEditorSettings = (): EditorSettings => {
     if (!isPlainRecord(parsedSettings)) return DEFAULT_EDITOR_SETTINGS;
 
     return {
+      language: isValidLanguageCode(parsedSettings.language)
+        ? parsedSettings.language
+        : DEFAULT_EDITOR_SETTINGS.language,
       isExitWarningEnabled: typeof parsedSettings.isExitWarningEnabled === 'boolean'
         ? parsedSettings.isExitWarningEnabled
         : DEFAULT_EDITOR_SETTINGS.isExitWarningEnabled,

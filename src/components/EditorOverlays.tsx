@@ -16,7 +16,7 @@ import {
   type StatisticsRefreshRate,
 } from '../editor/editorSettings';
 import { SELECTION_TYPE_LABELS } from '../editor/editorViewConstants';
-import { translations } from '../lang';
+import { LANGUAGE_OPTIONS, translations, type LanguageCode } from '../lang';
 import {
   dialogFooterClassName,
   dialogHeaderClassName,
@@ -43,8 +43,10 @@ interface EditorOverlaysProps {
   isVSyncEnabled: boolean;
   isDr3FpPreviewEnabled: boolean;
   isPreviewPrecomputeEnabled: boolean;
+  isLanguageMenuOpen: boolean;
   isSelectionTypeMenuOpen: boolean;
   isStatisticsRefreshRateMenuOpen: boolean;
+  language: LanguageCode;
   selectionType: SelectionType;
   statisticsRefreshRate: StatisticsRefreshRate;
   musicVolume: number;
@@ -63,8 +65,10 @@ interface EditorOverlaysProps {
   setIsVSyncEnabled: Dispatch<SetStateAction<boolean>>;
   setIsDr3FpPreviewEnabled: Dispatch<SetStateAction<boolean>>;
   setIsPreviewPrecomputeEnabled: Dispatch<SetStateAction<boolean>>;
+  setIsLanguageMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsSelectionTypeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setIsStatisticsRefreshRateMenuOpen: Dispatch<SetStateAction<boolean>>;
+  setLanguage: Dispatch<SetStateAction<LanguageCode>>;
   setSelectionType: Dispatch<SetStateAction<SelectionType>>;
   setStatisticsRefreshRate: Dispatch<SetStateAction<StatisticsRefreshRate>>;
   setMusicVolume: Dispatch<SetStateAction<number>>;
@@ -329,8 +333,10 @@ export default function EditorOverlays({
   isVSyncEnabled,
   isDr3FpPreviewEnabled,
   isPreviewPrecomputeEnabled,
+  isLanguageMenuOpen,
   isSelectionTypeMenuOpen,
   isStatisticsRefreshRateMenuOpen,
+  language,
   selectionType,
   statisticsRefreshRate,
   musicVolume,
@@ -349,8 +355,10 @@ export default function EditorOverlays({
   setIsVSyncEnabled,
   setIsDr3FpPreviewEnabled,
   setIsPreviewPrecomputeEnabled,
+  setIsLanguageMenuOpen,
   setIsSelectionTypeMenuOpen,
   setIsStatisticsRefreshRateMenuOpen,
+  setLanguage,
   setSelectionType,
   setStatisticsRefreshRate,
   setMusicVolume,
@@ -362,6 +370,7 @@ export default function EditorOverlays({
   const [isDr3FpPreviewLogOpen, setIsDr3FpPreviewLogOpen] = useState(true);
   const closeSettings = () => {
     setIsSettingsOpen(false);
+    setIsLanguageMenuOpen(false);
     setIsStatisticsRefreshRateMenuOpen(false);
     setIsSelectionTypeMenuOpen(false);
   };
@@ -486,6 +495,7 @@ export default function EditorOverlays({
               <button
                 type="button"
                 onClick={() => {
+                  setIsLanguageMenuOpen(false);
                   setIsStatisticsRefreshRateMenuOpen(false);
                   setIsSelectionTypeMenuOpen(current => !current);
                 }}
@@ -498,7 +508,7 @@ export default function EditorOverlays({
               </button>
               {isSelectionTypeMenuOpen && (
                 <div
-                  className={`relative z-50 mt-2 ${menuSurfaceClassName}`}
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {SELECTION_TYPE_OPTIONS.map((nextSelectionType) => (
@@ -537,13 +547,66 @@ export default function EditorOverlays({
             </div>
           </div>
 
-          <SettingsToggle
-            label={text.overlays.disableBlurEffects}
-            description={text.overlays.disableBlurEffectsDescription}
-            isEnabled={isBackdropBlurDisabled}
-            ariaLabel={text.overlays.toggleBlurEffects}
-            onToggle={() => setIsBackdropBlurDisabled((current) => !current)}
-          />
+          <div className={`relative rounded-2xl border border-white/10 bg-neutral-950/60 p-4 ${isLanguageMenuOpen ? 'z-20' : 'z-0'}`}>
+            <div className="mb-3">
+              <p className="text-sm font-medium text-white">{text.overlays.language}</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                {text.overlays.languageDescription}
+              </p>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionTypeMenuOpen(false);
+                  setIsStatisticsRefreshRateMenuOpen(false);
+                  setIsLanguageMenuOpen(current => !current);
+                }}
+                className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-left text-sm text-neutral-200 outline-none transition-colors hover:bg-neutral-800 focus:border-indigo-500"
+                aria-label={text.overlays.chooseLanguage}
+                aria-haspopup="menu"
+                aria-expanded={isLanguageMenuOpen}
+              >
+                <span>{LANGUAGE_OPTIONS.find(option => option.id === language)?.label ?? language}</span>
+                <ChevronRight className={`h-4 w-4 text-neutral-500 transition-transform ${isLanguageMenuOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {isLanguageMenuOpen && (
+                <div
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
+                  role="menu"
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setLanguage(option.id);
+                        setIsLanguageMenuOpen(false);
+                      }}
+                      className={`w-full rounded px-3 py-2 text-left text-sm transition-colors ${
+                        language === option.id
+                          ? 'bg-indigo-500/20 text-indigo-200'
+                          : 'text-neutral-200 hover:bg-neutral-800'
+                      }`}
+                      role="menuitem"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <SettingsToggle
+              label={text.overlays.disableBlurEffects}
+              description={text.overlays.disableBlurEffectsDescription}
+              isEnabled={isBackdropBlurDisabled}
+              ariaLabel={text.overlays.toggleBlurEffects}
+              onToggle={() => setIsBackdropBlurDisabled((current) => !current)}
+            />
+          </div>
 
           <div className="mt-4">
             <SettingsToggle
@@ -662,6 +725,7 @@ export default function EditorOverlays({
               <button
                 type="button"
                 onClick={() => {
+                  setIsLanguageMenuOpen(false);
                   setIsSelectionTypeMenuOpen(false);
                   setIsStatisticsRefreshRateMenuOpen(current => !current);
                 }}
@@ -674,7 +738,7 @@ export default function EditorOverlays({
               </button>
               {isStatisticsRefreshRateMenuOpen && (
                 <div
-                  className={`relative z-50 mt-2 ${menuSurfaceClassName}`}
+                  className={`absolute left-0 right-0 top-full z-50 mt-2 ${menuSurfaceClassName}`}
                   role="menu"
                 >
                   {STATISTICS_REFRESH_RATE_OPTIONS.map((refreshRate) => (
@@ -983,6 +1047,7 @@ export default function EditorOverlays({
                     className={
                       (section === 'editing' && isSelectionTypeMenuOpen)
                         || (section === 'performance' && isStatisticsRefreshRateMenuOpen)
+                        || (section === 'appearance' && isLanguageMenuOpen)
                         ? 'relative z-20'
                         : 'relative z-0'
                     }

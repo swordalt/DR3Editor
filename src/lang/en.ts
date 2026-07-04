@@ -127,6 +127,53 @@ export const en = {
     back: 'Back',
     skip: 'Skip',
     exit: 'Exit tutorial',
+    steps: {
+      editChartMetadata: {
+        title: 'Edit Difficulty',
+        body: 'A great way to organize your projects is to use metadata. You can edit this information in the Info & Files tab of the left sidebar.',
+        objective: 'Set Difficulty to 15 and save by pressing Enter.',
+      },
+      editOffset: {
+        title: 'Edit Offset',
+        body: 'Offset shifts the chart against the audio and is important in any rhythm game. You can edit offset in the BPM & Timing tab.',
+        objective: 'Set Offset to 50 and save by pressing Enter.',
+      },
+      scrollAround: {
+        title: 'Scroll Around',
+        body: 'The canvas is where you will place notes and do the actual charting. Move around by scrolling up or down. (You can change the scroll direction in Settings.)',
+        objective: 'Scroll the timeline once.',
+      },
+      placeNotes: {
+        title: 'Place Notes',
+        body: 'Left-click to place notes. You can see a glowing translucent preview while hovering above the canvas.',
+        objective: 'Place one note with left click.',
+      },
+      deleteNotes: {
+        title: 'Delete Notes',
+        body: 'Right-click to easily remove notes. This is the simplest method of removing a note.',
+        objective: 'Delete one note with right click.',
+      },
+      changeNoteType: {
+        title: 'Change Note Type',
+        body: 'DanceRail3 offers many note types. Use the A and D keys to cycle through note types, like a carousel.',
+        objective: 'Select the Blue Hold Start (5).',
+      },
+      placeHoldNotes: {
+        title: 'Place Hold Notes',
+        body: 'A complete hold is built from a start, center, and end. Place them in that order, advancing in time, to create a hold chain.',
+        objective: 'Place type 5, then type 6, then type 7 across time, one after another.',
+      },
+      startPausePlayback: {
+        title: 'Playback',
+        body: 'You have been teleported to the beginning of a chart. Use the space bar or P to begin playback.',
+        objective: 'Commence playback and let the chart finish.',
+      },
+      previewMode: {
+        title: 'Preview Mode',
+        body: 'Preview mode is a 2D recreation of DanceRail3. Use the I key to switch to Preview Mode.',
+        objective: 'Press I, then start playback (Space or P) and let the chart finish.',
+      },
+    },
   },
   editor: {
     backToLanding: 'Exit the editor',
@@ -554,6 +601,9 @@ export const en = {
     statisticsRefreshRateDescription: 'Limit how often live statistics update in the properties window.',
     appearance: 'Appearance',
     appearanceDescription: 'Adjust editor appearance and visuals.',
+    language: 'Language',
+    languageDescription: 'Choose the editor display language.',
+    chooseLanguage: 'Choose language',
     disableBlurEffects: 'Disable Blur',
     disableBlurEffectsDescription: 'Replace blur with a dark overlay. Reduces GPU load.',
     toggleBlurEffects: 'Toggle blur effect replacement',
