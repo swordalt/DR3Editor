@@ -239,13 +239,12 @@ export default function EditorRightSidebar(props: any) {
                     <CommitInput
                       type="number"
                       min="0"
-                      max="16"
                       step="0.01"
                       value={selectedSingleNote.width}
                       className={notePropertyInputClass}
                       onCommit={(value) => {
                         const parsedWidth = Number(value);
-                        const width = Number.isFinite(parsedWidth) ? Math.max(0, Math.min(16, parsedWidth)) : selectedSingleNote.width;
+                        const width = Number.isFinite(parsedWidth) ? Math.max(0, parsedWidth) : selectedSingleNote.width;
                         updateSelectedNote({ width });
                       }}
                     />

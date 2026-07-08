@@ -4696,7 +4696,7 @@ export default function Editor({
         const progress = beatSpan === 0 ? 0 : (beat - startCurveBeat) / beatSpan;
         const easedProgress = previewCurveEasingOption.ease(progress);
         const interpolatedWidth = previewStartNote.width + (previewEndNote.width - previewStartNote.width) * easedProgress;
-        const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
+        const width = Math.max(1, Number(interpolatedWidth.toFixed(3)));
         const center = startCenter + (endCenter - startCenter) * easedProgress;
         const lane = Number((center - width / 2).toFixed(3));
 
@@ -7068,7 +7068,7 @@ export default function Editor({
       const progress = beatSpan === 0 ? 0 : (beat - startBeat) / beatSpan;
       const easedProgress = curveEasingOption.ease(progress);
       const interpolatedWidth = startNote.width + (endNote.width - startNote.width) * easedProgress;
-      const width = Math.max(1, Math.min(X_POSITION_COUNT, Number(interpolatedWidth.toFixed(3))));
+      const width = Math.max(1, Number(interpolatedWidth.toFixed(3)));
       const center = startCenter + (endCenter - startCenter) * easedProgress;
       const lane = Number((center - width / 2).toFixed(3));
       const id = firstGeneratedId + index;
@@ -7575,9 +7575,7 @@ export default function Editor({
       let nextNote: Note | null = null;
 
       if (request.target === 'lane') {
-        const laneMinimum = isOutOfBoundsPlacementEnabled ? -16 : 0;
-        const laneMaximum = isOutOfBoundsPlacementEnabled ? 32 : X_POSITION_COUNT;
-        const nextLane = Math.max(laneMinimum, Math.min(laneMaximum, getNextNumericValue(note.lane, editValue)));
+        const nextLane = getNextNumericValue(note.lane, editValue);
         nextNote = Math.abs(nextLane - note.lane) > SNAP_EPSILON ? { ...note, lane: nextLane } : null;
       } else if (request.target === 'time') {
         const currentTimepos = getTimeposFromTime(note.time);
@@ -7585,7 +7583,7 @@ export default function Editor({
         const nextTime = getTimeFromTimepos(nextTimepos);
         nextNote = Math.abs(nextTime - note.time) > SNAP_EPSILON ? { ...note, time: nextTime } : null;
       } else if (request.target === 'width') {
-        const nextWidth = Math.max(0, Math.min(X_POSITION_COUNT, getNextNumericValue(note.width, editValue)));
+        const nextWidth = Math.max(0, getNextNumericValue(note.width, editValue));
         nextNote = Math.abs(nextWidth - note.width) > SNAP_EPSILON ? { ...note, width: nextWidth } : null;
       } else if (request.target === 'type') {
         const nextType = getNearestAvailableNoteType(getNextNumericValue(note.type, editValue));
