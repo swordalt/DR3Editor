@@ -179,6 +179,7 @@ export default function LandingPage({
             <input
               type="file"
               accept=".zip,.txt"
+              multiple
               ref={fileInputRef}
               onChange={onFileChange}
               className="hidden"

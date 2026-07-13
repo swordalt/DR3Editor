@@ -265,6 +265,16 @@ interface PreviewModePrecomputeCache {
   cameraTiltIntervals: PreviewCameraTiltInterval[];
 }
 
+interface PreviewCanvasCacheKey {
+  notes: Note[];
+  bpmChanges: BpmChange[];
+  speedChanges: SpeedChange[];
+  previewSpeedChanges: SpeedChange[];
+  isPreviewNoteSpeedChangesEnabled: boolean;
+  isPreviewNoteAppearModeEnabled: boolean;
+  usesOfficialPreviewRules: boolean;
+}
+
 interface BeatIndexedEntry<T> {
   beat: number;
   change: T;
@@ -284,7 +294,8 @@ interface PreviewCachedHitFxFrame {
 
 type PreviewCanvasLoadPhase = 'idle' | 'visible' | 'full';
 
-const PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING = 32;
+const PREVIEW_INITIAL_CANVAS_SECONDS_BEHIND = 12;
+const PREVIEW_INITIAL_CANVAS_SECONDS_AHEAD = 30;
 const PREVIEW_NOTE_TEXTURE_HEIGHT_SCALE = 0.3;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE = 0.55;
@@ -806,9 +817,11 @@ export default function Editor({
   const playTimeoutRef = useRef<number>();
   const isLoopingPlaybackRef = useRef(false);
   const hiddenPreviewNoteIdsRef = useRef<Set<number>>(new Set());
+  const previewHiddenThroughTimeRef = useRef(Number.NEGATIVE_INFINITY);
   const previewHitFxEventsRef = useRef<PreviewHitFxEvent[]>([]);
   const previewComboTimesRef = useRef<number[]>([]);
   const previewModePrecomputeCacheRef = useRef<PreviewModePrecomputeCache | null>(null);
+  const previewCanvasCacheKeyRef = useRef<PreviewCanvasCacheKey | null>(null);
   const previewChartStatisticsIndexRef = useRef<ChartStatisticsIndex | null>(null);
   const previewPlaybackSpeedDistanceIndexRef = useRef<SpeedDistancePoint[]>([]);
   const previewCameraTiltSegmentsRef = useRef<PreviewCameraTiltSegment[]>([]);
@@ -926,13 +939,7 @@ export default function Editor({
   const resetPreviewJudgementState = useCallback((time = stateRef.current.currentTime, hidePastNotes = false) => {
     hiddenPreviewNoteIdsRef.current.clear();
     previewHitFxEventsRef.current = [];
-    if (hidePastNotes) {
-      stateRef.current.notes.forEach(note => {
-        if (note.time <= time) {
-          hiddenPreviewNoteIdsRef.current.add(note.id);
-        }
-      });
-    }
+    previewHiddenThroughTimeRef.current = hidePastNotes ? time : Number.NEGATIVE_INFINITY;
     previewJudgementCursorTimeRef.current = time;
   }, []);
 
@@ -1553,28 +1560,54 @@ export default function Editor({
     }))),
     [getTimeFromTimepos, previewSpeedChanges],
   );
+  const editorChartStatisticsIndex = useMemo(() => buildChartStatisticsIndex({
+    getTimeFromTimepos,
+    notes,
+    speedChanges,
+  }), [getTimeFromTimepos, notes, speedChanges]);
+  const previewChartStatisticsFallbackIndex = useMemo<ChartStatisticsIndex>(() => {
+    if (previewSpeedChanges === speedChanges) {
+      return editorChartStatisticsIndex;
+    }
+
+    const sortedSpeedChanges = [...previewSpeedChanges].sort((a, b) => a.timepos - b.timepos);
+    return {
+      ...editorChartStatisticsIndex,
+      sortedSpeedChanges,
+      speedDistanceIndex: buildSpeedDistanceIndex(sortedSpeedChanges.map(change => ({
+        ...change,
+        timepos: getTimeFromTimepos(change.timepos),
+      }))),
+    };
+  }, [editorChartStatisticsIndex, getTimeFromTimepos, previewSpeedChanges, speedChanges]);
   useEffect(() => {
     previewComboTimesRef.current = [];
     previewChartStatisticsIndexRef.current = null;
     previewPlaybackSpeedDistanceIndexRef.current = [];
   }, [previewSpeedChanges]);
   const isPreviewCanvasLoadingVisibleOnly = isPreviewMode && previewCanvasLoadPhase === 'visible';
-  const previewInitialDistanceWindow = useMemo(() => {
-    const viewportHeight = containerRef.current?.clientHeight || window.innerHeight || 720;
-    const hitLineY = viewportHeight - 150;
-    const previewDistanceScale = Math.max(1, 4 * pixelsPerBeat);
-    const currentPreviewDistance = getSpeedDistanceAtTimepos(
-      previewVisibleWindowTime,
-      previewPlaybackSpeedDistanceIndex,
-    );
-    const visibleBehindDistance = (viewportHeight - hitLineY + 40) / previewDistanceScale;
-    const visibleAheadDistance = (hitLineY + 40) / previewDistanceScale;
-
-    return {
-      min: currentPreviewDistance - visibleBehindDistance - PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING,
-      max: currentPreviewDistance + visibleAheadDistance + PREVIEW_INITIAL_CANVAS_DISTANCE_PADDING,
-    };
-  }, [pixelsPerBeat, previewCanvasLoadPhase, previewPlaybackSpeedDistanceIndex, previewVisibleWindowTime]);
+  const previewCanvasCacheKey = previewCanvasCacheKeyRef.current;
+  const canReuseFullPreviewCanvas = Boolean(
+    previewCanvasCacheKey
+    && previewCanvasCacheKey.notes === notes
+    && previewCanvasCacheKey.bpmChanges === bpmChanges
+    && previewCanvasCacheKey.speedChanges === speedChanges
+    && previewCanvasCacheKey.previewSpeedChanges === previewSpeedChanges
+    && previewCanvasCacheKey.isPreviewNoteSpeedChangesEnabled === isPreviewNoteSpeedChangesEnabled
+    && previewCanvasCacheKey.isPreviewNoteAppearModeEnabled === isPreviewNoteAppearModeEnabled
+    && previewCanvasCacheKey.usesOfficialPreviewRules === usesOfficialPreviewRules
+  );
+  const shouldBuildPreviewCanvasData = isPreviewMode || canReuseFullPreviewCanvas;
+  const previewInitialBeatWindow = useMemo(() => ({
+    min: getBeatAtTime(
+      Math.max(0, previewVisibleWindowTime - PREVIEW_INITIAL_CANVAS_SECONDS_BEHIND),
+      timedBpmChanges,
+    ),
+    max: getBeatAtTime(
+      previewVisibleWindowTime + PREVIEW_INITIAL_CANVAS_SECONDS_AHEAD,
+      timedBpmChanges,
+    ),
+  }), [previewVisibleWindowTime, timedBpmChanges]);
 
   useEffect(() => {
     if (!isPreviewCanvasLoadingVisibleOnly) {
@@ -1590,6 +1623,15 @@ export default function Editor({
         return;
       }
 
+      previewCanvasCacheKeyRef.current = {
+        notes,
+        bpmChanges,
+        speedChanges,
+        previewSpeedChanges,
+        isPreviewNoteSpeedChangesEnabled,
+        isPreviewNoteAppearModeEnabled,
+        usesOfficialPreviewRules,
+      };
       setPreviewVisibleWindowTime(stateRef.current.currentTime);
       setPreviewCanvasLoadPhase('full');
     };
@@ -1613,7 +1655,16 @@ export default function Editor({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isPreviewCanvasLoadingVisibleOnly]);
+  }, [
+    bpmChanges,
+    isPreviewCanvasLoadingVisibleOnly,
+    isPreviewNoteAppearModeEnabled,
+    isPreviewNoteSpeedChangesEnabled,
+    notes,
+    previewSpeedChanges,
+    speedChanges,
+    usesOfficialPreviewRules,
+  ]);
 
   const togglePreviewMode = useCallback(() => {
     setIsPreviewMode(current => {
@@ -1635,12 +1686,14 @@ export default function Editor({
 
       if (nextPreviewMode) {
         setPreviewVisibleWindowTime(previewStartTime);
-        setPreviewCanvasLoadPhase('visible');
+        setPreviewCanvasLoadPhase(canReuseFullPreviewCanvas ? 'full' : 'visible');
 
-        previewComboTimesRef.current = [];
-        previewChartStatisticsIndexRef.current = null;
-        previewPlaybackSpeedDistanceIndexRef.current = [];
-        previewCameraTiltIntervalsRef.current = [];
+        if (!canReuseFullPreviewCanvas) {
+          previewComboTimesRef.current = [];
+          previewChartStatisticsIndexRef.current = null;
+          previewPlaybackSpeedDistanceIndexRef.current = [];
+          previewCameraTiltIntervalsRef.current = [];
+        }
         previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
@@ -1658,8 +1711,10 @@ export default function Editor({
         clearActiveNoteInteraction();
         pasteTargetRef.current = null;
       } else {
-        setPreviewVisibleWindowTime(0);
-        setPreviewCanvasLoadPhase('idle');
+        if (!canReuseFullPreviewCanvas) {
+          setPreviewVisibleWindowTime(0);
+          setPreviewCanvasLoadPhase('idle');
+        }
         previewCameraRotationRadiansRef.current = 0;
         previewTiltTimestampRef.current = 0;
         preview3DCameraScaleRef.current = 1;
@@ -1669,7 +1724,7 @@ export default function Editor({
 
       return nextPreviewMode;
     });
-  }, [clearActiveNoteInteraction, resetPreviewJudgementState]);
+  }, [canReuseFullPreviewCanvas, clearActiveNoteInteraction, resetPreviewJudgementState]);
 
   const handleCopySelectedNotes = useCallback(() => {
     const selectedIdSet = new Set(selectedNoteIds);
@@ -1871,7 +1926,7 @@ export default function Editor({
     [getCameraRotationToolNativeTiltState],
   );
   const previewNoteBeatEntriesSource = useMemo(() => {
-    if (!isPreviewMode) {
+    if (!shouldBuildPreviewCanvasData) {
       return [];
     }
 
@@ -1879,20 +1934,19 @@ export default function Editor({
       return noteRenderIndex.noteBeatEntries;
     }
 
-    return noteRenderIndex.noteBeatEntries.filter(({ note }) => {
-      const noteDistance = getSpeedDistanceAtTimepos(note.time, previewPlaybackSpeedDistanceIndex);
-      return noteDistance >= previewInitialDistanceWindow.min
-        && noteDistance <= previewInitialDistanceWindow.max;
-    });
+    return getNoteBeatEntriesInRange(
+      noteRenderIndex.noteBeatEntries,
+      previewInitialBeatWindow.min,
+      previewInitialBeatWindow.max,
+    );
   }, [
     isPreviewCanvasLoadingVisibleOnly,
-    isPreviewMode,
+    shouldBuildPreviewCanvasData,
     noteRenderIndex.noteBeatEntries,
-    previewInitialDistanceWindow,
-    previewPlaybackSpeedDistanceIndex,
+    previewInitialBeatWindow,
   ]);
   const previewHoldConnectorSegmentsSource = useMemo(() => {
-    if (!isPreviewMode) {
+    if (!shouldBuildPreviewCanvasData) {
       return [];
     }
 
@@ -1900,18 +1954,18 @@ export default function Editor({
       return noteRenderIndex.holdConnectorSegments;
     }
 
-    return noteRenderIndex.holdConnectorSegments.filter((segment) => {
-      const noteDistance = getSpeedDistanceAtTimepos(segment.note.time, previewPlaybackSpeedDistanceIndex);
-      const parentDistance = getSpeedDistanceAtTimepos(segment.parentNote.time, previewPlaybackSpeedDistanceIndex);
-      return Math.max(noteDistance, parentDistance) >= previewInitialDistanceWindow.min
-        && Math.min(noteDistance, parentDistance) <= previewInitialDistanceWindow.max;
-    });
+    return getHoldConnectorSegmentsInRange(
+      noteRenderIndex.holdConnectorSegmentsByMinBeat,
+      noteRenderIndex.holdConnectorSegmentsByMaxBeat,
+      previewInitialBeatWindow.min,
+      previewInitialBeatWindow.max,
+    );
   }, [
     isPreviewCanvasLoadingVisibleOnly,
-    isPreviewMode,
-    noteRenderIndex.holdConnectorSegments,
-    previewInitialDistanceWindow,
-    previewPlaybackSpeedDistanceIndex,
+    shouldBuildPreviewCanvasData,
+    noteRenderIndex.holdConnectorSegmentsByMaxBeat,
+    noteRenderIndex.holdConnectorSegmentsByMinBeat,
+    previewInitialBeatWindow,
   ]);
   const previewCanvasNotesSource = useMemo(
     () => isPreviewCanvasLoadingVisibleOnly
@@ -1933,7 +1987,7 @@ export default function Editor({
   }, [noteRenderIndex.notesById, selectedNoteIds]);
   const previewNoteRenderEntries = useMemo(
     () => {
-      if (!isPreviewMode) {
+      if (!shouldBuildPreviewCanvasData) {
         return [];
       }
 
@@ -1963,7 +2017,7 @@ export default function Editor({
       getTimeposFromTime,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
-      isPreviewMode,
+      shouldBuildPreviewCanvasData,
       previewNoteBeatEntriesSource,
       previewPlaybackSpeedDistanceIndex,
       speedDistanceIndex,
@@ -2039,7 +2093,7 @@ export default function Editor({
   );
   const previewHoldConnectorSegments = useMemo(
     () => {
-      if (!isPreviewMode) {
+      if (!shouldBuildPreviewCanvasData) {
         return [];
       }
 
@@ -2098,7 +2152,7 @@ export default function Editor({
       getTimeposFromTime,
       isPreviewNoteAppearModeEnabled,
       isPreviewNoteSpeedChangesEnabled,
-      isPreviewMode,
+      shouldBuildPreviewCanvasData,
       previewHoldConnectorSegmentsSource,
       previewNoteRenderEntryById,
       previewPlaybackSpeedDistanceIndex,
@@ -2111,8 +2165,8 @@ export default function Editor({
     [previewHoldConnectorSegments],
   );
   const previewJudgementNoteEntries = useMemo(
-    () => isPreviewMode
-      ? noteRenderIndex.noteBeatEntries.map(({ note }) => ({
+    () => shouldBuildPreviewCanvasData
+      ? previewNoteBeatEntriesSource.map(({ note }) => ({
           id: note.id,
           time: note.time,
           type: note.type,
@@ -2120,15 +2174,15 @@ export default function Editor({
           width: note.width,
         }))
       : [],
-    [isPreviewMode, noteRenderIndex.noteBeatEntries],
+    [previewNoteBeatEntriesSource, shouldBuildPreviewCanvasData],
   );
   const previewComboTimes = useMemo(
-    () => isPreviewMode ? noteRenderIndex.noteBeatEntries.map(({ note }) => note.time) : [],
-    [isPreviewMode, noteRenderIndex.noteBeatEntries],
+    () => shouldBuildPreviewCanvasData ? previewNoteBeatEntriesSource.map(({ note }) => note.time) : [],
+    [previewNoteBeatEntriesSource, shouldBuildPreviewCanvasData],
   );
   const previewCameraMovementSegments = useMemo(
     () => {
-      if (!isPreviewMode) {
+      if (!shouldBuildPreviewCanvasData) {
         return [];
       }
 
@@ -2149,18 +2203,18 @@ export default function Editor({
         .filter(segment => Math.abs(segment.deltaXPosition) > SNAP_EPSILON)
         .sort((a, b) => (a.endTime - b.endTime) || (a.startTime - b.startTime));
     },
-    [isPreviewMode, previewHoldConnectorSegmentsSource],
+    [previewHoldConnectorSegmentsSource, shouldBuildPreviewCanvasData],
   );
   const previewCameraMovementIntervals = useMemo(
     () => buildPreviewCameraMovementIntervals(previewCameraMovementSegments),
     [previewCameraMovementSegments],
   );
   const hasPinkHoldCameraNotes = useMemo(
-    () => isPreviewMode && previewCanvasNotesSource.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
-    [isPreviewMode, previewCanvasNotesSource],
+    () => shouldBuildPreviewCanvasData && previewCanvasNotesSource.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
+    [previewCanvasNotesSource, shouldBuildPreviewCanvasData],
   );
   const preview3DZoomHeightCurve = useMemo(() => {
-    if (!isPreviewMode) {
+    if (!shouldBuildPreviewCanvasData) {
       return [];
     }
 
@@ -2210,10 +2264,10 @@ export default function Editor({
     });
 
     return heightList;
-  }, [isPreviewMode, previewCanvasNotesSource, timelineDuration]);
+  }, [previewCanvasNotesSource, shouldBuildPreviewCanvasData, timelineDuration]);
   const previewCameraTiltSegments = useMemo(
     () => {
-      if (!isPreviewMode) {
+      if (!shouldBuildPreviewCanvasData) {
         return [];
       }
 
@@ -2241,7 +2295,7 @@ export default function Editor({
         .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
         .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
     },
-    [getTimeFromTimepos, isPreviewMode, previewHoldConnectorSegments],
+    [getTimeFromTimepos, previewHoldConnectorSegments, shouldBuildPreviewCanvasData],
   );
   previewCameraTiltSegmentsRef.current = previewCameraTiltSegments;
   const previewCameraTiltIntervals = useMemo(
@@ -2250,7 +2304,7 @@ export default function Editor({
   );
   useEffect(() => {
     if (!isPreviewMode || !isPreviewPrecomputeEnabled || previewCanvasLoadPhase !== 'full') {
-      if (!isPreviewMode || !isPreviewPrecomputeEnabled) {
+      if ((!isPreviewMode && !canReuseFullPreviewCanvas) || !isPreviewPrecomputeEnabled) {
         previewComboTimesRef.current = [];
         previewChartStatisticsIndexRef.current = null;
         previewPlaybackSpeedDistanceIndexRef.current = [];
@@ -2286,11 +2340,7 @@ export default function Editor({
             bpmChanges: stateRef.current.bpmChanges,
             playbackSpeedDistanceIndex: previewPlaybackSpeedDistanceIndex,
             cameraTiltSegments,
-            chartStatisticsIndex: buildChartStatisticsIndex({
-              getTimeFromTimepos,
-              notes: stateRef.current.notes,
-              speedChanges: previewSpeedChanges,
-            }),
+            chartStatisticsIndex: previewChartStatisticsFallbackIndex,
             cameraTiltIntervals: previewCameraTiltIntervals,
           };
 
@@ -2322,6 +2372,7 @@ export default function Editor({
     };
   }, [
     getTimeFromTimepos,
+    canReuseFullPreviewCanvas,
     isPreviewMode,
     isPreviewPrecomputeEnabled,
     previewCanvasLoadPhase,
@@ -2329,6 +2380,7 @@ export default function Editor({
     previewCameraTiltSegments,
     previewPlaybackSpeedDistanceIndex,
     previewSpeedChanges,
+    previewChartStatisticsFallbackIndex,
   ]);
   const previewMinimumNoteSpeedMagnitude = useMemo(
     () => previewNoteRenderEntries.reduce((minimumMagnitude, entry) => (
@@ -4283,6 +4335,10 @@ export default function Editor({
     const hiddenPreviewNoteIds = isPreviewMode
       ? hiddenPreviewNoteIdsRef.current
       : null;
+    const isPreviewNoteHidden = (note: Note) => Boolean(
+      hiddenPreviewNoteIds?.has(note.id)
+      || (isPreviewPlaybackCanvas && note.time <= previewHiddenThroughTimeRef.current + SNAP_EPSILON)
+    );
     const previewVisibleHoldConnectorSegments = isPreviewPlaybackCanvas
       ? getPreviewConnectorSegmentsInDistanceRange(
           previewHoldConnectorDrawSegments,
@@ -4822,7 +4878,7 @@ export default function Editor({
     }
 
     const drawHoldConnectorSegment = (segment: typeof visibleHoldConnectorSegments[number]) => {
-      if (hiddenPreviewNoteIds?.has(segment.note.id)) {
+      if (isPreviewNoteHidden(segment.note)) {
         return;
       }
       const previewSegment = segment as PreviewHoldConnectorSegment;
@@ -5065,7 +5121,7 @@ export default function Editor({
       arrowSpriteDraws: typeof previewArrowSpriteDraws,
     ) => {
       const { note, beat: noteBeat } = entry;
-      if (hiddenPreviewNoteIds?.has(note.id)) {
+      if (isPreviewNoteHidden(note)) {
         return;
       }
 
@@ -5073,7 +5129,7 @@ export default function Editor({
         ? { ...note, lane: pendingDragUpdate.lane, time: pendingDragUpdate.time }
         : note;
       if (isPreviewPlaybackCanvas && stateRef.current.isPlaying && renderedNote.time <= time + SNAP_EPSILON) {
-        hiddenPreviewNoteIdsRef.current.add(renderedNote.id);
+        previewHiddenThroughTimeRef.current = Math.max(previewHiddenThroughTimeRef.current, time);
         return;
       }
 
@@ -7327,11 +7383,13 @@ export default function Editor({
     getTimeposFromTime,
     liveStatsTime,
     notes,
-    precomputedIndex: isPreviewMode && isPreviewPrecomputeEnabled ? previewChartStatisticsIndexRef.current : null,
+    precomputedIndex: isPreviewMode
+      ? (previewChartStatisticsIndexRef.current ?? previewChartStatisticsFallbackIndex)
+      : editorChartStatisticsIndex,
     shouldShowChartStatistics,
     speedChanges: isPreviewMode ? previewSpeedChanges : speedChanges,
     timedBpmChanges,
-  }), [getTimeFromTimepos, getTimeposFromTime, isPreviewMode, isPreviewPrecomputeEnabled, liveStatsTime, notes, previewSpeedChanges, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
+  }), [editorChartStatisticsIndex, getTimeFromTimepos, getTimeposFromTime, isPreviewMode, liveStatsTime, notes, previewChartStatisticsFallbackIndex, previewSpeedChanges, shouldShowChartStatistics, speedChanges, timedBpmChanges]);
   const {
     currentEditorBpm,
     currentEditorSpeed,

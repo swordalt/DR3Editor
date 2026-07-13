@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useRef, useState } from 'react';
-import { CheckCircle2, FileText, Image, Music, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, FileText, Image, Music, Upload } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import LandingPage from './components/LandingPage';
 import {
@@ -14,6 +14,7 @@ import { loadEditorSettings } from './editor/editorSettings';
 import { translations } from './lang';
 import type { BpmChange, ImportLoadStatus, Note, ProjectData, SpeedChange, ViewState } from './types/editorTypes';
 import { convertAudioFileToOgg, isOggAudioFile } from './utils/audioOggConversion';
+import { convertBpmChangesToTime, getBeatAtTime, getTimeAtBeat } from './utils/editorUtils';
 
 const Editor = lazy(() => import('./Editor'));
 
@@ -324,6 +325,13 @@ interface ZipImportDialogState {
   canImport: boolean;
 }
 
+type ChartCombinationMode = 'direct' | 'priority';
+
+interface ChartCombinationDialogState {
+  files: File[];
+  mode: ChartCombinationMode;
+}
+
 interface ZipImportResolverSectionProps {
   title: string;
   isRequired?: boolean;
@@ -453,6 +461,7 @@ export default function App() {
   const [initialProjectData, setInitialProjectData] = useState<ProjectData | null>(null);
   const [initialChartFileName, setInitialChartFileName] = useState<string | null>(null);
   const [zipImportDialog, setZipImportDialog] = useState<ZipImportDialogState | null>(null);
+  const [chartCombinationDialog, setChartCombinationDialog] = useState<ChartCombinationDialogState | null>(null);
   const [importLoadStatus, setImportLoadStatus] = useState<ImportLoadStatus | null>(null);
   const [isExampleLoading, setIsExampleLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -523,6 +532,126 @@ export default function App() {
       infoFile,
       manifest,
     };
+  };
+
+  const importCombinedChartFiles = async (dialog: ChartCombinationDialogState) => {
+    try {
+      setChartCombinationDialog(null);
+      await updateImportLoadStatus(text.importStatus.preparingImport);
+      await updateImportLoadStatus(text.importStatus.readingChart);
+      const { parseLevelText } = await import('./utils/levelFormat');
+      const parsedFiles = await Promise.all(dialog.files.map(async (file) => ({
+        file,
+        level: parseLevelText(await file.text()),
+      })));
+      await updateImportLoadStatus(text.importStatus.parsingChart);
+
+      const coverage = parsedFiles.map(({ level }) => {
+        const times = level.notes.map(note => note.time).filter(Number.isFinite);
+        return times.length > 0
+          ? { start: Math.min(...times), end: Math.max(...times) }
+          : null;
+      });
+      const retainedNotes = parsedFiles.map(({ level }, fileIndex) => level.notes.filter((note) => {
+        if (dialog.mode === 'direct') return true;
+        return !coverage.slice(0, fileIndex).some(span => (
+          span && note.time >= span.start && note.time <= span.end
+        ));
+      }));
+
+      const isRetainedAtTime = (time: number, fileIndex: number) => (
+        dialog.mode === 'direct'
+        || !coverage.slice(0, fileIndex).some(span => span && time >= span.start && time <= span.end)
+      );
+      const timedFiles = parsedFiles.map(({ level }) => {
+        const sourceBpmChanges = level.bpmChanges.length > 0 ? level.bpmChanges : getDefaultBpmChanges();
+        const timedBpmChanges = convertBpmChangesToTime(sourceBpmChanges);
+        return {
+          bpmChanges: timedBpmChanges.map((change, index) => ({
+            time: change.time,
+            bpm: sourceBpmChanges[index]?.bpm ?? change.bpm,
+            timeSignature: sourceBpmChanges[index]?.timeSignature ?? change.timeSignature,
+          })),
+          speedChanges: level.speedChanges.map(change => ({
+            time: getTimeAtBeat(change.timepos * 4, timedBpmChanges),
+            speedChange: change.speedChange,
+          })),
+        };
+      });
+      const retainedTimedBpmChanges = timedFiles.flatMap((file, fileIndex) => (
+        file.bpmChanges.filter(change => isRetainedAtTime(change.time, fileIndex))
+      )).sort((a, b) => a.time - b.time);
+      const uniqueTimedBpmChanges = retainedTimedBpmChanges.filter((change, index, changes) => (
+        !changes.slice(0, index).some(previous => (
+          previous.time === change.time
+          && previous.bpm === change.bpm
+          && previous.timeSignature === change.timeSignature
+        ))
+      ));
+      const combinedBpmChanges: BpmChange[] = [];
+      let currentTime = 0;
+      let currentTimepos = 0;
+      let currentBpm = 120;
+      let currentBeatsPerMeasure = 4;
+      uniqueTimedBpmChanges.forEach((change) => {
+        currentTimepos += ((change.time - currentTime) * (currentBpm / 60)) / currentBeatsPerMeasure;
+        combinedBpmChanges.push({
+          timepos: currentTimepos,
+          bpm: change.bpm,
+          timeSignature: change.timeSignature,
+        });
+        currentTime = change.time;
+        currentBpm = change.bpm;
+        currentBeatsPerMeasure = parseInt(change.timeSignature.split('/')[0], 10) || 4;
+      });
+      const resolvedBpmChanges = combinedBpmChanges.length > 0 ? combinedBpmChanges : getDefaultBpmChanges();
+      const combinedTimedBpmChanges = convertBpmChangesToTime(resolvedBpmChanges);
+      const combinedSpeedChanges = timedFiles.flatMap((file, fileIndex) => (
+        file.speedChanges.filter(change => isRetainedAtTime(change.time, fileIndex))
+      )).sort((a, b) => a.time - b.time)
+        .filter((change, index, changes) => !changes.slice(0, index).some(previous => (
+          previous.time === change.time && previous.speedChange === change.speedChange
+        )))
+        .map(change => ({
+          timepos: getBeatAtTime(change.time, combinedTimedBpmChanges) / 4,
+          speedChange: change.speedChange,
+        }));
+
+      let nextId = 1;
+      const combinedNotes: Note[] = [];
+      retainedNotes.forEach((fileNotes) => {
+        const idMap = new Map<number, number>();
+        fileNotes.forEach((note) => idMap.set(note.id, nextId++));
+        fileNotes.forEach((note) => combinedNotes.push({
+          ...note,
+          id: idMap.get(note.id)!,
+          parentId: note.parentId === null ? null : (idMap.get(note.parentId) ?? null),
+        }));
+      });
+      combinedNotes.sort((a, b) => a.time - b.time || a.id - b.id);
+
+      const primary = parsedFiles[0];
+      const primaryLevel = primary.level;
+      setNotes(combinedNotes);
+      setBpmChanges(resolvedBpmChanges);
+      setSpeedChanges(combinedSpeedChanges.length > 0 ? combinedSpeedChanges : getDefaultSpeedChanges());
+      setOffset(primaryLevel.offset);
+      const firstBpm = resolvedBpmChanges[0]?.bpm || 120;
+      const chartMetadata = getChartMetadataFromFileName(primary.file.name);
+      setInitialChartFileName(primary.file.name);
+      setInitialProjectData(createAudioLessImportProjectData({
+        sourceName: primary.file.name,
+        chartMetadata,
+        firstBpm,
+        notes: combinedNotes,
+      }));
+      await updateImportLoadStatus(text.importStatus.openingEditor);
+      setView({ page: 'editor', mode: 'import' });
+    } catch (error) {
+      console.error(error);
+      setImportLoadStatus(null);
+      alert(text.importDialog.combineFailed);
+    }
   };
 
   const importResolvedZip = async ({
@@ -778,10 +907,14 @@ export default function App() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const selectedFiles = Array.from(e.target.files ?? []);
+    const file = selectedFiles[0];
     if (file) {
       resetEditorState();
-      if (file.name.toLowerCase().endsWith('.zip')) {
+      const textFiles = selectedFiles.filter(selectedFile => selectedFile.name.toLowerCase().endsWith('.txt'));
+      if (selectedFiles.length > 1 && textFiles.length === selectedFiles.length) {
+        setChartCombinationDialog({ files: textFiles, mode: 'direct' });
+      } else if (file.name.toLowerCase().endsWith('.zip')) {
         void handleZipImport(file);
       } else if (file.name.toLowerCase().endsWith('.txt')) {
         void updateImportLoadStatus(text.importStatus.preparingImport);
@@ -1025,6 +1158,72 @@ export default function App() {
               >
                 {text.importDialog.confirm}
               </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+      {chartCombinationDialog && (
+        <motion.div
+          className={`${getOverlayClassName(isBackdropBlurDisabled, isAnimationDisabled)} font-sans text-neutral-50`}
+          {...getOverlayMotionProps(isAnimationDisabled)}
+          onMouseDown={() => setChartCombinationDialog(null)}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chart-combination-title"
+            className={`max-h-[90vh] w-full max-w-2xl ${dialogSurfaceClassName}`}
+            {...getDialogMotionProps(isAnimationDisabled)}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className={dialogHeaderClassName}>
+              <h2 id="chart-combination-title" className="text-xl font-bold text-white">{text.importDialog.combineTitle}</h2>
+              <p className="mt-1 text-sm text-neutral-400">{text.importDialog.combineDescription}</p>
+            </div>
+            <div className="grid gap-4 overflow-y-auto p-6">
+              {(['direct', 'priority'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setChartCombinationDialog(current => current ? { ...current, mode } : current)}
+                  className={`rounded-xl border p-4 text-left transition-colors ${chartCombinationDialog.mode === mode ? 'border-indigo-500 bg-indigo-500/10' : 'border-neutral-800 bg-neutral-950/70 hover:border-neutral-700'}`}
+                >
+                  <span className="block text-sm font-semibold text-white">{mode === 'direct' ? text.importDialog.directCombination : text.importDialog.priorityCombination}</span>
+                  <span className="mt-1 block text-xs leading-5 text-neutral-400">{mode === 'direct' ? text.importDialog.directCombinationDescription : text.importDialog.priorityCombinationDescription}</span>
+                </button>
+              ))}
+              <section
+                aria-disabled={chartCombinationDialog.mode === 'direct'}
+                className={`rounded-xl border border-neutral-800 bg-neutral-950/70 p-4 transition-opacity ${chartCombinationDialog.mode === 'direct' ? 'opacity-45' : ''}`}
+              >
+                <h3 className="text-sm font-semibold text-white">{text.importDialog.filePriority}</h3>
+                <p className="mt-1 text-xs leading-5 text-neutral-500">{text.importDialog.timingSourceNote}</p>
+                <div className="mt-4 grid gap-2">
+                  {chartCombinationDialog.files.map((chartFile, index) => (
+                    <div key={`${chartFile.name}-${chartFile.lastModified}`} className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2">
+                      <span className="w-6 shrink-0 text-center text-xs font-semibold text-neutral-500">{index + 1}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">{chartFile.name}</span>
+                      <span className="hidden text-[11px] text-neutral-500 sm:block">{index === 0 ? text.importDialog.highestPriority : index === chartCombinationDialog.files.length - 1 ? text.importDialog.lowestPriority : ''}</span>
+                      <button type="button" aria-label={text.importDialog.moveUp} disabled={chartCombinationDialog.mode === 'direct' || index === 0} onClick={() => setChartCombinationDialog(current => {
+                        if (!current || index === 0) return current;
+                        const files = [...current.files];
+                        [files[index - 1], files[index]] = [files[index], files[index - 1]];
+                        return { ...current, files };
+                      })} className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white disabled:opacity-25"><ArrowUp className="h-4 w-4" /></button>
+                      <button type="button" aria-label={text.importDialog.moveDown} disabled={chartCombinationDialog.mode === 'direct' || index === chartCombinationDialog.files.length - 1} onClick={() => setChartCombinationDialog(current => {
+                        if (!current || index === current.files.length - 1) return current;
+                        const files = [...current.files];
+                        [files[index], files[index + 1]] = [files[index + 1], files[index]];
+                        return { ...current, files };
+                      })} className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white disabled:opacity-25"><ArrowDown className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <div className={`${dialogFooterClassName} flex shrink-0 justify-end gap-3 px-6`}>
+              <button type="button" onClick={() => setChartCombinationDialog(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-300 hover:bg-neutral-800 hover:text-white">{text.importDialog.cancel}</button>
+              <button type="button" onClick={() => { void importCombinedChartFiles(chartCombinationDialog); }} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{text.importDialog.combine}</button>
             </div>
           </motion.div>
         </motion.div>
