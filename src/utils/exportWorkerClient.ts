@@ -70,8 +70,31 @@ export const warmExportWorker = () => {
   });
 };
 
-export const createExportZipInWorker = (payload: ExportWorkerPayload) => (
-  new Promise<{ zipBuffer: ArrayBuffer; suggestedName: string }>((resolve, reject) => {
+const createInMemoryFileSnapshot = async (file: File | null) => {
+  if (!file) {
+    return null;
+  }
+
+  return new File([await file.arrayBuffer()], file.name, {
+    type: file.type,
+    lastModified: file.lastModified,
+  });
+};
+
+export const createExportZipInWorker = async (payload: ExportWorkerPayload) => {
+  // Files selected from disk can retain a browser-managed reference to their source.
+  // Materialize them before crossing the worker boundary so the worker does not try
+  // to read a reference whose permission or underlying file may have changed.
+  const workerPayload: ExportWorkerPayload = {
+    ...payload,
+    projectData: {
+      ...payload.projectData,
+      songFile: await createInMemoryFileSnapshot(payload.projectData.songFile),
+      songIllustration: await createInMemoryFileSnapshot(payload.projectData.songIllustration),
+    },
+  };
+
+  return new Promise<{ zipBuffer: ArrayBuffer; suggestedName: string }>((resolve, reject) => {
     const requestId = nextRequestId;
     nextRequestId += 1;
 
@@ -81,11 +104,11 @@ export const createExportZipInWorker = (payload: ExportWorkerPayload) => (
       getExportWorker().postMessage({
         type: 'export',
         requestId,
-        payload,
+        payload: workerPayload,
       });
     } catch (err) {
       pendingRequests.delete(requestId);
       reject(err instanceof Error ? err : new Error('Export worker failed'));
     }
-  })
-);
+  });
+};
