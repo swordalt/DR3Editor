@@ -21,11 +21,110 @@ export interface NoteRenderIndex {
   notesById: Map<number, Note>;
   noteBeats: Map<number, number>;
   noteBeatEntries: NoteBeatEntry[];
+  noteBeatEntriesByLaneStart: NoteBeatEntry[];
+  noteBeatEntriesByLaneEnd: NoteBeatEntry[];
   holdConnectorSegments: HoldConnectorSegment[];
   holdConnectorSegmentsByMinBeat: HoldConnectorSegment[];
   holdConnectorSegmentsByMaxBeat: HoldConnectorSegment[];
   groupedIdLabelsByNoteId: Map<number, string>;
 }
+
+const getNoteLaneStart = (entry: NoteBeatEntry) => Math.min(entry.note.lane, entry.note.lane + entry.note.width);
+const getNoteLaneEnd = (entry: NoteBeatEntry) => Math.max(entry.note.lane, entry.note.lane + entry.note.width);
+
+const findFirstLaneStartAfterIndex = (entries: NoteBeatEntry[], lane: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getNoteLaneStart(entries[mid]) <= lane) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+const findFirstLaneEndIndex = (entries: NoteBeatEntry[], lane: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getNoteLaneEnd(entries[mid]) < lane) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+export const getNoteBeatEntriesInViewport = (
+  entriesByBeat: NoteBeatEntry[],
+  entriesByLaneStart: NoteBeatEntry[],
+  entriesByLaneEnd: NoteBeatEntry[],
+  startBeat: number,
+  endBeat: number,
+  startLane: number,
+  endLane: number,
+) => {
+  const firstBeatIndex = findFirstNoteBeatEntryIndex(entriesByBeat, startBeat);
+  let beatLow = firstBeatIndex;
+  let beatHigh = entriesByBeat.length;
+  while (beatLow < beatHigh) {
+    const mid = Math.floor((beatLow + beatHigh) / 2);
+    if (entriesByBeat[mid].beat <= endBeat) beatLow = mid + 1;
+    else beatHigh = mid;
+  }
+  const firstBeatAfterIndex = beatLow;
+  const beatCandidateCount = firstBeatAfterIndex - firstBeatIndex;
+  const firstLaneStartAfter = findFirstLaneStartAfterIndex(entriesByLaneStart, endLane);
+  const firstLaneEnd = findFirstLaneEndIndex(entriesByLaneEnd, startLane);
+  const laneEndCandidateCount = entriesByLaneEnd.length - firstLaneEnd;
+
+  if (beatCandidateCount <= Math.min(firstLaneStartAfter, laneEndCandidateCount)) {
+    const matchingEntries: NoteBeatEntry[] = [];
+    for (let index = firstBeatIndex; index < firstBeatAfterIndex; index += 1) {
+      const entry = entriesByBeat[index];
+      if (getNoteLaneStart(entry) <= endLane && getNoteLaneEnd(entry) >= startLane) {
+        matchingEntries.push(entry);
+      }
+    }
+    return matchingEntries;
+  }
+
+  const matchingEntries: NoteBeatEntry[] = [];
+  if (firstLaneStartAfter <= laneEndCandidateCount) {
+    for (let index = 0; index < firstLaneStartAfter; index += 1) {
+      const entry = entriesByLaneStart[index];
+      if (
+        getNoteLaneEnd(entry) >= startLane
+        && entry.beat >= startBeat
+        && entry.beat <= endBeat
+      ) {
+        matchingEntries.push(entry);
+      }
+    }
+  } else {
+    for (let index = firstLaneEnd; index < entriesByLaneEnd.length; index += 1) {
+      const entry = entriesByLaneEnd[index];
+      if (
+        getNoteLaneStart(entry) <= endLane
+        && entry.beat >= startBeat
+        && entry.beat <= endBeat
+      ) {
+        matchingEntries.push(entry);
+      }
+    }
+  }
+
+  return matchingEntries.sort((a, b) => (a.beat - b.beat) || (a.note.id - b.note.id));
+};
 
 const findFirstNoteBeatEntryIndex = (entries: NoteBeatEntry[], beat: number) => {
   let low = 0;
@@ -159,6 +258,10 @@ export const buildNoteRenderIndex = (
   });
 
   noteBeatEntries.sort((a, b) => (a.beat - b.beat) || (a.note.id - b.note.id));
+  const noteBeatEntriesByLaneStart = [...noteBeatEntries]
+    .sort((a, b) => (getNoteLaneStart(a) - getNoteLaneStart(b)) || (a.note.id - b.note.id));
+  const noteBeatEntriesByLaneEnd = [...noteBeatEntries]
+    .sort((a, b) => (getNoteLaneEnd(a) - getNoteLaneEnd(b)) || (a.note.id - b.note.id));
 
   groupedNoteIds.forEach((groupedIds) => {
     const sortedGroupedIds = [...groupedIds].sort((a, b) => a - b);
@@ -202,6 +305,8 @@ export const buildNoteRenderIndex = (
     notesById,
     noteBeats,
     noteBeatEntries,
+    noteBeatEntriesByLaneStart,
+    noteBeatEntriesByLaneEnd,
     holdConnectorSegments,
     holdConnectorSegmentsByMinBeat,
     holdConnectorSegmentsByMaxBeat,

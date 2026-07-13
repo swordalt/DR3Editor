@@ -44,7 +44,7 @@ import {
   loadEditorSettings,
   saveEditorSettings,
 } from './editor/editorSettings';
-import { buildNoteRenderIndex, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange } from './editor/noteRenderIndex';
+import { buildNoteRenderIndex, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange, getNoteBeatEntriesInViewport } from './editor/noteRenderIndex';
 import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 import { stripInputWhitespace } from './utils/inputSanitization';
 
@@ -111,6 +111,7 @@ import {
   getPreviewComboAtTime,
   getPreviewConnectorSegmentsInDistanceRange,
   getPreviewNoteEntriesInDistanceRange,
+  getPreviewNoteEntriesInViewport,
   getPreviewNoteVisualDistance,
   getPreviewAppearModePosition,
   getSpeedDistanceAtTimepos,
@@ -1972,6 +1973,32 @@ export default function Editor({
   const previewDistanceIndexedNoteRenderEntries = useMemo(
     () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind !== 'curve'),
     [previewNoteRenderEntries],
+  );
+  const previewSpatialDistanceEntries = useMemo(
+    () => previewDistanceIndexedNoteRenderEntries.filter(entry => (
+      entry.note.appearMode !== 'L' && entry.note.appearMode !== 'R'
+    )),
+    [previewDistanceIndexedNoteRenderEntries],
+  );
+  const previewSideEntryDistanceEntries = useMemo(
+    () => previewDistanceIndexedNoteRenderEntries.filter(entry => (
+      entry.note.appearMode === 'L' || entry.note.appearMode === 'R'
+    )),
+    [previewDistanceIndexedNoteRenderEntries],
+  );
+  const previewDistanceEntriesByLaneStart = useMemo(
+    () => [...previewSpatialDistanceEntries].sort((a, b) => (
+      Math.min(a.note.lane, a.note.lane + a.note.width)
+      - Math.min(b.note.lane, b.note.lane + b.note.width)
+    ) || (a.note.id - b.note.id)),
+    [previewSpatialDistanceEntries],
+  );
+  const previewDistanceEntriesByLaneEnd = useMemo(
+    () => [...previewSpatialDistanceEntries].sort((a, b) => (
+      Math.max(a.note.lane, a.note.lane + a.note.width)
+      - Math.max(b.note.lane, b.note.lane + b.note.width)
+    ) || (a.note.id - b.note.id)),
+    [previewSpatialDistanceEntries],
   );
   const previewCurveNoteRenderEntries = useMemo(
     () => previewNoteRenderEntries.filter(entry => entry.noteSpeed.kind === 'curve'),
@@ -4358,8 +4385,75 @@ export default function Editor({
       }
     };
 
+    const isTransformedPolygonVisible = (
+      points: ReadonlyArray<{ x: number; y: number }>,
+      padding = 8,
+    ) => {
+      const transform = ctx.getTransform();
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+
+      for (const point of points) {
+        const transformedX = transform.a * point.x + transform.c * point.y + transform.e;
+        const transformedY = transform.b * point.x + transform.d * point.y + transform.f;
+        minX = Math.min(minX, transformedX);
+        maxX = Math.max(maxX, transformedX);
+        minY = Math.min(minY, transformedY);
+        maxY = Math.max(maxY, transformedY);
+      }
+
+      const pixelPadding = padding * dpr;
+      return Number.isFinite(minX)
+        && maxX >= -pixelPadding
+        && minX <= pixelWidth + pixelPadding
+        && maxY >= -pixelPadding
+        && minY <= pixelHeight + pixelPadding;
+    };
+
+    const isTransformedRectVisible = (
+      x: number,
+      y: number,
+      rectWidth: number,
+      rectHeight: number,
+      padding = 8,
+    ) => isTransformedPolygonVisible([
+      { x, y },
+      { x: x + rectWidth, y },
+      { x: x + rectWidth, y: y + rectHeight },
+      { x, y: y + rectHeight },
+    ], padding);
+
     ctx.save();
     applyPreviewCameraTransform();
+
+    const getVisibleLaneRange = () => {
+      if (isPreview3DMode) {
+        return { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY };
+      }
+
+      try {
+        const inverseTransform = ctx.getTransform().inverse();
+        const viewportCorners = [
+          new DOMPoint(0, 0),
+          new DOMPoint(pixelWidth, 0),
+          new DOMPoint(pixelWidth, pixelHeight),
+          new DOMPoint(0, pixelHeight),
+        ].map(point => point.matrixTransform(inverseTransform));
+        const minX = Math.min(...viewportCorners.map(point => point.x));
+        const maxX = Math.max(...viewportCorners.map(point => point.x));
+        const lanePadding = 2;
+
+        return {
+          start: (minX - chartStartX) / xPositionWidth - lanePadding,
+          end: (maxX - chartStartX) / xPositionWidth + lanePadding,
+        };
+      } catch {
+        return { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY };
+      }
+    };
+    const visibleLaneRange = getVisibleLaneRange();
 
     // Draw background for the grid area
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
@@ -4416,11 +4510,22 @@ export default function Editor({
       ? getBeatAtTime(pendingDragUpdate.time, sortedChanges)
       : null;
     const visiblePreviewDistanceNoteEntries = isPreviewPlaybackCanvas
-      ? getPreviewNoteEntriesInDistanceRange(
-          previewDistanceIndexedNoteRenderEntries,
-          previewVisibleMinDistance,
-          previewVisibleMaxDistance,
-        )
+      ? [
+          ...getPreviewNoteEntriesInViewport(
+            previewSpatialDistanceEntries,
+            previewDistanceEntriesByLaneStart,
+            previewDistanceEntriesByLaneEnd,
+            previewVisibleMinDistance,
+            previewVisibleMaxDistance,
+            visibleLaneRange.start,
+            visibleLaneRange.end,
+          ),
+          ...getPreviewNoteEntriesInDistanceRange(
+            previewSideEntryDistanceEntries,
+            previewVisibleMinDistance,
+            previewVisibleMaxDistance,
+          ),
+        ].sort(comparePreviewNoteRenderEntries)
       : [];
     const visiblePreviewCurveNoteEntries = isPreviewPlaybackCanvas
       ? (
@@ -4447,10 +4552,14 @@ export default function Editor({
               ].sort(comparePreviewNoteRenderEntries)
             : visiblePreviewDistanceNoteEntries
         )
-      : getNoteBeatEntriesInRange(
+      : getNoteBeatEntriesInViewport(
           noteRenderIndex.noteBeatEntries,
+          noteRenderIndex.noteBeatEntriesByLaneStart,
+          noteRenderIndex.noteBeatEntriesByLaneEnd,
           visibleStartBeat,
           visibleEndBeat,
+          visibleLaneRange.start,
+          visibleLaneRange.end,
         );
     const visibleHoldConnectorSegments = isPreviewPlaybackCanvas
       ? previewVisibleHoldConnectorSegments
@@ -4783,6 +4892,23 @@ export default function Editor({
         return;
       }
 
+      const connectorFromEdges = getProjectedEditorStyleConnectorEdges(
+        clippedConnector.fromNote,
+        clippedConnector.fromY,
+      );
+      const connectorToEdges = getProjectedEditorStyleConnectorEdges(
+        clippedConnector.toNote,
+        clippedConnector.toY,
+      );
+      if (!isTransformedPolygonVisible([
+        { x: connectorFromEdges.left, y: clippedConnector.fromY },
+        { x: connectorFromEdges.right, y: clippedConnector.fromY },
+        { x: connectorToEdges.right, y: clippedConnector.toY },
+        { x: connectorToEdges.left, y: clippedConnector.toY },
+      ])) {
+        return;
+      }
+
       const isPreviewConnectorBeingJudged = isPreviewPlaybackCanvas
         && currentPreviewTimepos >= Math.min(previewSegment.parentTimepos, previewSegment.noteTimepos) - SNAP_EPSILON
         && currentPreviewTimepos <= Math.max(previewSegment.parentTimepos, previewSegment.noteTimepos) + SNAP_EPSILON;
@@ -5046,6 +5172,15 @@ export default function Editor({
       const noteBodyX = scaledX + noteBodyInset;
       const markAvailableWidth = Math.max(1, scaledNotePixelWidth - 12 * combinedScale);
       const shouldDrawTopIndicators = scaledNotePixelWidth > 0;
+      if (!isTransformedRectVisible(
+        scaledX,
+        appearedY - scaledNoteHeight / 2,
+        scaledNotePixelWidth,
+        scaledNoteHeight,
+        16,
+      )) {
+        return;
+      }
       let noteSelectionBounds = {
         x: scaledX,
         y: appearedY - scaledNoteHeight / 2,
@@ -5768,7 +5903,7 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceEntriesByLaneEnd, previewDistanceEntriesByLaneStart, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, previewSideEntryDistanceEntries, previewSpatialDistanceEntries, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 

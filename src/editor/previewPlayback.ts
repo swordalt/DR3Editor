@@ -87,6 +87,92 @@ export const getPreviewNoteEntriesInDistanceRange = (
   return matchingEntries;
 };
 
+const getPreviewEntryLaneStart = (entry: PreviewNoteRenderEntry) => (
+  Math.min(entry.note.lane, entry.note.lane + entry.note.width)
+);
+const getPreviewEntryLaneEnd = (entry: PreviewNoteRenderEntry) => (
+  Math.max(entry.note.lane, entry.note.lane + entry.note.width)
+);
+
+export const getPreviewNoteEntriesInViewport = (
+  entriesByDistance: PreviewNoteRenderEntry[],
+  entriesByLaneStart: PreviewNoteRenderEntry[],
+  entriesByLaneEnd: PreviewNoteRenderEntry[],
+  startDistance: number,
+  endDistance: number,
+  startLane: number,
+  endLane: number,
+) => {
+  const minDistance = Math.min(startDistance, endDistance);
+  const maxDistance = Math.max(startDistance, endDistance);
+  const firstDistanceIndex = findFirstPreviewNoteDistanceIndex(entriesByDistance, minDistance);
+  let distanceLow = firstDistanceIndex;
+  let distanceHigh = entriesByDistance.length;
+  while (distanceLow < distanceHigh) {
+    const mid = Math.floor((distanceLow + distanceHigh) / 2);
+    if (entriesByDistance[mid].distance <= maxDistance) distanceLow = mid + 1;
+    else distanceHigh = mid;
+  }
+  const firstDistanceAfterIndex = distanceLow;
+  const distanceCandidateCount = firstDistanceAfterIndex - firstDistanceIndex;
+  let low = 0;
+  let high = entriesByLaneStart.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getPreviewEntryLaneStart(entriesByLaneStart[mid]) <= endLane) low = mid + 1;
+    else high = mid;
+  }
+  const firstLaneStartAfter = low;
+
+  low = 0;
+  high = entriesByLaneEnd.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getPreviewEntryLaneEnd(entriesByLaneEnd[mid]) < startLane) low = mid + 1;
+    else high = mid;
+  }
+  const firstLaneEnd = low;
+  const laneEndCandidateCount = entriesByLaneEnd.length - firstLaneEnd;
+
+  const isInDistanceRange = (entry: PreviewNoteRenderEntry) => (
+    entry.distance >= minDistance && entry.distance <= maxDistance
+  );
+
+  if (distanceCandidateCount <= Math.min(firstLaneStartAfter, laneEndCandidateCount)) {
+    const matchingEntries: PreviewNoteRenderEntry[] = [];
+    for (let index = firstDistanceIndex; index < firstDistanceAfterIndex; index += 1) {
+      const entry = entriesByDistance[index];
+      if (getPreviewEntryLaneStart(entry) <= endLane && getPreviewEntryLaneEnd(entry) >= startLane) {
+        matchingEntries.push(entry);
+      }
+    }
+    return matchingEntries;
+  }
+
+  const matchingEntries: PreviewNoteRenderEntry[] = [];
+  const matchingIds = new Set<number>();
+  const addEntry = (entry: PreviewNoteRenderEntry) => {
+    if (!matchingIds.has(entry.note.id)) {
+      matchingIds.add(entry.note.id);
+      matchingEntries.push(entry);
+    }
+  };
+
+  if (firstLaneStartAfter <= laneEndCandidateCount) {
+    for (let index = 0; index < firstLaneStartAfter; index += 1) {
+      const entry = entriesByLaneStart[index];
+      if (getPreviewEntryLaneEnd(entry) >= startLane && isInDistanceRange(entry)) addEntry(entry);
+    }
+  } else {
+    for (let index = firstLaneEnd; index < entriesByLaneEnd.length; index += 1) {
+      const entry = entriesByLaneEnd[index];
+      if (getPreviewEntryLaneStart(entry) <= endLane && isInDistanceRange(entry)) addEntry(entry);
+    }
+  }
+
+  return matchingEntries.sort(comparePreviewNoteRenderEntries);
+};
+
 export const comparePreviewNoteRenderEntries = (a: PreviewNoteRenderEntry, b: PreviewNoteRenderEntry) => (
   (a.distance - b.distance)
   || (a.timepos - b.timepos)
