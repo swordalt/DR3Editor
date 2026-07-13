@@ -4,6 +4,7 @@ import oggEncoderWasmUrl from 'wasm-media-encoders/wasm/ogg.wasm?url';
 const OGG_DECODE_TARGET_SAMPLE_RATE = 44100;
 const OGG_VORBIS_VBR_QUALITY = 4;
 const OGG_ENCODER_CHUNK_SIZE = 4096;
+const OGG_ENCODER_CHUNKS_PER_YIELD = 16;
 const oggConversionCache = new WeakMap<File, Promise<File>>();
 let oggEncoderModule: WebAssembly.Module | null = null;
 
@@ -22,6 +23,10 @@ const createOggEncoder = () => (
   })
 );
 
+const yieldToMainThread = () => new Promise<void>(resolve => {
+  window.setTimeout(resolve, 0);
+});
+
 const encodeAudioBufferToOgg = async (audioBuffer: AudioBuffer) => {
   const channelCount = Math.min(2, audioBuffer.numberOfChannels);
   const encoder = await createOggEncoder();
@@ -33,6 +38,7 @@ const encodeAudioBufferToOgg = async (audioBuffer: AudioBuffer) => {
 
   const oggChunks: Uint8Array[] = [];
   const audioLength = audioBuffer.length;
+  let encodedChunkCount = 0;
   for (let start = 0; start < audioLength; start += OGG_ENCODER_CHUNK_SIZE) {
     const end = Math.min(start + OGG_ENCODER_CHUNK_SIZE, audioLength);
     const samples = Array.from({ length: channelCount }, (_, channelIndex) => (
@@ -41,6 +47,11 @@ const encodeAudioBufferToOgg = async (audioBuffer: AudioBuffer) => {
     const encodedChunk = encoder.encode(samples);
     if (encodedChunk.length > 0) {
       oggChunks.push(encodedChunk.slice());
+    }
+
+    encodedChunkCount += 1;
+    if (encodedChunkCount % OGG_ENCODER_CHUNKS_PER_YIELD === 0) {
+      await yieldToMainThread();
     }
   }
 

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
+import { flushSync } from 'react-dom';
 import { AlertCircle, ArrowLeft, CheckCircle2, Download, Grid2x2, Grid2x2X, HelpCircle, LoaderCircle, MoveHorizontal, Pause, Play, Settings, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { PLAYBACK_SPEED_OPTIONS } from '../editor/editorViewConstants';
@@ -131,6 +132,7 @@ export default function EditorTopBar({
   const [selectedExportFormat, setSelectedExportFormat] = useState<UserExportFormat>('raw');
   const [exportDialogStatus, setExportDialogStatus] = useState<ExportDialogStatus>('idle');
   const [exportDialogStatusMessage, setExportDialogStatusMessage] = useState(text.editor.chooseExportFormat);
+  const isExportStartingRef = useRef(false);
   const sanitizedCustomPlaybackSpeedInput = stripInputWhitespace(customPlaybackSpeedInput);
   const parsedCustomPlaybackSpeed = Number(sanitizedCustomPlaybackSpeedInput);
   const isCustomPlaybackSpeedValid = Number.isFinite(parsedCustomPlaybackSpeed) && parsedCustomPlaybackSpeed > 0;
@@ -191,10 +193,13 @@ export default function EditorTopBar({
   }, [hasExportAudioFile, selectedExportFormat]);
 
   const runSelectedExport = async () => {
-    if (isSelectedExportFormatDisabled || isExportRunning) return;
+    if (isSelectedExportFormatDisabled || isExportRunning || isExportStartingRef.current) return;
 
-    setExportDialogStatus('exporting');
-    setExportDialogStatusMessage(text.editor.preparingExport);
+    isExportStartingRef.current = true;
+    flushSync(() => {
+      setExportDialogStatus('exporting');
+      setExportDialogStatusMessage(text.editor.preparingExport);
+    });
 
     const exportByFormat: Record<UserExportFormat, () => Promise<ExportRunResult>> = {
       raw: exportRaw,
@@ -203,15 +208,23 @@ export default function EditorTopBar({
       'chart-data': exportChartData,
     };
 
-    const result = await exportByFormat[selectedExportFormat]();
-    setExportDialogStatus(result);
-    setExportDialogStatusMessage(
-      result === 'complete'
-        ? text.editor.exportComplete
-        : result === 'cancelled'
-          ? text.editor.exportCancelled
-          : text.editor.exportFailed,
-    );
+    try {
+      const result = await exportByFormat[selectedExportFormat]();
+      setExportDialogStatus(result);
+      setExportDialogStatusMessage(
+        result === 'complete'
+          ? text.editor.exportComplete
+          : result === 'cancelled'
+            ? text.editor.exportCancelled
+            : text.editor.exportFailed,
+      );
+    } catch (error) {
+      console.error('Export failed', error);
+      setExportDialogStatus('failed');
+      setExportDialogStatusMessage(text.editor.exportFailed);
+    } finally {
+      isExportStartingRef.current = false;
+    }
   };
   const applyCustomPlaybackSpeed = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
