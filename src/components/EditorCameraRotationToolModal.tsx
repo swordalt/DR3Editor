@@ -187,17 +187,19 @@ export default function EditorCameraRotationToolModal({
     nextKeyframe: CameraRotationToolKeyframe,
     timepos: number,
   ) => {
-    if (currentKeyframe.angle === 'native') {
+    if (currentKeyframe.angle === 'native' && nextKeyframe.angle === 'native') {
       return getNativeAngleAtTimepos(timepos);
     }
 
-    if (nextKeyframe.angle !== 'native') {
-      const span = Math.max(0.000001, nextKeyframe.location - currentKeyframe.location);
-      const progress = Math.max(0, Math.min(1, (timepos - currentKeyframe.location) / span));
-      return currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * progress;
-    }
-
-    return currentKeyframe.angle;
+    const startAngle = currentKeyframe.angle === 'native'
+      ? getNativeAngleAtTimepos(currentKeyframe.location)
+      : currentKeyframe.angle;
+    const endAngle = nextKeyframe.angle === 'native'
+      ? getNativeAngleAtTimepos(nextKeyframe.location)
+      : nextKeyframe.angle;
+    const span = Math.max(0.000001, nextKeyframe.location - currentKeyframe.location);
+    const progress = Math.max(0, Math.min(1, (timepos - currentKeyframe.location) / span));
+    return startAngle + (endAngle - startAngle) * progress;
   };
   const previewPoints = useMemo(() => {
     if (parsedPreview.keyframes.length === 0) {

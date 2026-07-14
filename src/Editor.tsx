@@ -8215,10 +8215,20 @@ export default function Editor({
       const nextKeyframe = sortedKeyframes[keyframeIndex + 1];
       const intervalStart = roundCameraRotationToolChartValue(Math.max(0, currentKeyframe.location));
       const intervalEnd = roundCameraRotationToolChartValue(Math.max(intervalStart, nextKeyframe.location));
-      if (intervalEnd - intervalStart <= SNAP_EPSILON || currentKeyframe.angle === 'native') {
+      const isFullyNativeInterval = currentKeyframe.angle === 'native' && nextKeyframe.angle === 'native';
+      if (intervalEnd - intervalStart <= SNAP_EPSILON || isFullyNativeInterval) {
         resetGeneratedChains();
         continue;
       }
+
+      const intervalStartAngle = currentKeyframe.angle === 'native'
+        ? getCameraRotationToolNativeTiltState(intervalStart).tiltDegrees
+        : currentKeyframe.angle;
+      const intervalEndAngle = nextKeyframe.angle === 'native'
+        ? getCameraRotationToolNativeTiltState(
+          Math.max(intervalStart, intervalEnd - (10 ** -CAMERA_ROTATION_TOOL_CHART_PRECISION) / 2),
+        ).tiltDegrees
+        : nextKeyframe.angle;
 
       const splitPoints = new Set<number>([intervalStart, intervalEnd]);
       cameraRotationToolBaseTiltSegments.forEach((segment) => {
@@ -8233,13 +8243,9 @@ export default function Editor({
 
       const sortedSplitPoints = Array.from(splitPoints).sort((a, b) => a - b);
       const getIntervalTargetAngle = (timepos: number) => {
-        if (nextKeyframe.angle === 'native') {
-          return currentKeyframe.angle;
-        }
-
         const progress = (timepos - intervalStart) / (intervalEnd - intervalStart);
         const clampedProgress = Math.max(0, Math.min(1, progress));
-        return currentKeyframe.angle + (nextKeyframe.angle - currentKeyframe.angle) * clampedProgress;
+        return intervalStartAngle + (intervalEndAngle - intervalStartAngle) * clampedProgress;
       };
 
       const correctionSpans: Array<{
