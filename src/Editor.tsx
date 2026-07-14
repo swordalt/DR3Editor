@@ -122,7 +122,7 @@ import { formatByteSize } from './editor/editorFileHelpers';
 import { getMirroredNoteLane } from './editor/editorNoteTransforms';
 import { buildChartProjectFiles, type ChartProjectFileDetails, type ChartProjectFileEntry } from './editor/chartProjectFiles';
 import { calculateChartProjectFileDetailsInWorker } from './utils/chartProjectFilesWorkerClient';
-import { buildChartStatisticsIndex, calculateChartStatistics, type ChartStatisticsIndex } from './editor/chartStatistics';
+import { buildChartStatisticsIndex, calculateChartStatistics, EMPTY_CHART_STATISTICS_INDEX, type ChartStatisticsIndex } from './editor/chartStatistics';
 import { PREVIEW_NOTE_ARROW_URLS, PREVIEW_NOTE_TEXTURE_URLS } from './editor/previewNoteSprites';
 import {
   METADATA_REQUIRED_FIELDS,
@@ -1560,11 +1560,32 @@ export default function Editor({
     }))),
     [getTimeFromTimepos, previewSpeedChanges],
   );
-  const editorChartStatisticsIndex = useMemo(() => buildChartStatisticsIndex({
-    getTimeFromTimepos,
-    notes,
-    speedChanges,
-  }), [getTimeFromTimepos, notes, speedChanges]);
+  const isPreviewCanvasLoadingVisibleOnly = isPreviewMode && previewCanvasLoadPhase === 'visible';
+  const previewCanvasCacheKey = previewCanvasCacheKeyRef.current;
+  const canReuseFullPreviewCanvas = Boolean(
+    previewCanvasCacheKey
+    && previewCanvasCacheKey.notes === notes
+    && previewCanvasCacheKey.bpmChanges === bpmChanges
+    && previewCanvasCacheKey.speedChanges === speedChanges
+    && previewCanvasCacheKey.previewSpeedChanges === previewSpeedChanges
+    && previewCanvasCacheKey.isPreviewNoteSpeedChangesEnabled === isPreviewNoteSpeedChangesEnabled
+    && previewCanvasCacheKey.isPreviewNoteAppearModeEnabled === isPreviewNoteAppearModeEnabled
+    && previewCanvasCacheKey.usesOfficialPreviewRules === usesOfficialPreviewRules
+  );
+  const shouldBuildPreviewCanvasData = isPreviewMode || canReuseFullPreviewCanvas;
+  // Skipped when neither the stats panel nor preview mode needs it: at 100k+ notes this
+  // index build is an O(n log n) sort and shouldn't run on every edit unconditionally.
+  const editorChartStatisticsIndex = useMemo(() => {
+    if (!shouldShowChartStatistics && !shouldBuildPreviewCanvasData) {
+      return EMPTY_CHART_STATISTICS_INDEX;
+    }
+
+    return buildChartStatisticsIndex({
+      getTimeFromTimepos,
+      notes,
+      speedChanges,
+    });
+  }, [getTimeFromTimepos, notes, shouldBuildPreviewCanvasData, shouldShowChartStatistics, speedChanges]);
   const previewChartStatisticsFallbackIndex = useMemo<ChartStatisticsIndex>(() => {
     if (previewSpeedChanges === speedChanges) {
       return editorChartStatisticsIndex;
@@ -1585,19 +1606,6 @@ export default function Editor({
     previewChartStatisticsIndexRef.current = null;
     previewPlaybackSpeedDistanceIndexRef.current = [];
   }, [previewSpeedChanges]);
-  const isPreviewCanvasLoadingVisibleOnly = isPreviewMode && previewCanvasLoadPhase === 'visible';
-  const previewCanvasCacheKey = previewCanvasCacheKeyRef.current;
-  const canReuseFullPreviewCanvas = Boolean(
-    previewCanvasCacheKey
-    && previewCanvasCacheKey.notes === notes
-    && previewCanvasCacheKey.bpmChanges === bpmChanges
-    && previewCanvasCacheKey.speedChanges === speedChanges
-    && previewCanvasCacheKey.previewSpeedChanges === previewSpeedChanges
-    && previewCanvasCacheKey.isPreviewNoteSpeedChangesEnabled === isPreviewNoteSpeedChangesEnabled
-    && previewCanvasCacheKey.isPreviewNoteAppearModeEnabled === isPreviewNoteAppearModeEnabled
-    && previewCanvasCacheKey.usesOfficialPreviewRules === usesOfficialPreviewRules
-  );
-  const shouldBuildPreviewCanvasData = isPreviewMode || canReuseFullPreviewCanvas;
   const previewInitialBeatWindow = useMemo(() => ({
     min: getBeatAtTime(
       Math.max(0, previewVisibleWindowTime - PREVIEW_INITIAL_CANVAS_SECONDS_BEHIND),
@@ -1873,10 +1881,16 @@ export default function Editor({
     [cameraRotationToolGeneratedNoteIds],
   );
   const cameraRotationToolBaseNotes = useMemo(
-    () => notes.filter(note => !cameraRotationToolGeneratedNoteIdSet.has(note.id)),
-    [cameraRotationToolGeneratedNoteIdSet, notes],
+    () => (isCameraRotationToolOpen ? notes.filter(note => !cameraRotationToolGeneratedNoteIdSet.has(note.id)) : []),
+    [cameraRotationToolGeneratedNoteIdSet, isCameraRotationToolOpen, notes],
   );
+  // Gated on the tool being open: this rebuilds a second full spatial index (5 sorts) from
+  // scratch, which shouldn't run on every note edit when the camera rotation tool isn't in use.
   const cameraRotationToolBaseTiltSegments = useMemo(() => {
+    if (!isCameraRotationToolOpen) {
+      return [];
+    }
+
     const baseNoteRenderIndex = buildNoteRenderIndex(cameraRotationToolBaseNotes, timedBpmChanges);
 
     return baseNoteRenderIndex.holdConnectorSegments
@@ -1903,7 +1917,7 @@ export default function Editor({
       })
       .filter(segment => segment.endTime - segment.startTime > SNAP_EPSILON)
       .sort((a, b) => (a.startTime - b.startTime) || (a.endTime - b.endTime));
-  }, [cameraRotationToolBaseNotes, getTimeFromTimepos, getTimeposFromTime, timedBpmChanges]);
+  }, [cameraRotationToolBaseNotes, getTimeFromTimepos, getTimeposFromTime, isCameraRotationToolOpen, timedBpmChanges]);
   const getCameraRotationToolNativeTiltState = useCallback((timepos: number) => {
     const time = getTimeFromTimepos(timepos);
     const activeSegments = cameraRotationToolBaseTiltSegments.filter(segment => (
@@ -3331,9 +3345,13 @@ export default function Editor({
       setIsPlaying(false);
     }
 
-    const restoredNotes = snapshot.notes.map(note => ({ ...note }));
-    const restoredBpmChanges = snapshot.bpmChanges.map(change => ({ ...change }));
-    const restoredSpeedChanges = snapshot.speedChanges.map(change => ({ ...change }));
+    // Note/change objects are never mutated in place elsewhere (always replaced via new
+    // object literals), so snapshot arrays can be reused by reference instead of deep-cloned
+    // every note on every undo/redo — this avoids ~100k object allocations per keypress on
+    // large charts.
+    const restoredNotes = snapshot.notes;
+    const restoredBpmChanges = snapshot.bpmChanges;
+    const restoredSpeedChanges = snapshot.speedChanges;
     const restoredProjectData = snapshot.projectData ? { ...snapshot.projectData } : null;
 
     setProjectData(restoredProjectData);
@@ -5959,7 +5977,11 @@ export default function Editor({
 
     renderedObjectsRef.current = objectCount;
 
-  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, notes, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceEntriesByLaneEnd, previewDistanceEntriesByLaneStart, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, previewSideEntryDistanceEntries, previewSpatialDistanceEntries, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
+    // Deliberately omits `notes` from deps: drawGrid only ever reads note data through
+    // `noteRenderIndex` (and the other derived preview arrays below), which already gets a new
+    // identity whenever `notes` changes. Including `notes` directly caused this callback (and the
+    // RAF-driven animation effect subscribed to it) to churn on every edit for no rendering benefit.
+  }, [activeLeftPanel, areTimingChangeIndicatorsAdjusted, bpmIndicatorEntries, copiedNotesPreviewVersion, curveDensityInput, curveEasingFamily, curveEasingType, curveEndIdInput, curveIdSelectTarget, curveNoteType, curveStartIdInput, effectiveGridZoom, formatTimelineMeasureProgress, getTimeFromTimepos, getTimeposFromTime, hasPinkHoldCameraNotes, pixelsPerBeat, projectData, isEditorJudgementGlowEnabled, isOfficialChartFormat, isOutOfBoundsPlacementEnabled, isPreviewMode, isPreviewCameraMovementEnabled, isPreviewCameraTiltEnabled, isPreviewHitFxEnabled, isPreviewNoteAppearModeEnabled, isPreviewPrecomputeEnabled, isPreviewSpritesEnabled, isXPositionGridEnabled, hoverPreview, isCtrlHeld, isShiftHeld, noteWidth, preview3DTiltDegrees, preview3DZoomHeightCurve, previewCameraMovementIntervals, previewCameraTiltIntervals, previewComboTimes, previewCurveNoteRenderEntryBuckets, previewDisplayMode, previewDistanceEntriesByLaneEnd, previewDistanceEntriesByLaneStart, previewDistanceIndexedNoteRenderEntries, previewHoldConnectorDrawSegments, previewMinimumNoteSpeedMagnitude, previewNoteRenderEntries, previewNoteSpriteLoadVersion, previewPlaybackSpeedDistanceIndex, previewSideEntryDistanceEntries, previewSpatialDistanceEntries, selectedNoteIdSet, selectedParentNoteIds, selectedNoteType, selectionBox, speedDistanceIndex, speedIndicatorEntries, timedBpmChanges, noteRenderIndex, offset]);
 
   const shouldAnimateCanvas = isPlaying || isPausedTimelineRendering;
 
@@ -6429,11 +6451,11 @@ export default function Editor({
         const manualParentId =
           manualParentInputId !== null
           && !Number.isNaN(manualParentInputId)
-          && currentNotes.some(note => note.id === manualParentInputId)
+          && noteRenderIndex.notesById.has(manualParentInputId)
             ? manualParentInputId
             : null;
         const autoParentId = isHoldConnector && !isHoldStart
-          ? currentId > 0 && currentNotes.some(note => note.id === currentId)
+          ? currentId > 0 && noteRenderIndex.notesById.has(currentId)
             ? currentId
             : null
           : null;
@@ -7316,15 +7338,15 @@ export default function Editor({
   const currentParentNote =
     currentParentId === 0 || Number.isNaN(currentParentId)
       ? null
-      : notes.find((note) => note.id === currentParentId) || null;
+      : noteRenderIndex.notesById.get(currentParentId) ?? null;
   const copiedNotesCount = copiedNotesRef.current.length;
   const parsedCurveStartId = curveStartIdInput.trim() === '' ? NaN : Number(curveStartIdInput);
   const parsedCurveEndId = curveEndIdInput.trim() === '' ? NaN : Number(curveEndIdInput);
   const curveStartNote = Number.isInteger(parsedCurveStartId)
-    ? notes.find((note) => note.id === parsedCurveStartId) || null
+    ? noteRenderIndex.notesById.get(parsedCurveStartId) ?? null
     : null;
   const curveEndNote = Number.isInteger(parsedCurveEndId)
-    ? notes.find((note) => note.id === parsedCurveEndId) || null
+    ? noteRenderIndex.notesById.get(parsedCurveEndId) ?? null
     : null;
   const parsedCurveDensity = Number(curveDensityInput);
   const hasValidCurveDensity = Number.isInteger(parsedCurveDensity) && parsedCurveDensity > 0;
@@ -7365,7 +7387,7 @@ export default function Editor({
   );
   const selectedSingleNote =
     selectedNoteIds.length === 1
-      ? notes.find((note) => note.id === selectedNoteIds[0]) || null
+      ? noteRenderIndex.notesById.get(selectedNoteIds[0]) ?? null
       : null;
   const selectedNotesForMultiEdit = useMemo(() => {
     const selectedIdSet = new Set(selectedNoteIds);
@@ -7375,7 +7397,7 @@ export default function Editor({
   const selectedParentNote =
     selectedSingleNote?.parentId === null || selectedSingleNote?.parentId === undefined
       ? null
-      : notes.find((note) => note.id === selectedSingleNote.parentId) || null;
+      : noteRenderIndex.notesById.get(selectedSingleNote.parentId) ?? null;
   const canEditSelectedNoteParent = selectedSingleNote ? canTypeHaveParent(selectedSingleNote.type) : false;
   const selectedNoteTimepos = selectedSingleNote ? getTimeposFromTime(selectedSingleNote.time) : 0;
   const chartStatistics = useMemo(() => calculateChartStatistics({

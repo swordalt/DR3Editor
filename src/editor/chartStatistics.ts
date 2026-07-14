@@ -10,6 +10,13 @@ export interface ChartStatisticsIndex {
   sortedSpeedChanges: SpeedChange[];
 }
 
+export const EMPTY_CHART_STATISTICS_INDEX: ChartStatisticsIndex = {
+  sortedNoteTimes: [],
+  scorePerCombo: 0,
+  speedDistanceIndex: [],
+  sortedSpeedChanges: [],
+};
+
 export const getEmptyChartStatistics = () => ({
   currentEditorBpm: 0,
   currentEditorSpeed: 1,

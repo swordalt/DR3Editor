@@ -1,4 +1,4 @@
-import type { BpmChange, Note, ProjectData, SpeedChange } from '../types/editorTypes';
+import type { BpmChange, Note, ProjectData, SpeedChange, TimedBpmChange } from '../types/editorTypes';
 import { HOLD_START_TYPES } from '../constants/editorConstants';
 import { formatTranslation, translations } from '../lang';
 import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat } from './editorUtils';
@@ -160,6 +160,11 @@ export function parseLevelText(text: string): ParsedLevelData {
   const bpmPositions = new Map<number, number>();
   const speedChanges: SpeedChange[] = [];
   let offset = 0;
+  // Cache the derived timed BPM changes across note lines: in a well-formed chart all #BPM/#BPMS
+  // directives precede the note lines, so re-sorting/re-deriving this on every single note (as
+  // before) was redundant work repeated once per note. Only recompute when BPM data actually changed.
+  let cachedTimedBpmChanges: TimedBpmChange[] | null = null;
+  let isCachedTimedBpmChangesStale = true;
 
   for (const [index, line] of lines.entries()) {
     const normalizedLine = line.trim();
@@ -172,12 +177,14 @@ export function parseLevelText(text: string): ParsedLevelData {
     const bpmValueEntry = parseIndexedNumericValue(normalizedLine, '#BPM ');
     if (bpmValueEntry) {
       bpmValues.set(bpmValueEntry.index, bpmValueEntry.value);
+      isCachedTimedBpmChangesStale = true;
       continue;
     }
 
     const bpmPositionEntry = parseIndexedNumericValue(normalizedLine, '#BPMS');
     if (bpmPositionEntry) {
       bpmPositions.set(bpmPositionEntry.index, bpmPositionEntry.value);
+      isCachedTimedBpmChangesStale = true;
       continue;
     }
 
@@ -220,27 +227,30 @@ export function parseLevelText(text: string): ParsedLevelData {
       continue;
     }
 
-    const bpmChanges = Array.from(bpmValues.entries())
-      .map(([entryIndex, bpm]) => convertTimeposToBpmChange(bpmPositions.get(entryIndex) ?? 0, bpm))
-      .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))
-      .filter((change, entryIndex, changes) => {
-        if (entryIndex === 0) {
-          return true;
-        }
+    if (isCachedTimedBpmChangesStale || cachedTimedBpmChanges === null) {
+      const bpmChanges = Array.from(bpmValues.entries())
+        .map(([entryIndex, bpm]) => convertTimeposToBpmChange(bpmPositions.get(entryIndex) ?? 0, bpm))
+        .sort((a, b) => getBpmChangeTimepos(a) - getBpmChangeTimepos(b))
+        .filter((change, entryIndex, changes) => {
+          if (entryIndex === 0) {
+            return true;
+          }
 
-        const previous = changes[entryIndex - 1];
-        return getBpmChangeTimepos(previous) !== getBpmChangeTimepos(change) || previous.bpm !== change.bpm;
-      });
+          const previous = changes[entryIndex - 1];
+          return getBpmChangeTimepos(previous) !== getBpmChangeTimepos(change) || previous.bpm !== change.bpm;
+        });
 
-    const timedBpmChanges = convertBpmChangesToTime(
-      bpmChanges.length > 0
-        ? bpmChanges
-        : [DEFAULT_BPM_CHANGE],
-    );
+      cachedTimedBpmChanges = convertBpmChangesToTime(
+        bpmChanges.length > 0
+          ? bpmChanges
+          : [DEFAULT_BPM_CHANGE],
+      );
+      isCachedTimedBpmChangesStale = false;
+    }
 
     notes.push({
       id,
-      time: getTimeAtBeat(beatPos * 4, timedBpmChanges),
+      time: getTimeAtBeat(beatPos * 4, cachedTimedBpmChanges),
       lane,
       type,
       width,
@@ -305,31 +315,53 @@ export function buildLevelText(params: {
 
   const sortedChanges = convertBpmChangesToTime(bpmChanges);
 
-  notes.forEach((note) => {
-    const totalBeats = getBeatAtTime(note.time, sortedChanges);
+  // Measure position is derived with a single cursor that only ever moves forward through the
+  // chart, rather than re-walking from beat 0 for every note (which was O(notes x measures) on
+  // long, note-dense charts). This requires visiting notes in ascending time order, so positions
+  // are computed over a time-sorted copy and then looked up by id when writing lines below in the
+  // notes' original order.
+  const measurePositionByNoteId = new Map<number, { measureCount: number; beatInMeasure: number; beatsPerMeasure: number }>();
+  let currentMeasureBeat = 0;
+  let measureCount = 0;
+  let currentBeatsPerMeasure = 4;
 
-    let currentMeasureBeat = 0;
-    let measureCount = 0;
-    let currentBeatsPerMeasure = 4;
-
-    while (measureCount < 10000) {
-      const timeAtMeasure = getTimeAtBeat(currentMeasureBeat, sortedChanges);
-      const activeChange = getActiveChange(timeAtMeasure + 0.001, sortedChanges);
-      currentBeatsPerMeasure = parseInt(activeChange.timeSignature.split('/')[0], 10) || 4;
-
-      if (totalBeats < currentMeasureBeat + currentBeatsPerMeasure) {
-        break;
+  [...notes]
+    .map(note => ({ note, totalBeats: getBeatAtTime(note.time, sortedChanges) }))
+    .sort((a, b) => a.totalBeats - b.totalBeats)
+    .forEach(({ note, totalBeats }) => {
+      if (!Number.isFinite(totalBeats)) {
+        measurePositionByNoteId.set(note.id, { measureCount, beatInMeasure: 0, beatsPerMeasure: currentBeatsPerMeasure });
+        return;
       }
 
-      currentMeasureBeat += currentBeatsPerMeasure;
-      measureCount++;
-    }
+      let safetyCounter = 0;
+      while (safetyCounter < 1000000) {
+        const timeAtMeasure = getTimeAtBeat(currentMeasureBeat, sortedChanges);
+        const activeChange = getActiveChange(timeAtMeasure + 0.001, sortedChanges);
+        currentBeatsPerMeasure = parseInt(activeChange.timeSignature.split('/')[0], 10) || 4;
 
-    const beatInMeasure = totalBeats - currentMeasureBeat;
+        if (totalBeats < currentMeasureBeat + currentBeatsPerMeasure) {
+          break;
+        }
+
+        currentMeasureBeat += currentBeatsPerMeasure;
+        measureCount++;
+        safetyCounter++;
+      }
+
+      measurePositionByNoteId.set(note.id, {
+        measureCount,
+        beatInMeasure: totalBeats - currentMeasureBeat,
+        beatsPerMeasure: currentBeatsPerMeasure,
+      });
+    });
+
+  notes.forEach((note) => {
+    const position = measurePositionByNoteId.get(note.id)!;
     const serializedAppearMode = note.appearMode && APPEAR_MODES.has(note.appearMode)
       ? `<${note.appearMode}>`
       : '';
-    content += `<${note.id}><${note.type}><${formatChartNumber(measureCount + beatInMeasure / currentBeatsPerMeasure)}><${formatChartNumber(note.lane)}><${formatChartNumber(note.width)}><${getSerializedSpeed(note)}><${getSerializedParentId(note)}>${serializedAppearMode}\n`;
+    content += `<${note.id}><${note.type}><${formatChartNumber(position.measureCount + position.beatInMeasure / position.beatsPerMeasure)}><${formatChartNumber(note.lane)}><${formatChartNumber(note.width)}><${getSerializedSpeed(note)}><${getSerializedParentId(note)}>${serializedAppearMode}\n`;
   });
 
   return content;
