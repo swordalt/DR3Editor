@@ -1,1 +1,1 @@
-Assets for functions such as example charts and game assets for Preview Mode are stored here.
+Storage for various assets used by (or for testing) the editor.
