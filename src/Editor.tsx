@@ -1144,6 +1144,7 @@ export default function Editor({
     playbackStartTime: 0,
     playbackStartPerformanceTime: 0,
     playbackAudioClockReadyTime: 0,
+    isPlaybackClockPending: false,
     playbackSpeed: 1,
     bpm: 120,
     bpmChanges: [{ timepos: 0, bpm: 120, timeSignature: '4/4' }],
@@ -1177,6 +1178,8 @@ export default function Editor({
     stateRef.current.isPlaying = isPlaying;
     if (!isPlaying) {
       stateRef.current.currentTime = currentTime;
+      // A play attempt that was abandoned mid-handshake must never leave the clock frozen.
+      stateRef.current.isPlaybackClockPending = false;
     }
     stateRef.current.bpm = projectData?.bpm || 120;
     stateRef.current.bpmChanges = bpmChanges;
@@ -1275,6 +1278,12 @@ export default function Editor({
   }, [notes]);
 
   const timedBpmChanges = useMemo(() => convertBpmChangesToTime(bpmChanges), [bpmChanges]);
+  // Playback-clock helpers run inside stale useCallback closures (and once per wheel event), so
+  // they read the timed changes through this ref instead of re-deriving them from
+  // stateRef.current.bpmChanges on every call, which re-sorted and re-allocated the whole list
+  // several times per frame on charts with many BPM changes.
+  const timedBpmChangesRef = useRef(timedBpmChanges);
+  timedBpmChangesRef.current = timedBpmChanges;
   const isOfficialChartFormat = (projectData?.chartFormat ?? 'Official') === 'Official';
   const usesOfficialPreviewRules = isOfficialChartFormat;
   const hasValidProjectSongId = Boolean(projectData && isValidSongId(projectData.songId));
@@ -2946,6 +2955,7 @@ export default function Editor({
     stateRef.current.isPlaying = true;
     setIsPlaying(true);
 
+    stateRef.current.isPlaybackClockPending = true;
     await audio.play().catch(() => {});
     if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
       await waitForAudioPlaybackReady(audio, playRequestId);
@@ -3005,7 +3015,7 @@ export default function Editor({
       ? getPlaybackTimeFromMediaTime(audio.currentTime, offsetInSeconds, correction)
       : fallbackTime;
     const clampedPlaybackTime = Math.max(0, rawPlaybackTime);
-    const timedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
+    const timedChanges = timedBpmChangesRef.current;
     const intendedBeat = getBeatAtTime(clampedPlaybackTime, timedChanges);
     return getTimeAtBeat(intendedBeat, timedChanges);
   };
@@ -3015,6 +3025,7 @@ export default function Editor({
     stateRef.current.playbackStartTime = time;
     stateRef.current.playbackStartPerformanceTime = now;
     stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+    stateRef.current.isPlaybackClockPending = false;
     resetHitSoundScheduler(time, true);
   };
 
@@ -3097,6 +3108,14 @@ export default function Editor({
 
   const getPlaybackTimeFromClock = (audio: HTMLAudioElement | null, offsetInSeconds: number) => {
     const now = performance.now();
+
+    // Playback was requested but the song has not started sounding yet (seek / play / ready
+    // handshake still pending). Hold the clock at the anchor so the hitsound scheduler cannot
+    // run ahead of the music during that gap; anchorPlaybackClock releases it once audio runs.
+    if (stateRef.current.isPlaybackClockPending) {
+      return Math.max(0, stateRef.current.playbackStartTime);
+    }
+
     const projectedTime = Math.max(
       0,
       stateRef.current.playbackStartTime
@@ -3115,12 +3134,16 @@ export default function Editor({
         offsetInSeconds,
         audioTimingCorrectionRef.current,
       );
-      const timedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
+      const timedChanges = timedBpmChangesRef.current;
       const intendedAudioTime = getTimeAtBeat(getBeatAtTime(audioTime, timedChanges), timedChanges);
       const audioDrift = intendedAudioTime - projectedTime;
       if (Math.abs(audioDrift) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
         stateRef.current.playbackStartTime = intendedAudioTime;
         stateRef.current.playbackStartPerformanceTime = now;
+        // The clock just jumped to match the song. Hitsounds already queued on the audio
+        // context were timed against the pre-jump clock, so drop them and re-seat the cursor;
+        // otherwise every drift correction leaves the hitsounds offset from the music.
+        resetHitSoundScheduler(intendedAudioTime, true);
         return intendedAudioTime;
       }
     }
@@ -3242,6 +3265,7 @@ export default function Editor({
     updateProgressBarValue(loopStartTime, true);
 
     applyAudioPlaybackSpeed(audio, activePlaybackSpeed);
+    stateRef.current.isPlaybackClockPending = offsetInSeconds <= 0;
 
     if (offsetInSeconds > 0) {
       audio.pause();
@@ -3312,6 +3336,7 @@ export default function Editor({
       stateRef.current.playbackStartTime = snappedTime;
       stateRef.current.playbackStartPerformanceTime = performance.now();
       stateRef.current.playbackAudioClockReadyTime = 0;
+      stateRef.current.isPlaybackClockPending = false;
       lastPlayedTimeRef.current = snappedTime;
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
       audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
@@ -3341,6 +3366,10 @@ export default function Editor({
       stateRef.current.playbackStartTime = playbackStartTime;
       stateRef.current.playbackStartPerformanceTime = playbackClockStart;
       stateRef.current.playbackAudioClockReadyTime = playbackClockStart + AUDIO_CLOCK_HANDOFF_DELAY_MS;
+      // Seeking and starting the media element takes real time, and after a scroll that seek is
+      // never a no-op. Freeze the clock until the audio reports it is running so hitsounds are
+      // not scheduled for chart time the song has not reached yet.
+      stateRef.current.isPlaybackClockPending = true;
       setIsPlaying(true);
       hitSoundCursorRef.current = findHitSoundCursor(playbackStartTime);
       scheduledHitSoundKeysRef.current.clear();
@@ -3350,6 +3379,9 @@ export default function Editor({
         // Delay music: Editor starts at current time, Music starts playing after offsetInSeconds past audio seek point
         const audioStartTime = playbackStartTime - offsetInSeconds;
         if (audioStartTime < 0) {
+          // Lead-in: the chart is meant to run ahead of the music here, so the clock must not be
+          // held. Hitsounds before the music starts are intentional in this branch.
+          stateRef.current.isPlaybackClockPending = false;
           audioRef.current.pause();
           audioRef.current.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
           const audioDelaySeconds = -audioStartTime / stateRef.current.playbackSpeed;
@@ -6808,7 +6840,7 @@ export default function Editor({
       togglePlay();
     }
     
-    const sortedChanges = convertBpmChangesToTime(stateRef.current.bpmChanges);
+    const sortedChanges = timedBpmChangesRef.current;
     const currentBeat = getBeatAtTime(stateRef.current.currentTime, sortedChanges);
     const scrollDelta = isScrollDirectionInverted ? -e.deltaY : e.deltaY;
     const targetBeat = currentBeat + (scrollDelta / pixelsPerBeat);
@@ -6824,11 +6856,16 @@ export default function Editor({
     stateRef.current.currentTime = clampedTime;
     stateRef.current.playbackStartTime = clampedTime;
     stateRef.current.playbackStartPerformanceTime = performance.now();
-    lastPlayedTimeRef.current = clampedTime;
-    hitSoundCursorRef.current = findHitSoundCursor(clampedTime);
-    scheduledHitSoundKeysRef.current.clear();
+    stateRef.current.playbackAudioClockReadyTime = 0;
+    stateRef.current.isPlaybackClockPending = false;
+    // Drop hitsounds already queued on the audio context for the pre-scroll position, not just
+    // the scheduled-key bookkeeping, or they keep sounding against the new song position.
+    resetHitSoundScheduler(clampedTime, true);
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
+      // Claim the seek so a 'seeked' handler left over from an earlier seek cannot re-anchor
+      // the playback clock to the position we just scrolled away from.
+      audioSeekRequestIdRef.current += 1;
       audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
         clampedTime,
         offsetInSeconds,
@@ -8829,12 +8866,13 @@ export default function Editor({
     stateRef.current.currentTime = clampedTime;
     stateRef.current.playbackStartTime = clampedTime;
     stateRef.current.playbackStartPerformanceTime = performance.now();
-    lastPlayedTimeRef.current = clampedTime;
-    hitSoundCursorRef.current = findHitSoundCursor(clampedTime);
-    scheduledHitSoundKeysRef.current.clear();
+    stateRef.current.playbackAudioClockReadyTime = 0;
+    stateRef.current.isPlaybackClockPending = false;
+    resetHitSoundScheduler(clampedTime, true);
 
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
+      audioSeekRequestIdRef.current += 1;
       audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
         clampedTime,
         offsetInSeconds,

@@ -58,6 +58,10 @@ export interface EditorRuntimeState {
   playbackStartTime: number;
   playbackStartPerformanceTime: number;
   playbackAudioClockReadyTime: number;
+  // True while playback has been requested but the music has not started sounding yet (the
+  // seek/play/ready handshake is still in flight). The playback clock must stay frozen during
+  // this window, otherwise hitsounds get scheduled for chart time the song has not reached.
+  isPlaybackClockPending: boolean;
   playbackSpeed: number;
   bpm: number;
   bpmChanges: BpmChange[];
