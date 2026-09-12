@@ -26,3 +26,5 @@ An updated build is available for use on GitHub pages [here](https://swordalt.gi
 - [DanceRail3Viewer & DRMaker](https://github.com/lucarioex/DanceRail3Viewer) by [lucarioex](https://github.com/lucarioex) <br>
 - PhiEdit by [cmdysj](https://space.bilibili.com/252635690)
 - [easings.net](https://easings.net/) by [Andrey Sitnik](https://github.com/ai) and [Ivan Solovev](https://github.com/ivan-solovev)
+
+Note: AI was used in this project, primarily in design and optimization. View `PROJECT_OVERVIEW.md` for an overview of the project's structure.
