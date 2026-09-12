@@ -60,6 +60,15 @@ import {
   AUDIO_CLOCK_HANDOFF_DELAY_MS,
   AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS,
   AUDIO_SEEK_TIMEOUT_MS,
+  AUDIO_SCROLL_SEEK_DEBOUNCE_MS,
+  AUDIO_SEEK_MISMATCH_TOLERANCE_SECONDS,
+  PLAYBACK_SYNC_VERIFY_INTERVAL_MS,
+  PLAYBACK_SYNC_VERIFY_SAMPLES,
+  PLAYBACK_SYNC_TOLERANCE_SECONDS,
+  PLAYBACK_SYNC_VERIFY_MAX_WAITS,
+  PLAYBACK_SYNC_MONITOR_INTERVAL_MS,
+  PLAYBACK_SYNC_MONITOR_SAMPLES,
+  PLAYBACK_SYNC_MONITOR_TOLERANCE_SECONDS,
   CURVE_EASINGS_BY_ID,
   CURVE_EASING_FAMILY_OPTIONS,
   CURVE_EASING_TYPE_OPTIONS,
@@ -779,6 +788,19 @@ export default function Editor({
   const isDraggingProgress = useRef(false);
   const isProgressBarInteractive = useRef(false);
   const audioSeekRequestIdRef = useRef(0);
+  // Latest media-element seek target from timeline scrubbing, applied once the gesture settles.
+  const pendingAudioSeekMediaTimeRef = useRef<number | null>(null);
+  const pendingAudioSeekTimeoutRef = useRef<number>();
+  const playbackSyncVerifyTimeoutRef = useRef<number>();
+  const playbackSyncVerifyRequestIdRef = useRef(0);
+  // Where the song and the chart both stood when playback last settled. Every sync check measures
+  // travel from here rather than trusting one instantaneous reading of the media element.
+  const playbackSyncAnchorRef = useRef<{
+    chartTime: number;
+    mediaTime: number;
+    playbackSpeed: number;
+  } | null>(null);
+  const playbackSyncDriftSamplesRef = useRef<number[]>([]);
   const shouldResumeAfterProgressSeekRef = useRef(false);
   const pendingDragUpdateRef = useRef<PendingDragUpdate | null>(null);
   const dragStartNoteRef = useRef<Note | null>(null);
@@ -2865,6 +2887,7 @@ export default function Editor({
         audio.addEventListener('seeked', alignClockAfterSeek, { once: true });
       }
 
+      cancelPendingAudioSeek();
       audio.currentTime = mediaTargetTime;
 
       if (stateRef.current.isPlaying && !audio.seeking) {
@@ -2887,6 +2910,7 @@ export default function Editor({
     }
 
     playRequestIdRef.current += 1;
+    cancelPlaybackSyncVerification();
     clearPlayTimeout();
     stopHitsounds();
 
@@ -2956,6 +2980,7 @@ export default function Editor({
     setIsPlaying(true);
 
     stateRef.current.isPlaybackClockPending = true;
+    verifyPlaybackSync(offsetInSeconds);
     await audio.play().catch(() => {});
     if (playRequestIdRef.current === playRequestId && stateRef.current.isPlaying) {
       await waitForAudioPlaybackReady(audio, playRequestId);
@@ -3026,12 +3051,120 @@ export default function Editor({
     stateRef.current.playbackStartPerformanceTime = now;
     stateRef.current.playbackAudioClockReadyTime = now + AUDIO_CLOCK_HANDOFF_DELAY_MS;
     stateRef.current.isPlaybackClockPending = false;
+    playbackSyncAnchorRef.current = null;
+    playbackSyncDriftSamplesRef.current = [];
     resetHitSoundScheduler(time, true);
   };
 
+  const cancelPlaybackSyncVerification = () => {
+    playbackSyncVerifyRequestIdRef.current += 1;
+    if (playbackSyncVerifyTimeoutRef.current !== undefined) {
+      window.clearTimeout(playbackSyncVerifyTimeoutRef.current);
+      playbackSyncVerifyTimeoutRef.current = undefined;
+    }
+  };
+
+  // Where the song actually is, in chart time, including the user-set offset.
+  const getSongPlaybackTime = (audio: HTMLAudioElement, offsetInSeconds: number) => (
+    getPlaybackTimeFromMediaTime(audio.currentTime, offsetInSeconds, audioTimingCorrectionRef.current)
+  );
+
+  // Where the hitsound scheduler thinks playback is. Read directly rather than through
+  // getPlaybackTimeFromClock so the check never sees that function's own drift correction.
+  const getScheduledPlaybackTime = (now: number) => Math.max(
+    0,
+    stateRef.current.playbackStartTime
+      + ((now - stateRef.current.playbackStartPerformanceTime) / 1000) * stateRef.current.playbackSpeed,
+  );
+
+  // Resuming leaves the clock anchored on a single, early reading of the media element, and any
+  // error in it becomes a fixed offset between the song and the hitsounds. Sample the gap a few
+  // times while the element settles, correct immediately if it is grossly wrong, and otherwise
+  // apply one correction at the end using the median so element jitter cannot drive it.
+  const verifyPlaybackSync = (offsetInSeconds: number) => {
+    cancelPlaybackSyncVerification();
+    const verifyRequestId = playbackSyncVerifyRequestIdRef.current;
+    const sampledDrifts: number[] = [];
+    let attemptsLeft = PLAYBACK_SYNC_VERIFY_SAMPLES;
+    let waitsLeft = PLAYBACK_SYNC_VERIFY_MAX_WAITS;
+
+    const runAttempt = () => {
+      playbackSyncVerifyTimeoutRef.current = undefined;
+
+      if (playbackSyncVerifyRequestIdRef.current !== verifyRequestId || !stateRef.current.isPlaying) {
+        return;
+      }
+
+      const audio = audioRef.current;
+      const isAudioReadable = Boolean(
+        audio
+        && !audio.paused
+        && !audio.seeking
+        && audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+      );
+
+      if (!audio || !isAudioReadable || stateRef.current.isPlaybackClockPending) {
+        // Not sounding yet: an offset lead-in, a seek still settling, or buffering. Wait rather
+        // than spending the sample budget, so verification still happens once the song starts.
+        waitsLeft -= 1;
+        if (waitsLeft > 0) {
+          playbackSyncVerifyTimeoutRef.current = window.setTimeout(runAttempt, PLAYBACK_SYNC_VERIFY_INTERVAL_MS);
+        }
+        return;
+      }
+
+      attemptsLeft -= 1;
+      const now = performance.now();
+      const songTime = getSongPlaybackTime(audio, offsetInSeconds);
+      const drift = songTime - getScheduledPlaybackTime(now);
+
+      if (Math.abs(drift) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+        // Far enough out to be obvious. Re-seat now instead of waiting for the window to end.
+        anchorPlaybackClock(songTime, now);
+        sampledDrifts.length = 0;
+      } else {
+        sampledDrifts.push(drift);
+      }
+
+      if (attemptsLeft > 0) {
+        playbackSyncVerifyTimeoutRef.current = window.setTimeout(runAttempt, PLAYBACK_SYNC_VERIFY_INTERVAL_MS);
+        return;
+      }
+
+      if (sampledDrifts.length === 0) {
+        return;
+      }
+
+      const orderedDrifts = [...sampledDrifts].sort((a, b) => a - b);
+      const medianDrift = orderedDrifts[Math.floor(orderedDrifts.length / 2)];
+      if (Math.abs(medianDrift) <= PLAYBACK_SYNC_TOLERANCE_SECONDS) {
+        return;
+      }
+
+      const settledAudio = audioRef.current;
+      if (!settledAudio || settledAudio.paused || settledAudio.seeking) {
+        return;
+      }
+
+      anchorPlaybackClock(getSongPlaybackTime(settledAudio, offsetInSeconds), performance.now());
+    };
+
+    playbackSyncVerifyTimeoutRef.current = window.setTimeout(runAttempt, PLAYBACK_SYNC_VERIFY_INTERVAL_MS);
+  };
+
   const syncPlaybackToAudioClock = (audio: HTMLAudioElement, offsetInSeconds: number, fallbackTime: number) => {
+    // The element can still be sitting at a pre-seek position here, most often after a burst of
+    // scroll seeks. Move the song to where playback is meant to be instead of dragging the editor
+    // back to the stale position, which is what read as the song never updating.
+    if (correctAudioSeekMismatch(audio, offsetInSeconds, fallbackTime)) {
+      anchorPlaybackClock(fallbackTime);
+      verifyPlaybackSync(offsetInSeconds);
+      return;
+    }
+
     const now = performance.now();
     anchorPlaybackClock(getIntendedPlaybackTime(audio, offsetInSeconds, fallbackTime), now);
+    verifyPlaybackSync(offsetInSeconds);
   };
 
   const waitForAudioPlaybackReady = (audio: HTMLAudioElement, playRequestId: number) => new Promise<void>((resolve) => {
@@ -3143,6 +3276,8 @@ export default function Editor({
         // The clock just jumped to match the song. Hitsounds already queued on the audio
         // context were timed against the pre-jump clock, so drop them and re-seat the cursor;
         // otherwise every drift correction leaves the hitsounds offset from the music.
+        playbackSyncAnchorRef.current = null;
+        playbackSyncDriftSamplesRef.current = [];
         resetHitSoundScheduler(intendedAudioTime, true);
         return intendedAudioTime;
       }
@@ -3201,10 +3336,93 @@ export default function Editor({
     setIsPlaybackSpeedMenuOpen(false);
   };
 
+  const cancelPendingAudioSeek = () => {
+    if (pendingAudioSeekTimeoutRef.current !== undefined) {
+      window.clearTimeout(pendingAudioSeekTimeoutRef.current);
+      pendingAudioSeekTimeoutRef.current = undefined;
+    }
+    pendingAudioSeekMediaTimeRef.current = null;
+  };
+
+  const applyPendingAudioSeek = () => {
+    const mediaTime = pendingAudioSeekMediaTimeRef.current;
+    cancelPendingAudioSeek();
+
+    const audio = audioRef.current;
+    if (!audio || mediaTime === null) {
+      return;
+    }
+
+    audioSeekRequestIdRef.current += 1;
+    const seekRequestId = audioSeekRequestIdRef.current;
+
+    // Nothing else checks this seek: it lands while playback is stopped, and by the time the
+    // user resumes, a position that quietly missed reads as the song being out of sync with
+    // the hitsounds. Confirm where it settled and re-issue once if it missed.
+    const confirmSeekLanding = () => {
+      audio.removeEventListener('seeked', confirmSeekLanding);
+      if (audioSeekRequestIdRef.current !== seekRequestId) {
+        return;
+      }
+
+      if (Math.abs(audio.currentTime - mediaTime) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+        audio.currentTime = mediaTime;
+      }
+    };
+
+    audio.addEventListener('seeked', confirmSeekLanding);
+    audio.currentTime = mediaTime;
+  };
+
+  // Scrubbing the timeline produces a seek target per wheel event. Applying each one hammers the
+  // media element's decoder, and after a burst of back-and-forth seeks it can settle nowhere near
+  // the last requested position, which is what left the song playing from the pre-scroll spot.
+  // The element is paused while scrolling, so only the final target of a gesture matters.
+  const queueAudioSeek = (mediaTime: number) => {
+    if (!audioRef.current) {
+      return;
+    }
+
+    pendingAudioSeekMediaTimeRef.current = mediaTime;
+    if (pendingAudioSeekTimeoutRef.current !== undefined) {
+      window.clearTimeout(pendingAudioSeekTimeoutRef.current);
+    }
+
+    pendingAudioSeekTimeoutRef.current = window.setTimeout(() => {
+      pendingAudioSeekTimeoutRef.current = undefined;
+      applyPendingAudioSeek();
+    }, AUDIO_SCROLL_SEEK_DEBOUNCE_MS);
+  };
+
+  // Re-seek when the element did not end up where we asked. Returns true if a correction was
+  // issued, in which case the element is seeking again and its clock must not be trusted yet.
+  const correctAudioSeekMismatch = (
+    audio: HTMLAudioElement,
+    offsetInSeconds: number,
+    intendedTime: number,
+  ) => {
+    const intendedMediaTime = getMediaTimeFromPlaybackTime(
+      intendedTime,
+      offsetInSeconds,
+      audioTimingCorrectionRef.current,
+    );
+
+    if (audio.seeking || Math.abs(audio.currentTime - intendedMediaTime) <= AUDIO_SEEK_MISMATCH_TOLERANCE_SECONDS) {
+      return false;
+    }
+
+    cancelPendingAudioSeek();
+    audioSeekRequestIdRef.current += 1;
+    audio.currentTime = intendedMediaTime;
+    return true;
+  };
+
   const seekAudioToTime = (audio: HTMLAudioElement, time: number) => new Promise<void>((resolve) => {
+    cancelPendingAudioSeek();
     audioSeekRequestIdRef.current += 1;
     const targetTime = Math.max(0, time);
     let settled = false;
+    let hasRetried = false;
     let timeoutId: number | undefined;
 
     const finish = () => {
@@ -3216,11 +3434,23 @@ export default function Editor({
       if (timeoutId !== undefined) {
         window.clearTimeout(timeoutId);
       }
-      audio.removeEventListener('seeked', finish);
+      audio.removeEventListener('seeked', handleSeeked);
       resolve();
     };
 
-    audio.addEventListener('seeked', finish);
+    const handleSeeked = () => {
+      // Seeks issued back to back can land off target. Re-issue once instead of starting
+      // playback from a position the editor never asked for.
+      if (!hasRetried && Math.abs(audio.currentTime - targetTime) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+        hasRetried = true;
+        audio.currentTime = targetTime;
+        return;
+      }
+
+      finish();
+    };
+
+    audio.addEventListener('seeked', handleSeeked);
     timeoutId = window.setTimeout(finish, AUDIO_SEEK_TIMEOUT_MS);
     audio.currentTime = targetTime;
 
@@ -3266,9 +3496,12 @@ export default function Editor({
 
     applyAudioPlaybackSpeed(audio, activePlaybackSpeed);
     stateRef.current.isPlaybackClockPending = offsetInSeconds <= 0;
+    verifyPlaybackSync(offsetInSeconds);
 
     if (offsetInSeconds > 0) {
       audio.pause();
+      cancelPendingAudioSeek();
+      audioSeekRequestIdRef.current += 1;
       audio.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
       playTimeoutRef.current = window.setTimeout(() => {
         playTimeoutRef.current = undefined;
@@ -3314,6 +3547,7 @@ export default function Editor({
     
     if (stateRef.current.isPlaying) {
       playRequestIdRef.current += 1;
+      cancelPlaybackSyncVerification();
       const playbackTime = Math.max(0, getPlaybackTimeFromClock(audioRef.current, offsetInSeconds));
       stopHitsounds();
       audioRef.current.pause();
@@ -3339,11 +3573,11 @@ export default function Editor({
       stateRef.current.isPlaybackClockPending = false;
       lastPlayedTimeRef.current = snappedTime;
       hitSoundCursorRef.current = findHitSoundCursor(snappedTime);
-      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+      queueAudioSeek(getMediaTimeFromPlaybackTime(
         snappedTime,
         offsetInSeconds,
         audioTimingCorrectionRef.current,
-      );
+      ));
       if (timeDisplayRef.current) {
         timeDisplayRef.current.textContent = formatTimelineMeasureProgress(snappedTime);
       }
@@ -3371,6 +3605,9 @@ export default function Editor({
       // not scheduled for chart time the song has not reached yet.
       stateRef.current.isPlaybackClockPending = true;
       setIsPlaying(true);
+      // Arm the check here rather than only after the seek/play/ready chain: that chain returns
+      // early whenever the play request is superseded, which would skip validation entirely.
+      verifyPlaybackSync(offsetInSeconds);
       hitSoundCursorRef.current = findHitSoundCursor(playbackStartTime);
       scheduledHitSoundKeysRef.current.clear();
       lastPlayedTimeRef.current = playbackStartTime;
@@ -3383,6 +3620,8 @@ export default function Editor({
           // held. Hitsounds before the music starts are intentional in this branch.
           stateRef.current.isPlaybackClockPending = false;
           audioRef.current.pause();
+          cancelPendingAudioSeek();
+          audioSeekRequestIdRef.current += 1;
           audioRef.current.currentTime = audioTimingCorrectionRef.current.mediaStartTime;
           const audioDelaySeconds = -audioStartTime / stateRef.current.playbackSpeed;
           playTimeoutRef.current = window.setTimeout(() => {
@@ -6296,6 +6535,87 @@ export default function Editor({
     };
   }, [offset, scheduleEditorUpdate, update]);
 
+  // Validate sync for as long as playback runs, against the start of playback rather than against
+  // a single reading. Anchoring the clock to one instantaneous media position and then comparing
+  // that same position back against it can only ever catch rate drift, never a bad anchor, which
+  // is why sync held at the start and came apart after scrolling somewhere else. Two quantities
+  // are checked: how far the song has travelled since the anchor versus how far the chart has,
+  // and the absolute chart position the song maps to once the user-set offset is applied.
+  useEffect(() => {
+    if (!isPlaying) {
+      playbackSyncAnchorRef.current = null;
+      playbackSyncDriftSamplesRef.current = [];
+      return;
+    }
+
+    const offsetInSeconds = parseFloat(offset.toString()) / 1000;
+
+    const intervalId = window.setInterval(() => {
+      const audio = audioRef.current;
+      if (
+        !audio
+        || !stateRef.current.isPlaying
+        || stateRef.current.isPlaybackClockPending
+        || audio.paused
+        || audio.seeking
+        || audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
+        return;
+      }
+
+      const now = performance.now();
+      const chartTime = getScheduledPlaybackTime(now);
+
+      // During a positive-offset lead-in the media position is clamped at zero, so chart time
+      // cannot be recovered from the element and there is nothing meaningful to compare.
+      if (offsetInSeconds > 0 && chartTime < offsetInSeconds) {
+        return;
+      }
+
+      const anchor = playbackSyncAnchorRef.current;
+      if (!anchor || anchor.playbackSpeed !== stateRef.current.playbackSpeed) {
+        playbackSyncAnchorRef.current = {
+          chartTime,
+          mediaTime: audio.currentTime,
+          playbackSpeed: stateRef.current.playbackSpeed,
+        };
+        playbackSyncDriftSamplesRef.current = [];
+        return;
+      }
+
+      // Elapsed check: the song and the chart must cover the same ground over the same wall time.
+      const elapsedDrift = (audio.currentTime - anchor.mediaTime) - (chartTime - anchor.chartTime);
+      // Absolute check: where the song sits maps to a chart position through the offset, and that
+      // has to be where the hitsound scheduler thinks playback is.
+      const songChartTime = getSongPlaybackTime(audio, offsetInSeconds);
+      const absoluteDrift = songChartTime - chartTime;
+      const drift = Math.abs(absoluteDrift) > Math.abs(elapsedDrift) ? absoluteDrift : elapsedDrift;
+
+      if (Math.abs(drift) > AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS) {
+        anchorPlaybackClock(songChartTime, now);
+        return;
+      }
+
+      const driftSamples = playbackSyncDriftSamplesRef.current;
+      driftSamples.push(drift);
+      if (driftSamples.length > PLAYBACK_SYNC_MONITOR_SAMPLES) {
+        driftSamples.shift();
+      }
+      if (driftSamples.length < PLAYBACK_SYNC_MONITOR_SAMPLES) {
+        return;
+      }
+
+      // Median over the window so element jitter cannot trigger a correction on its own.
+      const orderedDrifts = [...driftSamples].sort((a, b) => a - b);
+      const medianDrift = orderedDrifts[Math.floor(orderedDrifts.length / 2)];
+      if (Math.abs(medianDrift) > PLAYBACK_SYNC_MONITOR_TOLERANCE_SECONDS) {
+        anchorPlaybackClock(songChartTime, now);
+      }
+    }, PLAYBACK_SYNC_MONITOR_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [isPlaying, offset]);
+
   useEffect(() => {
     if (!isPlaying) {
       if (hitSoundSchedulerIntervalRef.current !== undefined) {
@@ -6325,6 +6645,14 @@ export default function Editor({
 
   useEffect(() => {
     return () => {
+      if (pendingAudioSeekTimeoutRef.current !== undefined) {
+        window.clearTimeout(pendingAudioSeekTimeoutRef.current);
+        pendingAudioSeekTimeoutRef.current = undefined;
+      }
+      if (playbackSyncVerifyTimeoutRef.current !== undefined) {
+        window.clearTimeout(playbackSyncVerifyTimeoutRef.current);
+        playbackSyncVerifyTimeoutRef.current = undefined;
+      }
       if (pausedTimelineRenderTimeoutRef.current !== undefined) {
         window.clearTimeout(pausedTimelineRenderTimeoutRef.current);
         pausedTimelineRenderTimeoutRef.current = undefined;
@@ -6863,14 +7191,11 @@ export default function Editor({
     resetHitSoundScheduler(clampedTime, true);
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
-      // Claim the seek so a 'seeked' handler left over from an earlier seek cannot re-anchor
-      // the playback clock to the position we just scrolled away from.
-      audioSeekRequestIdRef.current += 1;
-      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+      queueAudioSeek(getMediaTimeFromPlaybackTime(
         clampedTime,
         offsetInSeconds,
         audioTimingCorrectionRef.current,
-      );
+      ));
     }
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = formatTimelineMeasureProgress(clampedTime);
@@ -8872,12 +9197,11 @@ export default function Editor({
 
     if (audioRef.current) {
       const offsetInSeconds = parseFloat(offset.toString()) / 1000;
-      audioSeekRequestIdRef.current += 1;
-      audioRef.current.currentTime = getMediaTimeFromPlaybackTime(
+      queueAudioSeek(getMediaTimeFromPlaybackTime(
         clampedTime,
         offsetInSeconds,
         audioTimingCorrectionRef.current,
-      );
+      ));
     }
 
     if (timeDisplayRef.current) {

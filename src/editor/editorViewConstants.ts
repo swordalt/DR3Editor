@@ -7,7 +7,34 @@ export const HIT_SOUND_JUMP_TOLERANCE_SECONDS = 0.25;
 export const PAUSED_TIMELINE_RENDER_DURATION_MS = 120;
 export const AUDIO_CLOCK_HANDOFF_DELAY_MS = 200;
 export const AUDIO_CLOCK_SYNC_TOLERANCE_SECONDS = 0.05;
-export const AUDIO_SEEK_TIMEOUT_MS = 10000;
+// A blob-backed media element settles a seek in a few frames. The old 10s ceiling meant a seek
+// that never reported 'seeked' blocked playback start for ten seconds instead of falling through.
+export const AUDIO_SEEK_TIMEOUT_MS = 1500;
+// Scroll issues a seek target per wheel event. Writing currentTime that often makes the decoder
+// thrash and the element can settle nowhere near the last request, so targets are coalesced and
+// only the final one of a gesture is applied (playback start flushes it early).
+export const AUDIO_SCROLL_SEEK_DEBOUNCE_MS = 80;
+// How far the media element may sit from the position we asked for before we treat the seek as
+// having failed rather than as normal start-up latency.
+export const AUDIO_SEEK_MISMATCH_TOLERANCE_SECONDS = 0.25;
+// Resuming anchors the editor clock to one reading of the media element, and that first reading
+// is the least trustworthy one: the element's reported position lags and quantizes for a few
+// hundred ms after play(). Hitsounds ride the editor clock, so the error in that reading becomes
+// a fixed offset against the song. These drive a short re-check that re-seats the anchor.
+export const PLAYBACK_SYNC_VERIFY_INTERVAL_MS = 40;
+export const PLAYBACK_SYNC_VERIFY_SAMPLES = 8;
+// Correct anything past this. Well under the ~12ms a listener starts to notice against a beat.
+export const PLAYBACK_SYNC_TOLERANCE_SECONDS = 0.008;
+// The element may not be sounding yet when verification starts (offset lead-in, a seek still
+// settling, buffering). Those ticks wait instead of spending the sample budget on readings that
+// do not exist yet. 50 ticks is two seconds of grace before the check gives up.
+export const PLAYBACK_SYNC_VERIFY_MAX_WAITS = 50;
+// The resume check only covers the first few hundred ms. These drive the monitor that keeps
+// validating for as long as playback runs, comparing how far the song has travelled since the
+// start of playback against how far the chart has, so error cannot accumulate unnoticed.
+export const PLAYBACK_SYNC_MONITOR_INTERVAL_MS = 100;
+export const PLAYBACK_SYNC_MONITOR_SAMPLES = 5;
+export const PLAYBACK_SYNC_MONITOR_TOLERANCE_SECONDS = 0.012;
 export const PERFORMANCE_STATS_UPDATE_INTERVAL_MS = 500;
 export const PLAYBACK_SPEED_OPTIONS = [1, 0.75, 0.5, 0.25, 1.25, 1.5, 1.75, 2] as const;
 export const PINK_HOLD_CENTER_TYPE = 23;
