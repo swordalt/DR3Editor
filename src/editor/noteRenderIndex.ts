@@ -162,6 +162,38 @@ export const getNoteBeatEntriesInRange = (
   return matchingEntries;
 };
 
+export const findFirstNoteBeatEntryIndexAfter = (entries: NoteBeatEntry[], beat: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].beat <= beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
+export const getNoteBeatEntryCountBeforeBeat = (entries: NoteBeatEntry[], beat: number) => {
+  let low = 0;
+  let high = entries.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (entries[mid].beat < beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+};
+
 const getNoteIdGroupKey = (note: Note, noteBeat: number) => {
   const centerPosition = note.lane + note.width / 2;
   return `${noteBeat.toFixed(6)}:${centerPosition.toFixed(6)}`;

@@ -285,7 +285,13 @@ export const findChartIssues = (
   notes.forEach((note) => {
     const timepos = timeposByNoteId.get(note.id) ?? 0;
     const key = timepos.toFixed(6);
-    notesByTimepos.set(key, [...(notesByTimepos.get(key) ?? []), note]);
+    const bucket = notesByTimepos.get(key);
+
+    if (bucket) {
+      bucket.push(note);
+    } else {
+      notesByTimepos.set(key, [note]);
+    }
   });
 
   for (const notesAtTimepos of notesByTimepos.values()) {

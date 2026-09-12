@@ -9,6 +9,7 @@ import { translations } from '../lang';
 import { stripInputWhitespace } from '../utils/inputSanitization';
 import type { ProjectData } from '../types/editorTypes';
 import type { ExportFormat } from '../types/exportTypes';
+import { formatTranslation } from '../lang';
 import {
   dialogFooterClassName,
   dialogHeaderClassName,
@@ -23,6 +24,10 @@ import {
 type ExportRunResult = 'complete' | 'cancelled' | 'failed';
 type UserExportFormat = Extract<ExportFormat, 'raw' | 'dr3-viewer' | 'dr3-fp' | 'chart-data'>;
 type ExportDialogStatus = 'idle' | 'exporting' | 'complete' | 'cancelled' | 'failed';
+
+// Charts at or above this size show an export-time notice, since serialization and audio
+// conversion can keep the tab briefly unresponsive on large projects.
+const LARGE_EXPORT_NOTE_COUNT = 5000;
 
 interface EditorTopBarProps {
   projectData: ProjectData | null;
@@ -44,6 +49,7 @@ interface EditorTopBarProps {
   isExportMenuOpen: boolean;
   isPreviewMenuOpen: boolean;
   isExportDisabled: boolean;
+  noteCount: number;
   hasExportAudioFile: boolean;
   hasExportIncompatibleTimeSignature: boolean;
   hasUnsupportedFormattedExportNoteTypes: boolean;
@@ -94,6 +100,7 @@ export default function EditorTopBar({
   isExportMenuOpen,
   isPreviewMenuOpen,
   isExportDisabled,
+  noteCount,
   hasExportAudioFile,
   hasExportIncompatibleTimeSignature,
   hasUnsupportedFormattedExportNoteTypes,
@@ -198,7 +205,9 @@ export default function EditorTopBar({
     isExportStartingRef.current = true;
     flushSync(() => {
       setExportDialogStatus('exporting');
-      setExportDialogStatusMessage(text.editor.preparingExport);
+      setExportDialogStatusMessage(projectData && noteCount >= LARGE_EXPORT_NOTE_COUNT
+        ? formatTranslation(text.editor.exportingLargeChart, { count: noteCount })
+        : text.editor.preparingExport);
     });
 
     const exportByFormat: Record<UserExportFormat, () => Promise<ExportRunResult>> = {
@@ -583,8 +592,13 @@ export default function EditorTopBar({
                     {text.editor.exportUnsupportedNoteTypes}
                   </p>
                 )}
+                {noteCount >= LARGE_EXPORT_NOTE_COUNT && (
+                  <p className="mx-5 mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs leading-5 text-sky-200">
+                    {formatTranslation(text.editor.largeChartExportNotice, { count: noteCount })}
+                  </p>
+                )}
 
-                <div className={`space-y-2 px-5 ${hasExportIncompatibleTimeSignature || hasUnsupportedFormattedExportNoteTypes ? 'pb-5 pt-3' : 'py-5'}`}>
+                <div className={`space-y-2 px-5 ${hasExportIncompatibleTimeSignature || hasUnsupportedFormattedExportNoteTypes || noteCount >= LARGE_EXPORT_NOTE_COUNT ? 'pb-5 pt-3' : 'py-5'}`}>
                   {exportOptions.map(option => (
                     <button
                       key={option.format}

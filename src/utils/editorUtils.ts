@@ -124,6 +124,65 @@ export const getTimeAtBeat = (beat: number, changes: TimedBpmChange[]) => {
   return activeChange.time + (beat - activeChange.startBeat) / (activeChange.bpm / 60);
 };
 
+// Timepos lookup that walks measures forward once and caches each measure boundary, so repeated
+// queries cost O(log measures) instead of re-walking every measure from beat 0 per call (which
+// made export-time organization O(notes x measures) on long charts).
+export const createTimeposIndex = (changes: TimedBpmChange[]) => {
+  const measureStartBeats: number[] = [];
+  const measureBeatsPerMeasure: number[] = [];
+
+  let currentMeasureBeat = 0;
+  let measureCount = 0;
+  let currentBeatsPerMeasure = 4;
+
+  const extendThrough = (totalBeats: number) => {
+    while (measureCount < 10000) {
+      const timeAtMeasure = getTimeAtBeat(currentMeasureBeat, changes);
+      const activeChange = getActiveChange(timeAtMeasure + 0.001, changes);
+      currentBeatsPerMeasure = getBeatsPerMeasure(activeChange.timeSignature);
+
+      // Store the boundary even for the final partial measure so lookups landing inside it
+      // divide by this measure's own signature rather than the previous one's.
+      measureStartBeats[measureCount] = currentMeasureBeat;
+      measureBeatsPerMeasure[measureCount] = currentBeatsPerMeasure;
+
+      if (totalBeats < currentMeasureBeat + currentBeatsPerMeasure) {
+        break;
+      }
+
+      currentMeasureBeat += currentBeatsPerMeasure;
+      measureCount += 1;
+    }
+  };
+
+  const getTimeposFromTime = (time: number) => {
+    const totalBeats = getBeatAtTime(time, changes);
+    extendThrough(totalBeats);
+
+    if (measureStartBeats.length === 0) {
+      return totalBeats / currentBeatsPerMeasure;
+    }
+
+    let low = 0;
+    let high = measureStartBeats.length - 1;
+    let index = 0;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (measureStartBeats[mid] <= totalBeats) {
+        index = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return index + (totalBeats - measureStartBeats[index]) / measureBeatsPerMeasure[index];
+  };
+
+  return { getTimeposFromTime };
+};
+
 export const formatTime = (
   time: number,
   changes: TimedBpmChange[],

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { convertBpmChangesToTime, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
+import { convertBpmChangesToTime, createTimeposIndex, getActiveChange, getBeatAtTime, getBpmChangeTimepos, getTimeAtBeat, formatTime } from './utils/editorUtils';
 import EditorLayout from './components/EditorLayout';
 import EditorFilePreviewModal from './components/EditorFilePreviewModal';
 import type { NoteMultiEditCondition, NoteMultiEditRequest, NoteMultiEditResult } from './components/EditorNoteMultiEditModal';
@@ -44,7 +44,7 @@ import {
   loadEditorSettings,
   saveEditorSettings,
 } from './editor/editorSettings';
-import { buildNoteRenderIndex, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange, getNoteBeatEntriesInViewport } from './editor/noteRenderIndex';
+import { buildNoteRenderIndex, findFirstNoteBeatEntryIndexAfter, getHoldConnectorSegmentsInRange, getNoteBeatEntriesInRange, getNoteBeatEntriesInViewport, getNoteBeatEntryCountBeforeBeat } from './editor/noteRenderIndex';
 import { findChartIssues, type ChartIssue } from './editor/chartIssues';
 import { stripInputWhitespace } from './utils/inputSanitization';
 
@@ -296,6 +296,11 @@ type PreviewCanvasLoadPhase = 'idle' | 'visible' | 'full';
 
 const PREVIEW_INITIAL_CANVAS_SECONDS_BEHIND = 12;
 const PREVIEW_INITIAL_CANVAS_SECONDS_AHEAD = 30;
+// Progressive (lazy) full-canvas expansion: after the initial visible-window load, the loaded
+// beat window grows by this many notes per side on each idle tick instead of loading every note
+// in one synchronous pass, which froze the app for seconds on charts with 50k+ notes.
+const PREVIEW_EXPANSION_NOTES_PER_CHUNK = 4000;
+const PREVIEW_EXPANSION_MIN_SECONDS_PER_CHUNK = 20;
 const PREVIEW_NOTE_TEXTURE_HEIGHT_SCALE = 0.3;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_WIDTH = 24;
 const PREVIEW_NOTE_TEXTURE_EDGE_CAP_SCALE = 0.55;
@@ -540,6 +545,10 @@ export default function Editor({
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewCanvasLoadPhase, setPreviewCanvasLoadPhase] = useState<PreviewCanvasLoadPhase>('idle');
   const [previewVisibleWindowTime, setPreviewVisibleWindowTime] = useState(0);
+  // Progressive full-canvas expansion state (lazy loading): while in the 'expanding' phase the
+  // loaded beat window grows by a bounded chunk of notes per idle tick, so entering Preview Mode
+  // on charts with huge note counts never blocks the main thread long enough to freeze.
+  const [previewExpandedBeatWindow, setPreviewExpandedBeatWindow] = useState<{ min: number; max: number } | null>(null);
   const [isLeftPanelCompact, setIsLeftPanelCompact] = useState(false);
   const [isRightPanelCompact, setIsRightPanelCompact] = useState(false);
   const [isLeftPanelContentVisible, setIsLeftPanelContentVisible] = useState(true);
@@ -822,6 +831,9 @@ export default function Editor({
   const previewComboTimesRef = useRef<number[]>([]);
   const previewModePrecomputeCacheRef = useRef<PreviewModePrecomputeCache | null>(null);
   const previewCanvasCacheKeyRef = useRef<PreviewCanvasCacheKey | null>(null);
+  // Mirrors previewExpandedBeatWindow so the expansion scheduler reads its latest value without
+  // re-running on every intermediate window commit (the effect only depends on the initial window).
+  const previewExpandedBeatWindowRef = useRef<{ min: number; max: number } | null>(null);
   const previewChartStatisticsIndexRef = useRef<ChartStatisticsIndex | null>(null);
   const previewPlaybackSpeedDistanceIndexRef = useRef<SpeedDistancePoint[]>([]);
   const previewCameraTiltSegmentsRef = useRef<PreviewCameraTiltSegment[]>([]);
@@ -1333,26 +1345,18 @@ export default function Editor({
   }, [timedBpmChanges]);
 
   const getTimeposFromTime = useCallback((time: number) => {
-    const totalBeats = getBeatAtTime(time, timedBpmChanges);
-    let currentMeasureBeat = 0;
-    let measureCount = 0;
-    let currentBeatsPerMeasure = 4;
+    return getTimeposIndexRef.current.getTimeposFromTime(time);
+  }, []);
 
-    while (measureCount < 10000) {
-      const timeAtMeasure = getTimeAtBeat(currentMeasureBeat, timedBpmChanges);
-      const activeChange = getActiveChange(timeAtMeasure + 0.001, timedBpmChanges);
-      currentBeatsPerMeasure = parseInt(activeChange.timeSignature.split('/')[0], 10) || 4;
+  // Cached measure-boundary index for O(log n) timepos lookups; rebuilt whenever the BPM map changes.
+  const getTimeposIndexRef = useRef<ReturnType<typeof createTimeposIndex> | null>(null);
 
-      if (totalBeats < currentMeasureBeat + currentBeatsPerMeasure) {
-        break;
-      }
+  if (getTimeposIndexRef.current === null) {
+    getTimeposIndexRef.current = createTimeposIndex(timedBpmChanges);
+  }
 
-      currentMeasureBeat += currentBeatsPerMeasure;
-      measureCount++;
-    }
-
-    const beatInMeasure = totalBeats - currentMeasureBeat;
-    return measureCount + beatInMeasure / currentBeatsPerMeasure;
+  useEffect(() => {
+    getTimeposIndexRef.current = createTimeposIndex(timedBpmChanges);
   }, [timedBpmChanges]);
 
   const getTimeFromTimepos = useCallback((timepos: number) => {
@@ -1616,6 +1620,12 @@ export default function Editor({
       timedBpmChanges,
     ),
   }), [previewVisibleWindowTime, timedBpmChanges]);
+  // Declared before the progressive-expansion effect below, which slices preview data out of it
+  // while the full canvas is lazily loading (and depends on its identity in the dependency list).
+  const noteRenderIndex = useMemo(
+    () => buildNoteRenderIndex(notes, timedBpmChanges),
+    [notes, timedBpmChanges],
+  );
 
   useEffect(() => {
     if (!isPreviewCanvasLoadingVisibleOnly) {
@@ -1626,8 +1636,58 @@ export default function Editor({
     let timeoutId: number | undefined;
     let isCancelled = false;
 
-    const promoteToFullPreviewLoad = () => {
+    const expandLoadedBeatWindow = () => {
       if (isCancelled) {
+        return;
+      }
+
+      const noteBeatEntries = noteRenderIndex.noteBeatEntries;
+      const currentWindow = previewExpandedBeatWindowRef.current
+        ?? {
+          min: previewInitialBeatWindow.min,
+          max: previewInitialBeatWindow.max,
+        };
+
+      // Grow the window by a bounded chunk of notes in each direction, so each commit stays
+      // short enough to never block a frame. Falls back to a minimum time span so sparse
+      // stretches of the chart still make forward progress.
+      const nextMinIndex = Math.max(
+        0,
+        getNoteBeatEntryCountBeforeBeat(noteBeatEntries, currentWindow.min) - PREVIEW_EXPANSION_NOTES_PER_CHUNK,
+      );
+      const nextMaxIndex = Math.min(
+        noteBeatEntries.length - 1,
+        findFirstNoteBeatEntryIndexAfter(noteBeatEntries, currentWindow.max) + PREVIEW_EXPANSION_NOTES_PER_CHUNK - 1,
+      );
+      const nextMin = noteBeatEntries.length > 0
+        ? Math.min(currentWindow.min, noteBeatEntries[nextMinIndex].beat - SNAP_EPSILON)
+        : currentWindow.min - PREVIEW_EXPANSION_MIN_SECONDS_PER_CHUNK / 4;
+      const nextMax = noteBeatEntries.length > 0
+        ? Math.max(currentWindow.max, noteBeatEntries[nextMaxIndex].beat + SNAP_EPSILON)
+        : currentWindow.max + PREVIEW_EXPANSION_MIN_SECONDS_PER_CHUNK / 4;
+      const expandedWindow = {
+        min: Math.min(nextMin, currentWindow.min - PREVIEW_EXPANSION_MIN_SECONDS_PER_CHUNK / 4),
+        max: Math.max(nextMax, currentWindow.max + PREVIEW_EXPANSION_MIN_SECONDS_PER_CHUNK / 4),
+      };
+
+      previewExpandedBeatWindowRef.current = expandedWindow;
+      setPreviewExpandedBeatWindow(expandedWindow);
+
+      const reachedStart = expandedWindow.min <= 0 || nextMinIndex === 0;
+      const reachedEnd = (
+        noteBeatEntries.length === 0
+        || nextMaxIndex >= noteBeatEntries.length - 1
+      );
+
+      // Keep expanding on subsequent idle ticks until the whole chart is loaded; only then
+      // promote to 'full', which enables the same precomputed indexes as before.
+      if (!reachedStart || !reachedEnd) {
+        if ('requestIdleCallback' in window) {
+          idleCallbackId = window.requestIdleCallback(expandLoadedBeatWindow, { timeout: 500 });
+          return;
+        }
+
+        timeoutId = (window as Window).setTimeout(expandLoadedBeatWindow, 0);
         return;
       }
 
@@ -1644,14 +1704,16 @@ export default function Editor({
       setPreviewCanvasLoadPhase('full');
     };
 
-    const animationFrameId = window.requestAnimationFrame(() => {
+    const startExpansion = () => {
       if ('requestIdleCallback' in window) {
-        idleCallbackId = window.requestIdleCallback(promoteToFullPreviewLoad, { timeout: 1000 });
+        idleCallbackId = window.requestIdleCallback(expandLoadedBeatWindow, { timeout: 1000 });
         return;
       }
 
-      timeoutId = window.setTimeout(promoteToFullPreviewLoad, 0);
-    });
+      timeoutId = (window as Window).setTimeout(expandLoadedBeatWindow, 0);
+    };
+
+    const animationFrameId = window.requestAnimationFrame(startExpansion);
 
     return () => {
       isCancelled = true;
@@ -1668,7 +1730,9 @@ export default function Editor({
     isPreviewCanvasLoadingVisibleOnly,
     isPreviewNoteAppearModeEnabled,
     isPreviewNoteSpeedChangesEnabled,
+    noteRenderIndex.noteBeatEntries,
     notes,
+    previewInitialBeatWindow,
     previewSpeedChanges,
     speedChanges,
     usesOfficialPreviewRules,
@@ -1697,6 +1761,8 @@ export default function Editor({
         setPreviewCanvasLoadPhase(canReuseFullPreviewCanvas ? 'full' : 'visible');
 
         if (!canReuseFullPreviewCanvas) {
+          previewExpandedBeatWindowRef.current = null;
+          setPreviewExpandedBeatWindow(null);
           previewComboTimesRef.current = [];
           previewChartStatisticsIndexRef.current = null;
           previewPlaybackSpeedDistanceIndexRef.current = [];
@@ -1720,6 +1786,8 @@ export default function Editor({
         pasteTargetRef.current = null;
       } else {
         if (!canReuseFullPreviewCanvas) {
+          previewExpandedBeatWindowRef.current = null;
+          setPreviewExpandedBeatWindow(null);
           setPreviewVisibleWindowTime(0);
           setPreviewCanvasLoadPhase('idle');
         }
@@ -1868,10 +1936,6 @@ export default function Editor({
     clearActiveNoteInteraction();
   }, [clearActiveNoteInteraction, recordOperation, selectedNoteIds, setNotes]);
 
-  const noteRenderIndex = useMemo(
-    () => buildNoteRenderIndex(notes, timedBpmChanges),
-    [notes, timedBpmChanges],
-  );
   const hasPinkHoldCameraToolNotes = useMemo(
     () => notes.some(note => note.type === PINK_HOLD_CENTER_TYPE || note.type === PINK_HOLD_END_TYPE),
     [notes],
@@ -1944,6 +2008,16 @@ export default function Editor({
       return [];
     }
 
+    // Progressive lazy loading: while the full canvas is still expanding, only notes inside the
+    // loaded beat window (initial visible window grown chunk-by-chunk) are materialized.
+    if (isPreviewCanvasLoadingVisibleOnly && previewExpandedBeatWindow !== null) {
+      return getNoteBeatEntriesInRange(
+        noteRenderIndex.noteBeatEntries,
+        previewExpandedBeatWindow.min,
+        previewExpandedBeatWindow.max,
+      );
+    }
+
     if (!isPreviewCanvasLoadingVisibleOnly) {
       return noteRenderIndex.noteBeatEntries;
     }
@@ -1957,11 +2031,21 @@ export default function Editor({
     isPreviewCanvasLoadingVisibleOnly,
     shouldBuildPreviewCanvasData,
     noteRenderIndex.noteBeatEntries,
+    previewExpandedBeatWindow,
     previewInitialBeatWindow,
   ]);
   const previewHoldConnectorSegmentsSource = useMemo(() => {
     if (!shouldBuildPreviewCanvasData) {
       return [];
+    }
+
+    if (isPreviewCanvasLoadingVisibleOnly && previewExpandedBeatWindow !== null) {
+      return getHoldConnectorSegmentsInRange(
+        noteRenderIndex.holdConnectorSegmentsByMinBeat,
+        noteRenderIndex.holdConnectorSegmentsByMaxBeat,
+        previewExpandedBeatWindow.min,
+        previewExpandedBeatWindow.max,
+      );
     }
 
     if (!isPreviewCanvasLoadingVisibleOnly) {
@@ -1979,6 +2063,7 @@ export default function Editor({
     shouldBuildPreviewCanvasData,
     noteRenderIndex.holdConnectorSegmentsByMaxBeat,
     noteRenderIndex.holdConnectorSegmentsByMinBeat,
+    previewExpandedBeatWindow,
     previewInitialBeatWindow,
   ]);
   const previewCanvasNotesSource = useMemo(
@@ -9075,6 +9160,7 @@ export default function Editor({
         isExportMenuOpen={isExportMenuOpen}
         isPreviewMenuOpen={isPreviewMenuOpen}
         isExportDisabled={isExportDisabled}
+        noteCount={notes.length}
         hasExportAudioFile={hasExportAudioFile}
         hasExportIncompatibleTimeSignature={hasExportIncompatibleTimeSignature}
         hasUnsupportedFormattedExportNoteTypes={hasUnsupportedFormattedExportNoteTypes}

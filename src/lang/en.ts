@@ -220,6 +220,8 @@ export const en = {
     chartDataFormatDescription: 'Exports the modified chart TXT file directly.',
     chooseExportFormat: 'Choose a format, then export.',
     preparingExport: 'Preparing export...',
+    exportingLargeChart: 'Exporting {count} notes — this can take a while. The app may briefly stop responding; please keep this tab open.',
+    largeChartExportNotice: 'This chart has {count} notes. Exporting may take a while and the app may briefly stop responding while it works. Please keep this tab open until the export finishes.',
     exportComplete: 'Export complete.',
     exportCancelled: 'Export cancelled.',
     exportFailed: 'Export failed. Check the console for details.',
