@@ -1,5 +1,8 @@
 # DR3Editor
 
+> [!IMPORTANT]
+> If the audio desyncs with everything else and you're on a Chromium-based browser (Chrome, Brave, Edge, etc.), using a non-chromium browser (Firefox, etc.) fixes the issue. Apologies for this unexpected bug.
+
 DR3Editor is a browser-based chart editor and creator for the rhythm game DanceRail3. It fully supports the official format, meaning everything you create is compatible with the official game. It is meant to be a replacement/alternative to the official chart editor, DRMaker.
 
 The majority of controls and keybinds are identical to DRMaker. Click the ? button for a full list.
